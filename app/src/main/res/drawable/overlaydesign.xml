@@ -1,0 +1,19 @@
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+
+
+
+    <!-- White foreground. -->
+    <item android:bottom="0dp" android:right="0dp">
+        <shape>
+            <solid android:color="@android:color/darker_gray" />
+            <corners android:radius="5dp" />
+        </shape>w
+    </item>
+    <item android:left="5dp" android:top="5dp" android:bottom="5dp"
+        android:right="5dp" >
+        <shape>
+            <solid android:color="@android:color/white" />
+            <corners android:radius="5dp" />
+        </shape>
+    </item>
+</layer-list>

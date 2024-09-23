@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:padding="8dp">
+
+    <!-- Label for the AR Type -->
+    <TextView
+        android:id="@+id/textViewArTypeLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="AR Type"
+        android:layout_marginEnd="8dp"
+        android:textSize="16sp"
+        android:layout_gravity="start|center_vertical"/>
+
+    <!-- Input field for AR Type amount -->
+    <EditText
+        android:id="@+id/editTextArTypeAmount"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:inputType="numberDecimal"
+        android:hint="Enter Amount"
+        android:textSize="16sp"
+        android:layout_gravity="end|center_vertical"/>
+</LinearLayout>

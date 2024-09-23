@@ -31,14 +31,13 @@ class ProductAdapter(private val onItemClick: (Product) -> Unit) : ListAdapter<P
     class ProductViewHolder(itemView: View, private val onItemClick: (Product) -> Unit) : RecyclerView.ViewHolder(itemView) {
         private val productNameView: TextView = itemView.findViewById(R.id.textViewProductName)
         private val productPriceView: TextView = itemView.findViewById(R.id.textViewProductPrice)
-        private val productImageView: ImageView = itemView.findViewById(R.id.imageViewProductImage)
 
         fun bind(product: Product) {
-            productNameView.text = product.name
+            productNameView.text = product.itemName
             productPriceView.text = "P${product.price}"
             Glide.with(itemView.context)
-                .load(product.imageUrl)
-                .into(productImageView)
+             //   .load(product.imageUrl)
+              //  .into(productImageView)
             itemView.setOnClickListener { onItemClick(product) }
         }
     }
@@ -46,7 +45,7 @@ class ProductAdapter(private val onItemClick: (Product) -> Unit) : ListAdapter<P
 
 class ProductDiffCallback : DiffUtil.ItemCallback<Product>() {
     override fun areItemsTheSame(oldItem: Product, newItem: Product): Boolean {
-        return oldItem.id == newItem.id
+        return oldItem.itemid== newItem.itemid
     }
 
     override fun areContentsTheSame(oldItem: Product, newItem: Product): Boolean {

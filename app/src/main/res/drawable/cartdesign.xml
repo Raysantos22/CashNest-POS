@@ -1,18 +1,25 @@
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
 
-
-
-    <!-- White foreground. -->
+    <!-- White foreground with rounded corners. -->
     <item android:bottom="0dp" android:right="10dp">
         <shape>
             <solid android:color="@android:color/darker_gray" />
             <corners android:radius="5dp" />
-        </shape>white
+        </shape>
     </item>
-    <item android:left="5dp" android:top="0dp">
+
+    <!-- White background with rounded corners. -->
+    <item android:left="2dp" android:top="0dp">
         <shape>
             <solid android:color="@android:color/white" />
             <corners android:radius="5dp" />
         </shape>
+    </item>
+
+    <!-- Add Image Layer (e.g., an icon on top of the shapes) -->
+    <item>
+        <bitmap
+            android:src="@drawable/ec2"
+        android:gravity="center" />
     </item>
 </layer-list>

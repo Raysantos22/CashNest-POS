@@ -2,5 +2,17 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
-    <color name="blue">#0000FF</color>
+    <color name="blue">#2196F3</color>
+    <color name="navy">#000080</color>
+    <color name="gray_100">#F3F4F6</color>
+    <color name="gray_300">#D1D5DB</color>
+    <color name="blue_500">#3B82F6</color>
+    <color name="selected_discount">#4CAF50</color>
+    <color name="color1">#028ABE</color>
+    <color name="color2">#DEE8F1</color>
+    <color name="accent_color">#1976D2</color>
+    <color name="dark_gray">#555555</color>
+    <color name="ripple_color">#40000000</color>
+
+
 </resources>

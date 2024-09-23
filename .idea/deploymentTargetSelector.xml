@@ -4,10 +4,21 @@
     <selectionStates>
       <SelectionState runConfigName="app">
         <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2024-09-20T01:41:40.666142400Z">
+        <DropdownSelection timestamp="2024-10-20T07:32:09.378790700Z">
           <Target type="DEFAULT_BOOT">
             <handle>
-              <DeviceId pluginId="LocalEmulator" identifier="path=C:\Users\PROGRAMMER\.android\avd\testing_database.avd" />
+              <DeviceId pluginId="PhysicalDevice" identifier="serial=4LSBB23426204181" />
+            </handle>
+          </Target>
+        </DropdownSelection>
+        <DialogSelection />
+      </SelectionState>
+      <SelectionState runConfigName="LoginActivity">
+        <option name="selectionMode" value="DROPDOWN" />
+        <DropdownSelection timestamp="2024-10-13T13:54:47.701100100Z">
+          <Target type="DEFAULT_BOOT">
+            <handle>
+              <DeviceId pluginId="LocalEmulator" identifier="path=C:\Users\PROGRAMMER\.android\avd\matepad_API_28.avd" />
             </handle>
           </Target>
         </DropdownSelection>

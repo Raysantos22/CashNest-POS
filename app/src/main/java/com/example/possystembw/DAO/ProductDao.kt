@@ -13,6 +13,9 @@ interface ProductDao {
         @Query("SELECT COUNT(*) FROM products")
         suspend fun getProductCount(): Int
 
+        @Query("SELECT * FROM products WHERE itemgroup = :categoryName")
+        fun getProductsByCategory(categoryName: String): Flow<List<Product>>
+
         @Insert(onConflict = OnConflictStrategy.IGNORE)
         suspend fun insertProduct(product: Product)
 
@@ -22,16 +25,27 @@ interface ProductDao {
         @Query("DELETE FROM products")
         suspend fun deleteAll()
 
-        @Query("SELECT * FROM products WHERE id = :id")
+        @Query("SELECT * FROM products WHERE itemid = :id")
         suspend fun getProductById(id: Int): Product?
 
-        @Query("SELECT * FROM products WHERE name LIKE :name")
+        @Query("SELECT * FROM products WHERE itemname LIKE :name")
         fun getProductsByName(name: String): Flow<List<Product>>
+
 
         @Insert(onConflict = OnConflictStrategy.REPLACE)
         suspend fun insertAll(products: List<Product>)
 
+        @Insert(onConflict = OnConflictStrategy.REPLACE)
+        suspend fun insert(product: Product)
 
+        @Update
+        suspend fun update(product: Product)
+
+        @Query("DELETE FROM products")
+        suspend fun deleteAllProducts()
+
+        @Query("SELECT * FROM products WHERE itemid = :itemId LIMIT 1")
+        suspend fun getProductByItemId(itemId: String): Product?
 }
 
 

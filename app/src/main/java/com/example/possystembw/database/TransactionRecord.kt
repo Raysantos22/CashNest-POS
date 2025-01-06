@@ -66,5 +66,8 @@ data class TransactionRecord(
     @ColumnInfo(name = "isReturned") val isReturned: Boolean = false,
     @ColumnInfo(name = "discountType") val discountType: String = "", // Or nullable String?
     @ColumnInfo(name = "overriddenPrice") val overriddenPrice: Double? = null,
-    @ColumnInfo(name = "originalPrice") val originalPrice: Double? = null
+    @ColumnInfo(name = "originalPrice") val originalPrice: Double? = null,
+    @ColumnInfo(name = "store_key") var storeKey: String, // Added for unique store identification
+    @ColumnInfo(name = "store_sequence") var storeSequence: String, // Added for store-specific sequencing
+    @ColumnInfo(name = "syncstatusrecord") var syncStatusRecord: Boolean = false
 )

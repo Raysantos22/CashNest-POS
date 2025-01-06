@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.possystembw.DAO.WindowApiService
 import com.example.possystembw.DAO.WindowDao
 import com.example.possystembw.RetrofitClient
+import com.example.possystembw.database.Product
 import com.example.possystembw.database.Window
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -59,21 +60,53 @@ class WindowRepository(
     suspend fun insert(window: Window) {
         withContext(Dispatchers.IO) {
             windowDao.insert(window)
-            // TODO: Implement API call to insert window on the server
         }
     }
 
     suspend fun update(window: Window) {
         withContext(Dispatchers.IO) {
             windowDao.update(window)
-            // TODO: Implement API call to update window on the server
         }
     }
 
     suspend fun delete(window: Window) {
         withContext(Dispatchers.IO) {
             windowDao.delete(window)
-            // TODO: Implement API call to delete window on the server
         }
     }
+    suspend fun getSortedWindowsForProduct(product: Product): List<Window> {
+        val windows = windowDao.getAllWindowsOneShot()
+        return windows.filter { window ->
+            when {
+                // Check if window is GrabFood and product has GrabFood price
+                window.description.contains("GRABFOOD", ignoreCase = true) ->
+                    product.grabfood > 0
+
+                // Check if window is FoodPanda and product has FoodPanda price
+                window.description.contains("FOODPANDA", ignoreCase = true) ->
+                    product.foodpanda > 0
+
+                // Check if window is ManilaRate and product has Manila price
+                window.description.contains("MANILARATE", ignoreCase = true) ->
+                    product.manilaprice > 0
+
+                // If window is Purchase and product only has regular price
+                window.description.contains("PURCHASE", ignoreCase = true) ->
+                    product.price > 0 && product.grabfood == 0.0 &&
+                            product.foodpanda == 0.0 && product.manilaprice == 0.0
+
+                else -> false
+            }
+        }
+    }
+
+    suspend fun getProductPriceForWindow(product: Product, window: Window): Double {
+        return when {
+            window.description.contains("GRABFOOD", ignoreCase = true) -> product.grabfood
+            window.description.contains("FOODPANDA", ignoreCase = true) -> product.foodpanda
+            window.description.contains("MANILARATE", ignoreCase = true) -> product.manilaprice
+            else -> product.price
+        }
+    }
+
 }

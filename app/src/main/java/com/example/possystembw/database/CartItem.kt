@@ -45,6 +45,7 @@ data class CartItem(
     @ColumnInfo(name = "bundle_selections") val bundleSelections: String? = null,
     @ColumnInfo(name = "bundleName")val mixMatchId: String = "",
     @ColumnInfo(name = "itemGroup")val itemGroup: String,  // Added field
-    @ColumnInfo(name = "itemId")val itemId: String
+    @ColumnInfo(name = "itemId")val itemId: String,
+    @ColumnInfo(name = "lineNum")val lineNum: Int? = null  // Added lineNum field
 
 )

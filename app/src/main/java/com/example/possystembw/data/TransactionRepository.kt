@@ -6,6 +6,7 @@ import android.net.NetworkCapabilities
 import android.os.Build
 import android.util.Log
 import androidx.constraintlayout.helper.widget.MotionEffect.TAG
+
 import com.example.possystembw.DAO.TransactionApi
 import com.example.possystembw.DAO.TransactionDao
 import com.example.possystembw.DAO.TransactionRecordRequest
@@ -15,18 +16,28 @@ import com.example.possystembw.DAO.TransactionSyncResponse
 import com.example.possystembw.RetrofitClient
 import com.example.possystembw.database.TransactionRecord
 import com.example.possystembw.database.TransactionSummary
+import com.example.possystembw.ui.SessionManager
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import kotlin.math.abs
 
-class TransactionRepository(val transactionDao: TransactionDao) {
-    private val api: TransactionApi = RetrofitClient.transactionApi
+class TransactionRepository(
+    val transactionDao: TransactionDao,
+//    private val numberSequenceRepository: NumberSequenceRepository,
+    private val numberSequenceRemoteRepository: NumberSequenceRemoteRepository
+
+) {
+    val api: TransactionApi = RetrofitClient.transactionApi
     private val TAG = "TransactionRepository"
 
 
@@ -58,125 +69,344 @@ class TransactionRepository(val transactionDao: TransactionDao) {
     suspend fun insertTransactionRecords(records: List<TransactionRecord>) {
         transactionDao.insertAll(records)
     }
+    suspend fun insertTransactionSummary(transaction: TransactionSummary) {
+        transactionDao.insertTransactionSummary(transaction)
+    }
+
+    suspend fun updateRefundReceiptId(transactionId: String, refundReceiptId: String) {
+        transactionDao.updateRefundReceiptId(transactionId, refundReceiptId)
+    }
+
+    suspend fun generateTransactionId(storeId: String): String {
+        return numberSequenceRemoteRepository.getNextTransactionNumber(storeId)
+    }
 
 
-    // Update the repository's syncTransaction method
 
-    // Update the repository's syncTransaction method
+    // Add to TransactionViewModel for periodic sync
+    fun startPeriodicSync(scope: CoroutineScope) {
+        scope.launch {
+            while (true) {
+                try {
+                    syncUnsentTransactions()
+                    // Wait for 5 minutes before next sync attempt
+                    delay(5 * 60 * 1000)
+                } catch (e: Exception) {
+                    Log.e("PeriodicSync", "Error in periodic sync", e)
+                    delay(60 * 1000) // Wait 1 minute before retrying on error
+                }
+            }
+        }
+    }
+
+
+
+    fun generateStoreKey(storeId: String, transactionId: String): String {
+        return "${storeId}_${transactionId}_${System.currentTimeMillis()}"
+    }
+
+//    private fun createTransactionSummaryRequest(summary: TransactionSummary): TransactionSummaryRequest {
+//        return TransactionSummaryRequest(
+//            transactionid = summary.transactionId,
+//            type = summary.type,
+//            receiptid = summary.receiptId,
+//            store = summary.store,
+//            storeKey = summary.storeKey,
+//            storeSequence = summary.storeSequence,
+//            staff = summary.staff.ifBlank { "Unknown Staff" },
+//            custaccount = summary.customerAccount.ifBlank { "WALK-IN" },
+//            netamount = formatDecimal(summary.netAmount),
+//            costamount = formatDecimal(summary.costAmount),
+//            grossamount = formatDecimal(summary.grossAmount),
+//            partialpayment = formatDecimal(summary.partialPayment),
+//            transactionstatus = summary.transactionStatus,
+//            discamount = formatDecimal(summary.discountAmount),
+//            cashamount = formatDecimal(summary.totalAmountPaid),
+//            custdiscamount = formatDecimal(summary.customerDiscountAmount),
+//            totaldiscamount = formatDecimal(summary.totalDiscountAmount),
+//            numberofitems = formatQuantity(summary.numberOfItems.toInt()),
+//            currency = summary.currency.ifBlank { "PHP" },
+//            createddate = formatDate(summary.createdDate),
+//            priceoverride = summary.priceOverride?.toInt(),
+//            comment = summary.comment,
+//            taxinclinprice = formatDecimal(summary.taxIncludedInPrice),
+//            netamountnotincltax = formatDecimal(summary.vatableSales),
+//            window_number = summary.windowNumber,
+//            cash = formatDecimal(summary.cash),
+//            gcash = formatDecimal(summary.gCash),
+//            paymaya = formatDecimal(summary.payMaya),
+//            card = formatDecimal(summary.card),
+//            loyaltycard = formatDecimal(summary.loyaltyCard),
+//            charge = formatDecimal(summary.charge),
+//            foodpanda = formatDecimal(summary.foodpanda),
+//            grabfood = formatDecimal(summary.grabfood),
+//            representation = formatDecimal(summary.representation)
+//        )
+//    }
+//
+//    private fun createTransactionRecordRequests(
+//        records: List<TransactionRecord>,
+//        summary: TransactionSummary
+//    ): List<TransactionRecordRequest> {
+//        return records.map { record ->
+//            Log.d("TransactionSync", "Discount Offer ID: ${record.discountOfferId}")
+//            Log.d("TransactionSync", "Full Record Details: " +
+//                    "TransactionId: ${record.transactionId}, " +
+//                    "Is MixMatchId null: ${record.discountOfferId == null}")
+//
+//            TransactionRecordRequest(
+//                transactionid = record.transactionId,
+//                linenum = record.lineNum.toString(),
+//                receiptid = record.receiptId ?: "",
+//                storeKey = record.storeKey,
+//                storeSequence = record.storeSequence,
+//                itemid = record.itemId ?: "",
+//                itemname = record.name ?: "",
+//                itemgroup = record.itemGroup ?: "",
+//                price = formatDecimal(record.price),
+//                netprice = formatDecimal(record.netPrice),
+//                qty = formatQuantity(record.quantity.toInt()),
+//                discamount = formatDecimal(record.discountAmount),
+//                costamount = formatDecimal(record.costAmount),
+//                netamount = formatDecimal(record.netAmount),
+//                grossamount = formatDecimal(record.grossAmount),
+//                custaccount = summary.customerAccount,
+//                store = summary.store,
+//                priceoverride = record.priceOverride?.toInt() ?: 0,
+//                paymentmethod = summary.paymentMethod,
+//                staff = record.staff ?: "Unknown Staff",
+//                linedscamount = formatDecimal(record.lineDiscountAmount ?: 0.0),
+//                linediscpct = formatDecimal(record.lineDiscountPercentage ?: 0.0),
+//                custdiscamount = formatDecimal(record.customerDiscountAmount ?: 0.0),
+//                unit = record.unit ?: "PCS",
+//                unitqty = formatDecimal(record.unitQuantity ?: record.quantity.toDouble()),
+//                unitprice = formatDecimal(record.unitPrice ?: record.price),
+//                taxamount = formatDecimal(record.taxAmount),
+//                createddate = formatDate(record.createdDate ?: Date()),
+//                remarks = record.remarks ?: "",
+//                taxinclinprice = formatDecimal(record.taxAmount),
+//                description = record.description ?: "",
+//                discofferid = record.discountOfferId?.takeIf { it.isNotBlank() } ?:  "",
+//                inventbatchid = null,
+//                inventbatchexpdate = null,
+//                giftcard = null,
+//                returntransactionid = null,
+//                returnqty = null,
+//                creditmemonumber = null,
+//                returnlineid = null,
+//                priceunit = null,
+//                netamountnotincltax = formatDecimal(record.netAmountNotIncludingTax),
+//                storetaxgroup = null,
+//                currency = "PHP",
+//                taxexempt = null
+//
+//            )
+//        }
+//    }
+fun createTransactionRecordRequest(record: TransactionRecord, summary: TransactionSummary): TransactionRecordRequest {
+    return TransactionRecordRequest(
+        transactionid = record.transactionId,
+        linenum = record.lineNum?.toString() ?: "0",
+        receiptid = record.receiptId ?: "",
+        storeKey = record.storeKey,
+        storeSequence = record.storeSequence,
+        itemid = record.itemId ?: "",
+        itemname = record.name,
+        itemgroup = record.itemGroup ?: "",
+        price = formatDecimal(record.price),
+        netprice = formatDecimal(record.netPrice),
+        qty = record.quantity.toString(),
+        discamount = formatDecimal(record.discountAmount),
+        costamount = formatDecimal(record.costAmount),
+        netamount = formatDecimal(record.netAmount),
+        grossamount = formatDecimal(record.grossAmount),
+        custaccount = summary.customerAccount,
+        store = summary.store,
+        priceoverride = record.priceOverride?.toInt() ?: 0,
+        paymentmethod = summary.paymentMethod,
+        staff = record.staff ?: "Unknown Staff",
+        linedscamount = formatDecimal(record.lineDiscountAmount ?: 0.0),
+        linediscpct = formatDecimal(record.lineDiscountPercentage ?: 0.0),
+        custdiscamount = formatDecimal(record.customerDiscountAmount ?: 0.0),
+        unit = record.unit ?: "PCS",
+        unitqty = formatDecimal(record.unitQuantity ?: record.quantity.toDouble()),
+        unitprice = formatDecimal(record.unitPrice ?: record.price),
+        taxamount = formatDecimal(record.taxAmount),
+        createddate = formatDate(record.createdDate ?: Date()).toString(),
+        remarks = record.remarks ?: "",
+        taxinclinprice = formatDecimal(record.taxIncludedInPrice),
+        description = record.description ?: "",
+        discofferid = record.discountOfferId?.takeIf { it.isNotBlank() } ?: "",
+        inventbatchid = null,
+        inventbatchexpdate = null,
+        giftcard = null,
+        returntransactionid = null,
+        returnqty = null,
+        creditmemonumber = null,
+        returnlineid = null,
+        priceunit = null,
+        netamountnotincltax = formatDecimal(record.netAmountNotIncludingTax),
+        storetaxgroup = null,
+        currency = "PHP",
+        taxexempt = null
+    )
+}
+
+    fun createTransactionSummaryRequest(summary: TransactionSummary): TransactionSummaryRequest {
+        return TransactionSummaryRequest(
+            transactionid = summary.transactionId,
+            type = summary.type,
+            receiptid = summary.receiptId,
+            storeKey = summary.storeKey,
+            storeSequence = summary.storeSequence,
+            store = summary.store,
+            staff = summary.staff,
+            custaccount = summary.customerAccount,
+            netamount = formatDecimal(summary.netAmount),
+            costamount = formatDecimal(summary.costAmount),
+            grossamount = formatDecimal(summary.grossAmount),
+            partialpayment = formatDecimal(summary.partialPayment),
+            transactionstatus = summary.transactionStatus,
+            discamount = formatDecimal(summary.discountAmount),
+            cashamount = formatDecimal(summary.totalAmountPaid),
+            custdiscamount = formatDecimal(summary.customerDiscountAmount),
+            totaldiscamount = formatDecimal(summary.totalDiscountAmount),
+            numberofitems = summary.numberOfItems.toString(),
+            currency = summary.currency,
+            createddate = formatDate(summary.createdDate).toString(),
+            priceoverride = summary.priceOverride.toInt(),
+            comment = summary.comment,
+            taxinclinprice = formatDecimal(summary.taxIncludedInPrice),
+            netamountnotincltax = formatDecimal(summary.vatableSales),
+            window_number = summary.windowNumber,
+            cash = formatDecimal(summary.cash),
+            gcash = formatDecimal(summary.gCash),
+            paymaya = formatDecimal(summary.payMaya),
+            card = formatDecimal(summary.card),
+            loyaltycard = formatDecimal(summary.loyaltyCard),
+            charge = formatDecimal(summary.charge),
+            foodpanda = formatDecimal(summary.foodpanda),
+            grabfood = formatDecimal(summary.grabfood),
+            representation = formatDecimal(summary.representation)
+        )
+    }
+
+    suspend fun syncUnsentTransactions() {
+        try {
+            // Only get transactions where syncStatus is 0
+            val unsyncedSummaries = transactionDao.getUnsyncedTransactionSummaries()
+            Log.d(TAG, "Found ${unsyncedSummaries.size} unsynced transactions")
+
+            for (summary in unsyncedSummaries) {
+                try {
+                    // Check if the summary is already synced (double-check)
+                    val currentSummary = transactionDao.getTransactionSummary(summary.transactionId)
+                    if (currentSummary?.syncStatus == true) {
+                        Log.d(TAG, "Skipping already synced transaction ${summary.transactionId}")
+                        continue
+                    }
+
+                    // Only get unsynced records for this transaction
+                    val unsyncedRecords = transactionDao.getUnsyncedTransactionRecords(summary.transactionId)
+                    if (unsyncedRecords.isEmpty()) {
+                        Log.d(TAG, "No unsynced records found for transaction ${summary.transactionId}")
+                        continue
+                    }
+
+                    Log.d(TAG, "Attempting to sync transaction ${summary.transactionId} with ${unsyncedRecords.size} records")
+
+                    val request = TransactionSyncRequest(
+                        transactionSummary = createTransactionSummaryRequest(summary),
+                        transactionRecords = unsyncedRecords.map { record ->
+                            createTransactionRecordRequest(record, summary)
+                        }
+                    )
+
+                    val result = api.syncTransaction(request)
+
+                    if (result.isSuccessful && result.body() != null) {
+                        // Mark both summary and records as synced
+                        transactionDao.markTransactionSummaryAsSynced(summary.transactionId)
+                        transactionDao.markTransactionRecordsAsSynced(summary.transactionId)
+                        Log.d(TAG, "Successfully synced transaction ${summary.transactionId}")
+                    } else {
+                        Log.e(TAG, "Failed to sync transaction ${summary.transactionId}: ${result.message()}")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error syncing transaction ${summary.transactionId}", e)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in sync process", e)
+        }
+    }
+
     suspend fun syncTransaction(
         summary: TransactionSummary,
         records: List<TransactionRecord>
     ): Result<TransactionSyncResponse> {
         return withContext(Dispatchers.IO) {
             try {
-                Log.d(TAG, "Starting sync process for transaction: ${summary.transactionId}")
-                Log.d(TAG, "Number of records to sync: ${records.size}")
-
-                // Convert TransactionSummary to TransactionSummaryRequest
-                val summaryRequest = TransactionSummaryRequest(
-                    transactionid = summary.transactionId,
-                    type = summary.type,
-                    receiptid = summary.receiptId,
-                    store = summary.store,
-                    staff = summary.staff.ifBlank { "Unknown Staff" },
-                    custaccount = summary.customerAccount.ifBlank { "000000" },
-                    netamount = formatDecimal(summary.netAmount),
-                    costamount = formatDecimal(summary.costAmount),
-                    grossamount = formatDecimal(summary.grossAmount),
-                    partialpayment = formatDecimal(summary.partialPayment),
-                    transactionstatus = summary.transactionStatus,
-                    discamount = formatDecimal(summary.discountAmount),
-                    cashamount = formatDecimal(summary.totalAmountPaid),
-                    custdiscamount = formatDecimal(summary.customerDiscountAmount),
-                    totaldiscamount = formatDecimal(summary.totalDiscountAmount),
-                    numberofitems = formatQuantity(summary.numberOfItems.toInt()),
-                    currency = summary.currency.ifBlank { "PHP" },
-                    createddate = formatDate(summary.createdDate),
-                    priceoverride = summary.priceOverride.toInt(),
-                    comment = summary.comment,
-                    taxinclinprice = formatDecimal(summary.taxIncludedInPrice),
-                    window_number = summary.windowNumber,
-                    gcash = formatDecimal(summary.gCash),
-                    paymaya = formatDecimal(summary.payMaya),
-                    cash = formatDecimal(summary.cash),
-                    card = formatDecimal(summary.card),
-                    loyaltycard = formatDecimal(summary.loyaltyCard),
-                    charge = "0.00",
-                    foodpanda = "0.00",
-                    grabfood = "0.00"
-                )
-
-                // Convert TransactionRecords to TransactionRecordRequest
-                val recordsRequest = records.mapIndexed { index, record ->
-                    TransactionRecordRequest(
-                        transactionid = summary.transactionId,
-                        receiptid = summary.receiptId,
-                        store = summary.store,
-                        linenum = index + 1,
-                        itemid = record.itemId ?: "",
-                        itemname = record.name ?:  "", // Add fallback logic
-                        itemgroup = record.itemGroup ?: "",
-                        price = formatDecimal(record.price),
-                        netprice = formatDecimal(record.netPrice ?: record.price),
-                        qty = formatQuantity(record.quantity),
-                        discamount = formatDecimal(record.discountAmount),
-                        costamount = formatDecimal(record.costAmount ?: 0.0),
-                        netamount = formatDecimal(record.netAmount ?: record.total),
-                        grossamount = formatDecimal(record.grossAmount ?: record.subtotal),
-                        custaccount = record.customerAccount ?: "WALK-IN",
-                        priceoverride = record.priceOverride?.toInt() ?: 0,
-                        paymentmethod = record.paymentMethod.ifBlank { "Cash" },
-                        staff = record.staff ?: "Unknown Staff",
-                        linedscamount = formatDecimal(record.lineDiscountAmount ?: 0.0),
-                        linediscpct = formatDecimal(record.lineDiscountPercentage ?: 0.0),
-                        custdiscamount = formatDecimal(record.customerDiscountAmount ?: 0.0),
-                        unit = record.unit ?: "PCS",
-                        unitqty = formatDecimal(record.unitQuantity ?: record.quantity.toDouble()),
-                        unitprice = formatDecimal(record.unitPrice ?: record.price),
-                        taxamount = formatDecimal(record.taxAmount),
-                        createddate = formatDate(record.createdDate ?: Date()),
-                        remarks = record.remarks ?: "",
-                        taxinclinprice = record.taxIncludedInPrice?.toInt() ?: 5,
-                        description = record.description ?: ""
+                // Check if transaction is already synced
+                if (summary.syncStatus) {
+                    Log.d(TAG, "Transaction ${summary.transactionId} is already synced, skipping")
+                    return@withContext Result.success(
+                        TransactionSyncResponse(
+                            message = "Transaction already synced",
+                            storeKey = summary.storeKey,
+                            storeSequence = summary.storeSequence,
+                            summaryResponse = Any(),
+                            recordsResponse = Any()
+                        )
                     )
                 }
 
+                // Filter out any already synced records
+                val unsyncedRecords = records.filter { !it.syncStatusRecord }
+                if (unsyncedRecords.isEmpty()) {
+                    Log.d(TAG, "No unsynced records for transaction ${summary.transactionId}")
+                    return@withContext Result.success(
+                        TransactionSyncResponse(
+                            message = "No unsynced records",
+                            storeKey = summary.storeKey,
+                            storeSequence = summary.storeSequence,
+                            summaryResponse = Any(),
+                            recordsResponse = Any()
+                        )
+                    )
+                }
 
-                // Create and log the request object
+                val summaryRequest = createTransactionSummaryRequest(summary)
+                val recordRequests = unsyncedRecords.map { record ->
+                    createTransactionRecordRequest(record, summary)
+                }
+
                 val request = TransactionSyncRequest(
                     transactionSummary = summaryRequest,
-                    transactionRecords = recordsRequest
+                    transactionRecords = recordRequests
                 )
 
-                Log.d(TAG, "Sending sync request: $request")
+                val response = api.syncTransaction(request)
 
-                try {
-                    val response = api.syncTransaction(request)
-                    Log.d(TAG, "Received response: ${response.isSuccessful}, Code: ${response.code()}")
-
-                    if (response.isSuccessful) {
-                        response.body()?.let { body ->
-                            Log.d(TAG, "Sync successful for transaction: ${body.transactionId}")
-                            Result.success(body)
-                        } ?: run {
-                            Log.e(TAG, "Empty response body")
-                            Result.failure(Exception("Empty response body"))
-                        }
-                    } else {
-                        val errorBody = response.errorBody()?.string()
-                        Log.e(TAG, "Sync failed. Error: $errorBody")
-                        Result.failure(Exception("Sync failed: ${response.code()} - $errorBody"))
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Network error during sync", e)
-                    Result.failure(e)
+                if (response.isSuccessful) {
+                    response.body()?.let { syncResponse ->
+                        // Mark as synced only on successful response
+                        transactionDao.markTransactionSummaryAsSynced(summary.transactionId)
+                        transactionDao.markTransactionRecordsAsSynced(summary.transactionId)
+                        Result.success(syncResponse)
+                    } ?: Result.failure(Exception("Empty response body"))
+                } else {
+                    Result.failure(Exception("Sync failed: ${response.code()}"))
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error during sync process", e)
                 Result.failure(e)
             }
         }
     }
+    suspend fun getTransactionsByStore(storeId: String): List<TransactionSummary> {
+        return transactionDao.getTransactionsByStore(storeId)
+    }
+
 
     // Updated helper functions with null safety and proper formatting
     private fun formatDecimal(value: Double?): String {
@@ -188,9 +418,18 @@ class TransactionRepository(val transactionDao: TransactionDao) {
         }
     }
 
+    private fun formatDecimalOrNull(value: Double?): String? {
+        return if (value == null || value == 0.0) {
+            null
+        } else {
+            formatDecimal(value)
+        }
+    }
+
     private fun formatQuantity(value: Int?): String {
         return (value ?: 0).toString()
     }
+
     suspend fun getUnsyncedTransactions(): List<TransactionSummary> {
         return transactionDao.getUnsyncedTransactions()
     }
@@ -216,7 +455,8 @@ class TransactionRepository(val transactionDao: TransactionDao) {
     }
 
     private fun isWifiConnected(context: Context): Boolean {
-        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val connectivityManager =
+            context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val network = connectivityManager.activeNetwork
             val capabilities = connectivityManager.getNetworkCapabilities(network)
@@ -230,13 +470,14 @@ class TransactionRepository(val transactionDao: TransactionDao) {
     private fun formatDate(date: Date?): String {
         return try {
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("UTC")
+                timeZone = TimeZone.getTimeZone("Asia/Manila")
             }.format(date ?: Date())
         } catch (e: Exception) {
             Log.e(TAG, "Error formatting date: $date", e)
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("UTC")
+                timeZone = TimeZone.getTimeZone("Asia/Manila")
             }.format(Date())
         }
     }
 }
+

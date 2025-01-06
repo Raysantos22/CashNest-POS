@@ -7,4 +7,6 @@
     <dimen name="margin_large">20dp</dimen>
     <dimen name="text_size_medium">18sp</dimen>
     <dimen name="text_size_large">30sp</dimen>
+    <dimen name="chip_stroke_width">1dp</dimen>
+
 </resources>

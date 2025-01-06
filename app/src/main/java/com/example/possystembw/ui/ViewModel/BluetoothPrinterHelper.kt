@@ -162,7 +162,7 @@ class BluetoothPrinterHelper(private val context: Context) {
 
     private fun addFooterSpacingAndCut(sb: StringBuilder) {
         // Add consistent spacing before cut
-        repeat(8) {
+        repeat(2) {
             sb.appendLine()
         }
     }
@@ -200,20 +200,13 @@ class BluetoothPrinterHelper(private val context: Context) {
         }
 
         val receiptContent = buildString {
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
+
             appendLine("CASH FUND RECEIPT")
             appendLine("Date: ${getCurrentDate()}")
             appendLine("Time: ${getCurrentTime()}")
             appendLine("Amount: ${"%.2f".format(cashFund)}")
             appendLine("Status: $status")
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
+
         }
 
         return printGenericReceipt(receiptContent)
@@ -226,19 +219,12 @@ class BluetoothPrinterHelper(private val context: Context) {
         }
 
         val receiptContent = buildString {
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
+
             appendLine("PULL-OUT CASH FUND RECEIPT")
             appendLine("Date: ${getCurrentDate()}")
             appendLine("Time: ${getCurrentTime()}")
             appendLine("Amount: ${"%.2f".format(pulloutAmount)}")
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
+
         }
 
         return printGenericReceipt(receiptContent)
@@ -251,9 +237,7 @@ class BluetoothPrinterHelper(private val context: Context) {
         }
 
         val receiptContent = buildString {
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
+
             appendLine("TENDER DECLARATION RECEIPT")
             appendLine("Date: ${getCurrentDate()}")
             appendLine("Time: ${getCurrentTime()}")
@@ -269,12 +253,7 @@ class BluetoothPrinterHelper(private val context: Context) {
             appendLine("-".repeat(46))
             val totalAmount = cashAmount + arAmounts.filterKeys { it != "Cash" }.values.sum()
             appendLine("Total Amount: ${String.format("%.2f", totalAmount)}")
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
-            appendLine(" ".repeat(46))
+
         }
 
         return printGenericReceipt(receiptContent)
@@ -315,26 +294,17 @@ class BluetoothPrinterHelper(private val context: Context) {
             .mapValues { (_, transactions) -> transactions.sumOf { it.netAmount } }
 
         return buildString {
-            appendLine(" ".repeat(32))
-            appendLine(" ".repeat(32))
-            appendLine(" ".repeat(32))
+
             appendLine("BRANCH: ${getBranchName()}")
-            appendLine()
             appendLine("TARLAC CITY")
             appendLine("REG TIN: ${getRegTin()}")
             appendLine("Permit: ${getPermitNumber()}")
             appendLine("Min: ${getMinNumber()}")
             appendLine("Serial: ${getSerialNumber()}")
-            appendLine()
             appendLine("Operator: ${getOperatorName()}")
             appendLine(
                 "Date: ${SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())}"
             )
-            appendLine("Store: ${getStoreName()}")
-            appendLine("Time: ${SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())}")
-            appendLine("Terminal: ${getTerminalNumber()}")
-            appendLine("Start OR NO.: ${getStartOrNo()}")
-            appendLine("End OR NO.: ${getEndOrNo()}")
             appendLine()
 
             if (isZRead) {
@@ -426,18 +396,6 @@ class BluetoothPrinterHelper(private val context: Context) {
                 appendLine()
                 appendLine("-".repeat(32))
                 appendLine("End of Z-Read Report")
-                appendLine("-".repeat(32))
-                appendLine("-".repeat(32))
-                appendLine("-".repeat(32))
-                appendLine(" ".repeat(32))
-                appendLine(" ".repeat(32))
-                appendLine(" ".repeat(32))
-                appendLine(" ".repeat(32))
-                appendLine(" ".repeat(32))
-                appendLine(" ".repeat(32))
-                appendLine(" ".repeat(32))
-                appendLine(" ".repeat(32))
-                appendLine(" ".repeat(32))
 
 
             }
@@ -818,8 +776,8 @@ class BluetoothPrinterHelper(private val context: Context) {
 
         // VAT Information
         sb.appendLine("-".repeat(32))
-        sb.appendLine("Vatable Sales:       ${String.format("%12.2f", transaction.costAmount)}")
-        sb.appendLine("VAT Amount (12%):    ${String.format("%12.2f", transaction.costAmount * 0.12)}")
+        sb.appendLine("Vatable Sales:       ${String.format("%12.2f", transaction.vatableSales)}")
+        sb.appendLine("VAT Amount (12%):    ${String.format("%12.2f", transaction.vatAmount)}")
         sb.appendLine("Vat Exempt           ${String.format("%12.2f", 0.0)}")
         sb.appendLine("Zero Rated Sales:    ${String.format("%12.2f", 0.0)}")
 
@@ -859,10 +817,7 @@ class BluetoothPrinterHelper(private val context: Context) {
         }
 
         // Add extra spacing at the bottom
-        repeat(6) {
-            sb.appendLine(" ".repeat(32))
-        }
-        addFooterSpacingAndCut(sb)
+
 
         return sb.toString()
     }

@@ -1,155 +1,215 @@
+<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
+    android:layout_height="match_parent"
     android:orientation="vertical"
+    android:background="#F5F5F5"
     android:padding="16dp">
 
-    <TextView
-        android:id="@+id/totalAmountTextView"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="16dp"
-        android:textColor="@android:color/black"/>
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
 
-    <!-- Amount Paid Section -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Enter Payment Amount"
-        android:textSize="18sp"
-        android:layout_marginBottom="8dp"
-        android:textColor="@android:color/black"/>
-
-    <androidx.cardview.widget.CardView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="8dp"
-        android:layout_marginLeft="8dp"
-        android:layout_marginTop="10dp"
-        android:layout_marginRight="8dp"
-        app:cardElevation="5dp"
-        app:cardCornerRadius="5dp"
-        app:cardBackgroundColor="@android:color/white">
-
-        <EditText
-            android:id="@+id/amountPaidEditText"
-            android:layout_width="match_parent"
+        <TextView
+            android:id="@+id/totalAmountTextView"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:background="@null"
-            android:inputType="numberDecimal"
-            android:hint="Amount"
-            android:padding="12dp"
-            android:textColor="@android:color/black"
-            android:textColorHint="@android:color/darker_gray"/>
+            android:layout_weight="1"
+            android:text="Total: P0.00"
+            android:textColor="#000000"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            android:paddingStart="8dp"/>
 
-    </androidx.cardview.widget.CardView>
+        <Switch
+            android:id="@+id/splitPaymentSwitch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Split Payment"
+            android:textColor="#000000"
+            android:textSize="14sp"/>
+    </LinearLayout>
 
-    <!-- Payment Method Section -->
-    <TextView
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Select Payment Method"
-        android:layout_marginBottom="8dp"
-        android:textColor="@android:color/black"/>
-
-    <androidx.cardview.widget.CardView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="8dp"
-        android:layout_marginLeft="8dp"
-        android:layout_marginTop="10dp"
-        android:layout_marginRight="8dp"
-        app:cardElevation="5dp"
-        app:cardCornerRadius="5dp"
-        app:cardBackgroundColor="@android:color/white">
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
 
         <Spinner
-            android:id="@+id/paymentMethodSpinner"
-            android:layout_width="match_parent"
+            android:id="@+id/paymentMethodSpinner1"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@android:drawable/btn_dropdown"
+            android:hint="Payment Method"
+            android:layout_marginEnd="8dp"/>
+
+        <EditText
+            android:id="@+id/amountPaidEditText1"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="Amount"
+            android:inputType="numberDecimal"
+            android:textColor="#000000"
+            android:textColorHint="#888888"
+            android:backgroundTint="#CCCCCC"
             android:padding="8dp"
-            android:textColor="@android:color/black"
-            android:popupBackground="@android:color/white"/>
+            android:gravity="center"
+            android:maxLength="10"/>
+    </LinearLayout>
 
-    </androidx.cardview.widget.CardView>
-
-    <!-- Customer Search Section -->
-    <TextView
+    <LinearLayout
+        android:id="@+id/secondPaymentLayout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Search Customer"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
         android:layout_marginBottom="8dp"
-        android:textColor="@android:color/black"/>
+        android:visibility="gone"
+        tools:visibility="visible">
 
-    <androidx.cardview.widget.CardView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        app:cardElevation="5dp"
-        app:cardCornerRadius="5dp"
-        android:layout_marginBottom="8dp"
-        android:layout_marginLeft="8dp"
-        android:layout_marginTop="10dp"
-        android:layout_marginRight="8dp"
-        app:cardBackgroundColor="@android:color/white">
-
-        <AutoCompleteTextView
-            android:id="@+id/customerAutoComplete"
-            android:layout_width="match_parent"
+        <Spinner
+            android:id="@+id/paymentMethodSpinner2"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:background="@null"
-            android:hint="Search customer"
-            android:inputType="text"
-            android:padding="12dp"
-            android:textColor="@android:color/black"
-            android:textColorHint="@android:color/darker_gray"/>
+            android:layout_weight="1"
+            android:background="@android:drawable/btn_dropdown"
+            android:hint="Payment Method"
+            android:layout_marginEnd="8dp"/>
 
-    </androidx.cardview.widget.CardView>
+        <EditText
+            android:id="@+id/amountPaidEditText2"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="Amount"
+            android:inputType="numberDecimal"
+            android:textColor="#000000"
+            android:textColorHint="#888888"
+            android:backgroundTint="#CCCCCC"
+            android:padding="8dp"
+            android:gravity="center"
+            android:maxLength="10"/>
+    </LinearLayout>
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Payment Method:"
-        android:layout_marginTop="16dp" />
-
-    <Spinner
-        android:id="@+id/paymentMethodSpinner"
+    <AutoCompleteTextView
+        android:id="@+id/customerAutoComplete"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp" />
+        android:hint="Customer Name"
+        android:inputType="text"
+        android:padding="8dp"
+        android:textColor="#000000"
+        android:textColorHint="#888888"
+        android:backgroundTint="#CCCCCC"
+        android:layout_marginBottom="8dp"/>
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="VAT:"
-        android:layout_marginTop="16dp" />
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#CCCCCC"
+        android:layout_marginBottom="8dp"/>
 
-    <Spinner
-        android:id="@+id/vatSpinner"
+    <GridLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp" />
+        android:columnCount="3"
+        android:useDefaultMargins="true">
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Discount:"
-        android:layout_marginTop="16dp" />
+        <Button
+            android:id="@+id/button7"
+            style="@style/NumpadButton"
+            android:text="7"/>
 
-    <Spinner
-        android:id="@+id/discountSpinner"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp" />
+        <Button
+            android:id="@+id/button8"
+            style="@style/NumpadButton"
+            android:text="8"/>
 
-    <EditText
-        android:id="@+id/discountAmountEditText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="Enter discount amount"
-        android:inputType="numberDecimal"
-        android:visibility="gone" />
+        <Button
+            android:id="@+id/button9"
+            style="@style/NumpadButton"
+            android:text="9"/>
 
+        <Button
+            android:id="@+id/button4"
+            style="@style/NumpadButton"
+            android:text="4"/>
+
+        <Button
+            android:id="@+id/button5"
+            style="@style/NumpadButton"
+            android:text="5"/>
+
+        <Button
+            android:id="@+id/button6"
+            style="@style/NumpadButton"
+            android:text="6"/>
+
+        <Button
+            android:id="@+id/button1"
+            style="@style/NumpadButton"
+            android:text="1"/>
+
+        <Button
+            android:id="@+id/button2"
+            style="@style/NumpadButton"
+            android:text="2"/>
+
+        <Button
+            android:id="@+id/button3"
+            style="@style/NumpadButton"
+            android:text="3"/>
+
+        <Button
+            android:id="@+id/buttonDot"
+            style="@style/NumpadButton"
+            android:text="."/>
+
+        <Button
+            android:id="@+id/button0"
+            style="@style/NumpadButton"
+            android:text="0"/>
+
+        <Button
+            android:id="@+id/buttonBackspace"
+            style="@style/NumpadButton"
+            android:text="⌫"/>
+    </GridLayout>
 </LinearLayout>
+
+    <!--    <LinearLayout-->
+    <!--        android:layout_width="match_parent"-->
+    <!--        android:layout_height="wrap_content"-->
+    <!--        android:orientation="horizontal"-->
+    <!--        android:layout_marginTop="8dp">-->
+
+    <!--        <Button-->
+    <!--            android:id="@+id/cancelButton"-->
+    <!--            android:layout_width="0dp"-->
+    <!--            android:layout_height="wrap_content"-->
+    <!--            android:layout_weight="1"-->
+    <!--            android:text="CANCEL"-->
+    <!--            android:textColor="#FFFFFF"-->
+    <!--            android:backgroundTint="#FF0000"-->
+    <!--            android:layout_marginEnd="8dp"/>-->
+
+    <!--        <Button-->
+    <!--            android:id="@+id/payButton"-->
+    <!--            android:layout_width="0dp"-->
+    <!--            android:layout_height="wrap_content"-->
+    <!--            android:layout_weight="1"-->
+    <!--            android:text="PAY"-->
+    <!--            android:textColor="#FFFFFF"-->
+    <!--            android:backgroundTint="#4CAF50"/>-->
+    <!--    </LinearLayout>-->
+
+    <!-- You'll need to add this style to your styles.xml -->

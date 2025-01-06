@@ -13,6 +13,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
@@ -72,7 +73,11 @@ class CartAdapter(
             // Add click listener to the quantity view
             quantityView.setOnClickListener {
                 if (!partialPaymentApplied) {
-                    showQuantityEditDialog(cartItem)
+                    if (cartItem.bundleId != null) {
+                        showBundleQuantityDialog(cartItem)
+                    } else {
+                        showQuantityEditDialog(cartItem)
+                    }
                 }
             }
 
@@ -160,7 +165,102 @@ class CartAdapter(
                 true
             }
         }
+        private fun showBundleQuantityDialog(cartItem: CartItem) {
+            val currentList = currentList
 
+            // Get all items from the same bundle
+            val bundleItems = currentList.filter {
+                it.bundleId == cartItem.bundleId && it.mixMatchId == cartItem.mixMatchId
+            }
+
+            val builder = AlertDialog.Builder(itemView.context)
+            val dialogView = LayoutInflater.from(itemView.context)
+                .inflate(R.layout.dialog_edit_bundle_quantity, null)
+
+            val editTextQuantity = dialogView.findViewById<EditText>(R.id.editTextQuantity)
+            val bundleInfoText = dialogView.findViewById<TextView>(R.id.bundleInfoText)
+
+            // Calculate current bundle totals - for FIXEDTOTAL, use the original discount without multiplication
+            val currentFixedTotalDiscount = if (cartItem.discountType.uppercase() == "FIXEDTOTAL") {
+                bundleItems.firstOrNull()?.discount ?: 0.0
+            } else 0.0
+
+            // Show current items and discount in bundle
+            val itemsList = bundleItems.joinToString("\n") { item ->
+                "${item.productName} x${item.quantity}"
+            }
+
+            bundleInfoText.text = """
+        Bundle: ${cartItem.mixMatchId}
+        Items in bundle:
+        $itemsList
+        Current Discount: P${String.format("%.2f", currentFixedTotalDiscount)}
+    """.trimIndent()
+
+            editTextQuantity.setText("1")
+            editTextQuantity.selectAll()
+
+            editTextQuantity.requestFocus()
+            val imm = itemView.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0)
+
+            builder.setView(dialogView)
+                .setTitle("Edit Bundle Quantity")
+                .setPositiveButton("Update") { dialog, _ ->
+                    val multiplier = editTextQuantity.text.toString().toIntOrNull() ?: 1
+                    if (multiplier > 0) {
+                        // Update all items in the bundle with their existing proportions
+                        bundleItems.forEach { bundleItem ->
+                            // Get original mix match quantity from the item
+                            val originalMixMatchQty = bundleItem.quantity / (bundleItem.lineNum ?: 1)
+                            val newQuantity = originalMixMatchQty * multiplier
+
+                            // Calculate new discount based on the discount type
+                            val updatedCartItem = when (bundleItem.discountType.uppercase()) {
+                                "FIXED" -> {
+                                    bundleItem.copy(
+                                        quantity = newQuantity,
+                                        discount = bundleItem.discount * newQuantity,  // Keep original discount
+                                        discountAmount = bundleItem.discount * newQuantity  // Total discount
+                                    )
+                                }
+                                "PERCENTAGE" -> {
+                                    val baseTotal = bundleItem.price * newQuantity
+                                    bundleItem.copy(
+                                        quantity = newQuantity,
+                                        discount = bundleItem.discount,  // Keep original percentage
+                                        discountAmount = baseTotal * (bundleItem.discount / 100)
+                                    )
+                                }
+                                "FIXEDTOTAL" -> {
+                                    // For FIXEDTOTAL, keep the original discount as is - don't multiply
+                                    bundleItem.copy(
+                                        quantity = newQuantity,
+                                        discount = bundleItem.discount * multiplier,  // Keep original bundle discount
+                                        discountAmount = bundleItem.discount // Keep original discount amount
+                                    )
+                                }
+                                else -> bundleItem.copy(quantity = newQuantity)
+                            }
+                            onQuantityChange(updatedCartItem, updatedCartItem.quantity)
+                        }
+                    } else {
+                        Toast.makeText(
+                            itemView.context,
+                            "Quantity must be greater than 0",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    imm.hideSoftInputFromWindow(editTextQuantity.windowToken, 0)
+                }
+                .setNegativeButton("Cancel") { dialog, _ ->
+                    imm.hideSoftInputFromWindow(editTextQuantity.windowToken, 0)
+                }
+                .setOnCancelListener {
+                    imm.hideSoftInputFromWindow(editTextQuantity.windowToken, 0)
+                }
+                .show()
+        }
         private fun showQuantityEditDialog(cartItem: CartItem) {
             val builder = AlertDialog.Builder(itemView.context)
             val inflater = LayoutInflater.from(itemView.context)
@@ -203,3 +303,104 @@ class CartDiffCallback : DiffUtil.ItemCallback<CartItem>() {
         return oldItem == newItem
     }
 }
+//private fun showBundleQuantityDialog(cartItem: CartItem) {
+//    val currentList = currentList
+//
+//    // Get all items from the same bundle
+//    val bundleItems = currentList.filter {
+//        it.bundleId == cartItem.bundleId && it.mixMatchId == cartItem.mixMatchId
+//    }
+//
+//    val builder = AlertDialog.Builder(itemView.context)
+//    val dialogView = LayoutInflater.from(itemView.context)
+//        .inflate(R.layout.dialog_edit_bundle_quantity, null)
+//
+//    val editTextQuantity = dialogView.findViewById<EditText>(R.id.editTextQuantity)
+//    val bundleInfoText = dialogView.findViewById<TextView>(R.id.bundleInfoText)
+//
+//    // Calculate current bundle totals
+//    val currentFixedTotalDiscount = if (cartItem.discountType.uppercase() == "FIXEDTOTAL") {
+//        bundleItems.firstOrNull()?.discount ?: 0.0
+//    } else 0.0
+//
+//    // Show current items and discount in bundle
+//    val itemsList = bundleItems.joinToString("\n") { item ->
+//        "${item.productName} x${item.quantity}"
+//    }
+//
+//    bundleInfoText.text = """
+//        Bundle: ${cartItem.mixMatchId}
+//        Items in bundle:
+//        $itemsList
+//        Current Discount: P${String.format("%.2f", currentFixedTotalDiscount)}
+//    """.trimIndent()
+//
+//    editTextQuantity.setText("1")
+//    editTextQuantity.selectAll()
+//
+//    editTextQuantity.requestFocus()
+//    val imm = itemView.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+//    imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0)
+//
+//    builder.setView(dialogView)
+//        .setTitle("Edit Bundle Quantity")
+//        .setPositiveButton("Update") { dialog, _ ->
+//            val multiplier = editTextQuantity.text.toString().toIntOrNull() ?: 1
+//            if (multiplier > 0) {
+//                // Update all items in the bundle with their existing proportions
+//                bundleItems.forEach { bundleItem ->
+//                    // Get original mix match quantity from the item
+//                    val originalMixMatchQty = bundleItem.quantity / (bundleItem.lineNum ?: 1)
+//                    val newQuantity = originalMixMatchQty * multiplier
+//
+//                    // Calculate new discount based on the discount type using direct multiplier
+//                    val updatedCartItem = when (bundleItem.discountType.uppercase()) {
+//                        "FIXED" -> {
+//                            // Multiply original discount directly by user's input multiplier
+//                            val totalDiscount = bundleItem.discount * multiplier
+//                            bundleItem.copy(
+//                                quantity = newQuantity,
+//                                discount = bundleItem.discount,  // Keep original discount
+//                                discountAmount = totalDiscount  // Multiply discount by user input
+//                            )
+//                        }
+//                        "PERCENTAGE" -> {
+//                            // Keep original percentage, apply to new base total
+//                            val baseTotal = bundleItem.price * newQuantity
+//                            val totalDiscount = baseTotal * (bundleItem.discount / 100)
+//                            bundleItem.copy(
+//                                quantity = newQuantity,
+//                                discount = bundleItem.discount,  // Keep original percentage
+//                                discountAmount = totalDiscount
+//                            )
+//                        }
+//                        "FIXEDTOTAL" -> {
+//                            // Simply multiply the original discount by user's input multiplier
+//                            val totalDiscount = bundleItem.discount * multiplier
+//                            bundleItem.copy(
+//                                quantity = newQuantity,
+//                                discount = bundleItem.discount,  // Keep original discount
+//                                discountAmount = totalDiscount  // Multiply by user input
+//                            )
+//                        }
+//                        else -> bundleItem.copy(quantity = newQuantity)
+//                    }
+//                    onQuantityChange(updatedCartItem, updatedCartItem.quantity)
+//                }
+//            } else {
+//                Toast.makeText(
+//                    itemView.context,
+//                    "Quantity must be greater than 0",
+//                    Toast.LENGTH_SHORT
+//                ).show()
+//            }
+//            imm.hideSoftInputFromWindow(editTextQuantity.windowToken, 0)
+//        }
+//        .setNegativeButton("Cancel") { dialog, _ ->
+//            imm.hideSoftInputFromWindow(editTextQuantity.windowToken, 0)
+//        }
+//        .setOnCancelListener {
+//            imm.hideSoftInputFromWindow(editTextQuantity.windowToken, 0)
+//        }
+//        .show()
+//}

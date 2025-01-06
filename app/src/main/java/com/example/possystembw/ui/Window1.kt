@@ -73,27 +73,43 @@ import com.example.possystembw.ui.ViewModel.WindowViewModel
 import com.google.android.material.textfield.TextInputEditText
 import kotlinx.coroutines.flow.first
 import android.Manifest
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
+import android.content.Intent
 import android.content.res.ColorStateList
+import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.http.SslError
 import android.text.Editable
 import android.text.InputFilter
 import android.text.InputType
+import android.text.SpannableString
 import android.text.Spanned
 import android.text.TextWatcher
+import android.text.style.StrikethroughSpan
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.LayoutInflater
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.widget.AutoCompleteTextView
+import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.ListAdapter
+import android.widget.RelativeLayout
+import android.widget.Switch
 import androidx.appcompat.widget.SearchView // Change this import
 import androidx.cardview.widget.CardView
 import androidx.core.view.isVisible
+import androidx.core.view.updateLayoutParams
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.asFlow
@@ -106,6 +122,8 @@ import com.example.possystembw.adapter.TransactionItemsAdapter
 import com.example.possystembw.data.ARRepository
 import com.example.possystembw.data.CustomerRepository
 import com.example.possystembw.data.MixMatchRepository
+import com.example.possystembw.data.NumberSequenceRemoteRepository
+//import com.example.possystembw.data.NumberSequenceRemoteRepository
 import com.example.possystembw.data.NumberSequenceRepository
 import com.example.possystembw.database.Customer
 import com.example.possystembw.database.LineGroupWithDiscounts
@@ -113,6 +131,7 @@ import com.example.possystembw.database.MixMatch
 import com.example.possystembw.database.MixMatchWithDetails
 import com.example.possystembw.database.ProductBundle
 import com.example.possystembw.database.TenderDeclaration
+import com.example.possystembw.database.Window
 import com.example.possystembw.database.ZRead
 import com.example.possystembw.ui.ViewModel.ARViewModel
 import com.example.possystembw.ui.ViewModel.ARViewModelFactory
@@ -120,6 +139,8 @@ import com.example.possystembw.ui.ViewModel.CustomerViewModel
 import com.example.possystembw.ui.ViewModel.CustomerViewModelFactory
 import com.example.possystembw.ui.ViewModel.MixMatchViewModel
 import com.example.possystembw.ui.ViewModel.MixMatchViewModelFactory
+import com.example.possystembw.ui.ViewModel.TransactionSyncService
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.gson.Gson
 import kotlinx.coroutines.Job
@@ -128,9 +149,27 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
+import java.nio.charset.Charset
+import java.util.TimeZone
 import java.util.UUID
+import kotlin.math.abs
+import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
-
+import android.webkit.ConsoleMessage
+import android.webkit.CookieManager
+import android.webkit.JavascriptInterface
+import android.webkit.SslErrorHandler
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import com.example.possystembw.DAO.NumberSequenceRemoteDao
+import com.example.possystembw.DAO.TransactionRecordRequest
+import com.example.possystembw.DAO.TransactionSummaryRequest
+import com.example.possystembw.DAO.TransactionSyncRequest
+import com.example.possystembw.MainActivity
 
 class Window1 : AppCompatActivity() {
     private lateinit var binding: ActivityWindow1Binding
@@ -188,27 +227,53 @@ class Window1 : AppCompatActivity() {
     private lateinit var numberSequenceRepository: NumberSequenceRepository
 
 
+    private lateinit var numberSequenceRemoteRepository: NumberSequenceRemoteRepository
+    private lateinit var numberSequenceRemoteDao: NumberSequenceRemoteDao
+
+    private lateinit var sidebarLayout: ConstraintLayout
+    private lateinit var sidebarToggleButton: ImageButton
+    private lateinit var buttonContainer: LinearLayout
+    private lateinit var insertButton: Button
+    private lateinit var toggleButton: ImageButton
+    private lateinit var overlayLayout: ConstraintLayout
+    private lateinit var searchCardView: CardView
+    private var isSidebarExpanded = true
+    private var transactionSyncService: TransactionSyncService? = null  // Make nullable
+    private lateinit var loadingDialog: AlertDialog
 
 
+    private lateinit var webView: WebView
+    private lateinit var webViewLoadingOverlay: FrameLayout
+    private lateinit var webViewLoadingText: TextView
 
+    private lateinit var webViewContainer: RelativeLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         binding = ActivityWindow1Binding.inflate(layoutInflater)
         setContentView(binding.root)
 
         try {
-            initializeDatabase()
+            database = AppDatabase.getDatabase(this)
+
+            val numberSequenceApi = RetrofitClient.numberSequenceApi
+            val numberSequenceRemoteDao = database.numberSequenceRemoteDao()
+            numberSequenceRemoteRepository = NumberSequenceRemoteRepository(
+                numberSequenceApi,
+                numberSequenceRemoteDao
+            )
+
+
             getWindowId()
             initializeRepositories()
             initializeViewModels()
             setupRecyclerViews()
             observeViewModels()
             setupButtonListeners()
-            initializeAutoDatabaseTransferManager()
+//            initializeAutoDatabaseTransferManager()
             checkForExistingCashFund()
             setupButtonListeners()
-            setupOverlay()
             setupPartialPaymentDisplay()
             setupCommentButton()
             setupDeleteCommentButton()
@@ -236,10 +301,20 @@ class Window1 : AppCompatActivity() {
             tenderDeclarationDao = database.tenderDeclarationDao()
             setupSequenceButton()
 
+            initializeSidebarComponents()
+            initializeOverlayComponents()
+            setupSidebar()
+            setupOverlay()
 //            setupNumberSequenceViewModel()
 
 
 //            setupMixMatchButton() // Add this line
+
+            webView = findViewById(R.id.webView)
+
+            initializeSidebarComponents()
+            setupSidebar()
+
 
 
         } catch (e: Exception) {
@@ -251,11 +326,308 @@ class Window1 : AppCompatActivity() {
 
 
     private fun initializeDatabase() {
-        database = AppDatabase.getDatabase(this)
+        // Remove numberSequenceRemoteRepository initialization from here since it's done in onCreate
         tenderDeclarationDao = database.tenderDeclarationDao()
 
+        val repository = TransactionRepository(
+            database.transactionDao(),
+            numberSequenceRemoteRepository
+        )
+        transactionSyncService = TransactionSyncService(repository)
+        transactionSyncService?.startSyncService(lifecycleScope)
+    }
+    override fun onResume() {
+        super.onResume()
+
+        // Check session validity and refresh
+        if (!SessionManager.isSessionValid()) {
+            // Redirect to login if session is invalid
+            val intent = Intent(this, LoginActivity::class.java)
+            intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            startActivity(intent)
+            finish()
+        }
+        // Refresh session timestamp on activity resume
+        SessionManager.refreshSession()
+    }
+    private fun initializeSidebarComponents() {
+        try {
+            sidebarLayout = findViewById(R.id.sidebarLayout)
+            sidebarToggleButton = findViewById(R.id.toggleButton1)
+            buttonContainer = findViewById(R.id.buttonContainer)
+
+            // Set initial state
+            isSidebarExpanded = true
+            buttonContainer.visibility = View.VISIBLE
+            buttonContainer.alpha = 1f
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing sidebar components", e)
+        }
     }
 
+
+
+    private fun initializeOverlayComponents() {
+        try {
+            toggleButton = findViewById(R.id.toggleButton)
+            overlayLayout = findViewById(R.id.overlayLayout)
+            searchCardView = findViewById(R.id.searchCardView)
+            insertButton = findViewById(R.id.insertButton)
+
+            // Set initial state
+            overlayLayout.visibility = View.GONE
+            searchCardView.visibility = View.VISIBLE
+            insertButton.visibility = View.VISIBLE
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing overlay components", e)
+        }
+    }
+
+    private fun setupSidebar() {
+        try {
+            sidebarToggleButton.setOnClickListener {
+                if (isSidebarExpanded) {
+                    collapseSidebar()
+                } else {
+                    expandSidebar()
+                }
+            }
+            setupSidebarButtons()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting up sidebar", e)
+        }
+    }
+
+    private fun setupOverlay() {
+        try {
+            toggleButton.setOnClickListener {
+                val isOverlayVisible = overlayLayout.visibility == View.VISIBLE
+
+                // Toggle visibility with animation
+                if (isOverlayVisible) {
+                    overlayLayout.animate()
+                        .alpha(0f)
+                        .setDuration(200)
+                        .withEndAction {
+                            overlayLayout.visibility = View.GONE
+                            searchCardView.visibility = View.VISIBLE
+                            insertButton.visibility = View.VISIBLE
+                        }
+                } else {
+                    overlayLayout.alpha = 0f
+                    overlayLayout.visibility = View.VISIBLE
+                    searchCardView.visibility = View.GONE
+                    insertButton.visibility = View.GONE
+                    overlayLayout.animate()
+                        .alpha(1f)
+                        .setDuration(200)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting up overlay", e)
+        }
+    }
+//    private fun setupSidebarButtons() {
+//        findViewById<ImageButton>(R.id.button2).setOnClickListener {
+//            showToast("Dashboard")
+//        }
+//        findViewById<ImageButton>(R.id.button3).setOnClickListener {
+//            showToast("Shopping Cart")
+//        }
+//        findViewById<ImageButton>(R.id.button4).setOnClickListener {
+//            showToast("Orders")
+//        }
+//        findViewById<ImageButton>(R.id.button5).setOnClickListener {
+//            showToast("Delivery")
+//        }
+//        findViewById<ImageButton>(R.id.button6).setOnClickListener {
+//            showToast("Analytics")
+//        }
+//        findViewById<ImageButton>(R.id.button7).setOnClickListener {
+//            showToast("Cashier")
+//        }
+//        findViewById<ImageButton>(R.id.button8).setOnClickListener {
+////            logout()
+//            showToast("Cashier")
+//
+//        }
+//    }
+    fun setupSidebarButtons() {
+        findViewById<ImageButton>(R.id.button2).setOnClickListener {
+            navigateToMainWithUrl("https://eljin.org/dashboard", "DASHBOARD")
+        }
+
+        findViewById<ImageButton>(R.id.button3).setOnClickListener {
+            navigateToMainWithUrl("https://eljin.org/order", "ORDERING")
+        }
+
+        findViewById<ImageButton>(R.id.button4).setOnClickListener {
+            navigateToMainWithUrl("https://eljin.org/StockCounting", "STOCK COUNTING")
+        }
+
+        findViewById<ImageButton>(R.id.button5).setOnClickListener {
+            navigateToMainWithUrl("https://eljin.org/Received", "RECEIVING")
+        }
+
+        findViewById<ImageButton>(R.id.button6).setOnClickListener {
+            navigateToMainWithUrl("https://eljin.org/reports", "REPORTS")
+        }
+
+        findViewById<ImageButton>(R.id.waste).setOnClickListener {
+            navigateToMainWithUrl("https://eljin.org/waste", "WASTE")
+        }
+
+        findViewById<ImageButton>(R.id.partycakes).setOnClickListener {
+            navigateToMainWithUrl("https://eljin.org/partycakes", "PARTYCAKES")
+        }
+
+        findViewById<ImageButton>(R.id.customer).setOnClickListener {
+            navigateToMainWithUrl("https://eljin.org/customers", "CUSTOMER")
+        }
+
+        findViewById<ImageButton>(R.id.button7).setOnClickListener {
+            navigateToMainWithUrl(null, "POS SYSTEM")
+        }
+
+
+    findViewById<ImageButton>(R.id.button8).setOnClickListener {
+        val intent = Intent(this, MainActivity::class.java)
+        startActivity(intent)
+    }
+}
+
+    private fun navigateToMainWithUrl(url: String?, message: String?) {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            url?.let { putExtra("web_url", it) }
+        }
+        message?.let { showToast(it) }
+        startActivity(intent)
+    }
+
+
+    //    private fun logout() {
+//        // Clear the session
+//        SessionManager.clearCurrentUser()
+//
+//        // Cancel any ongoing jobs
+//        if (::refreshJob.isInitialized) {
+//            refreshJob.cancel()
+//        }
+//
+//        // Navigate back to login screen
+//        val intent = Intent(this, LoginActivity::class.java)
+//        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+//        startActivity(intent)
+//        finish()
+//    }
+    private fun showToast(message: String) {
+        Toast.makeText(this@Window1, message, Toast.LENGTH_SHORT).show()
+    }
+    private fun collapseSidebar() {
+        try {
+            val collapse = ValueAnimator.ofInt(sidebarLayout.width, dpToPx(24))
+            collapse.duration = 200
+            collapse.interpolator = AccelerateDecelerateInterpolator()
+
+            collapse.addUpdateListener { animator ->
+                val value = animator.animatedValue as Int
+                sidebarLayout.updateLayoutParams {
+                    width = value
+                }
+                updateContentMargins(value)
+            }
+
+            collapse.addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationStart(animation: Animator) {
+                    buttonContainer.animate()
+                        .alpha(0f)
+                        .setDuration(100)
+                        .start()
+                    sidebarToggleButton.animate()
+                        .rotation(180f)
+                        .setDuration(200)
+                        .start()
+                    findViewById<TextView>(R.id.ecposTitle)?.animate()
+                        ?.alpha(0f)
+                        ?.setDuration(100)
+                        ?.start()
+                }
+
+                override fun onAnimationEnd(animation: Animator) {
+                    isSidebarExpanded = false
+                    buttonContainer.visibility = View.GONE
+                    sidebarToggleButton.layoutParams =
+                        (sidebarToggleButton.layoutParams as ConstraintLayout.LayoutParams).apply {
+                            marginStart = dpToPx(8)
+                        }
+                }
+            })
+            collapse.start()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error collapsing sidebar", e)
+        }
+    }
+
+    private fun expandSidebar() {
+        try {
+            val expand = ValueAnimator.ofInt(sidebarLayout.width, dpToPx(56))
+            expand.duration = 200
+            expand.interpolator = AccelerateDecelerateInterpolator()
+
+            expand.addUpdateListener { animator ->
+                val value = animator.animatedValue as Int
+                sidebarLayout.updateLayoutParams {
+                    width = value
+                }
+                updateContentMargins(value)
+            }
+
+            expand.addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationStart(animation: Animator) {
+                    buttonContainer.visibility = View.VISIBLE
+                    buttonContainer.alpha = 0f
+                    sidebarToggleButton.animate()
+                        .rotation(0f)
+                        .setDuration(200)
+                        .start()
+                    findViewById<TextView>(R.id.ecposTitle)?.animate()
+                        ?.alpha(1f)
+                        ?.setDuration(200)
+                        ?.start()
+                }
+
+                override fun onAnimationEnd(animation: Animator) {
+                    buttonContainer.animate()
+                        .alpha(1f)
+                        .setDuration(100)
+                        .start()
+                    isSidebarExpanded = true
+                    sidebarToggleButton.layoutParams =
+                        (sidebarToggleButton.layoutParams as ConstraintLayout.LayoutParams).apply {
+                            marginStart = dpToPx(40)
+                        }
+                }
+            })
+            expand.start()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error expanding sidebar", e)
+        }
+    }
+
+    private fun updateContentMargins(sidebarWidth: Int) {
+        try {
+            findViewById<TextView>(R.id.textView3)?.updateLayoutParams<ConstraintLayout.LayoutParams> {
+                marginStart = sidebarWidth + dpToPx(10)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating content margins", e)
+        }
+    }
+
+    private fun dpToPx(dp: Int): Int {
+        return (dp * resources.displayMetrics.density).toInt()
+    }
 
     private fun showTransactionListDialog() {
         val dialogView = layoutInflater.inflate(R.layout.dialog_transaction_list, null)
@@ -339,13 +711,36 @@ class Window1 : AppCompatActivity() {
                 // Items details
                 val itemsDetails = buildString {
                     items.forEach { item ->
-                        append("${item.name}\n")
-                        append("   ${item.quantity} x ₱${String.format("%.2f", item.price)}")
+                        // Check if the item is returned and apply strikethrough if needed
+                        val itemName = if (item.isReturned) "~~${item.name}~~" else item.name
+                        val itemQuantity = if (item.isReturned) item.quantity else item.quantity
+
+                        append("$itemName\n")
+                        append("   ${itemQuantity} x ₱${String.format("%.2f", item.price)}")
                         append(" = ₱${String.format("%.2f", item.netAmount)}\n")
+
+                        // Optionally, add a note for returned items
+                        if (item.isReturned) {
+                            append("   (Returned)\n")
+                        }
                     }
                     append("\n${"-".repeat(40)}\n\n")
                 }
-
+                val spannableString = SpannableString(itemsDetails)
+                items.forEachIndexed { index, item ->
+                    if (item.isReturned) {
+                        // Apply strikethrough span to the specific item line
+                        val start = itemsDetails.indexOf(item.name)
+                        val end = start + item.name.length
+                        spannableString.setSpan(
+                            StrikethroughSpan(),
+                            start,
+                            end,
+                            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                        )
+                    }
+                }
+                detailsTextView.text = spannableString
                 // Payment details
                 val paymentDetails = buildString {
                     append("Gross Amount: ₱${String.format("%.2f", transaction.grossAmount)}\n")
@@ -441,86 +836,85 @@ class Window1 : AppCompatActivity() {
         transactionDetailsDialog?.show()
     }
 
-    private fun printReceiptWithItems(transaction: TransactionSummary) {
-        lifecycleScope.launch {
+
+private fun printReceiptWithItems(transaction: TransactionSummary) {
+    lifecycleScope.launch {
+        try {
+            val items = withContext(Dispatchers.IO) {
+                transactionViewModel.getTransactionItems(transaction.transactionId)
+            }
+
+            if (items.isEmpty()) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@Window1,
+                        "No items found for this transaction",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                return@launch
+            }
+
+            // Log the reprint first
+            val transactionLogger = TransactionLogger(this@Window1)
+            transactionLogger.logReprint(
+                transaction = transaction,
+                items = items  // Make sure you're passing the items
+            )
+
+            // Try to print after logging
             try {
-                val items = withContext(Dispatchers.IO) {
-                    transactionViewModel.getTransactionItems(transaction.transactionId)
-                }
+                val printerMacAddress = "DC:0D:30:70:09:19"
 
-                if (items.isEmpty()) {
+                if (!bluetoothPrinterHelper.isConnected() && !bluetoothPrinterHelper.connect(printerMacAddress)) {
                     withContext(Dispatchers.Main) {
                         Toast.makeText(
                             this@Window1,
-                            "No items found for this transaction",
+                            "Failed to connect to printer, but reprint was logged",
                             Toast.LENGTH_SHORT
                         ).show()
                     }
                     return@launch
                 }
 
-                val printerMacAddress =
-                    "DC:0D:30:70:09:19"  // Replace with your printer's MAC address
-
-                if (!bluetoothPrinterHelper.isConnected() && !bluetoothPrinterHelper.connect(
-                        printerMacAddress
-                    )
-                ) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(
-                            this@Window1,
-                            "Failed to connect to printer",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                    return@launch
-                }
-
-                // Generate the receipt content using the new format
                 val receiptContent = bluetoothPrinterHelper.generateReceiptContent(
                     transaction,
                     items,
-                    BluetoothPrinterHelper.ReceiptType.REPRINT // or REPRINT
+                    BluetoothPrinterHelper.ReceiptType.REPRINT
                 )
-                // Write the content to the printer
+
                 bluetoothPrinterHelper.outputStream?.write(receiptContent.toByteArray())
                 bluetoothPrinterHelper.outputStream?.flush()
-
-                // Cut the paper
-                bluetoothPrinterHelper.cutPaper()
 
                 withContext(Dispatchers.Main) {
                     Toast.makeText(
                         this@Window1,
-                        "Receipt reprinted successfully",
+                        "Receipt reprinted and logged successfully",
                         Toast.LENGTH_SHORT
                     ).show()
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error reprinting receipt", e)
+                Log.e(TAG, "Error printing receipt but reprint was logged: ${e.message}")
                 withContext(Dispatchers.Main) {
                     Toast.makeText(
                         this@Window1,
-                        "Error reprinting receipt: ${e.message}",
+                        "Error printing receipt but reprint was logged: ${e.message}",
                         Toast.LENGTH_LONG
                     ).show()
                 }
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error during reprint process: ${e.message}")
+            withContext(Dispatchers.Main) {
+                Toast.makeText(
+                    this@Window1,
+                    "Error during reprint process: ${e.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
     }
-
-
-    private fun setupTransactionView() {
-        val transactionRepository = TransactionRepository(database.transactionDao())
-        val factory = TransactionViewModel.TransactionViewModelFactory(transactionRepository)
-        transactionViewModel =
-            ViewModelProvider(this, factory).get(TransactionViewModel::class.java)
-
-        transactionAdapter = TransactionAdapter { transaction ->
-            showTransactionDetailsDialog(transaction)
-        }
-
-    }
+}
 
     private fun showReturnTransactionDialog(transaction: TransactionSummary) {
         Log.d(
@@ -549,8 +943,9 @@ class Window1 : AppCompatActivity() {
                 loadingDialog.dismiss()
 
                 // Filter out already returned items and items with quantity <= 0
-                val returnable = items.filter { item -> item.quantity > 0 && !item.isReturned }
-
+                val returnable = items.filter { item ->
+                    item.quantity > 0 && !item.isReturned
+                }
                 if (returnable.isEmpty()) {
                     Toast.makeText(
                         this@Window1,
@@ -649,7 +1044,6 @@ class Window1 : AppCompatActivity() {
     private fun updateReturnButtonText(button: Button, selectedItems: List<TransactionRecord>) {
         button.text = "Process Return"
     }
-
     private fun processReturn(
         returnDialog: AlertDialog,
         transaction: TransactionSummary,
@@ -702,103 +1096,6 @@ class Window1 : AppCompatActivity() {
             }
         }
     }
-
-    /*private fun processReturnTransaction(
-        transaction: TransactionSummary,
-        items: List<TransactionRecord>,
-        remarks: String
-    ) {
-        lifecycleScope.launch {
-            try {
-                // Calculate correct amounts for returned items
-                val returnedGrossAmount = items.sumByDouble { item ->
-                    val effectivePrice = if (item.priceOverride!! > 0.0) item.priceOverride else item.price
-                    effectivePrice * item.quantity
-                }
-
-                val returnedDiscountAmount = items.sumByDouble { item ->
-                    when (item.discountType.uppercase()) {
-                        "PERCENTAGE", "PWD", "SC" -> {
-                            val itemTotal = (if (item.priceOverride!! > 0.0) item.priceOverride else item.price) * item.quantity
-                            itemTotal * item.discountRate
-                        }
-                        "FIXED" -> item.discountAmount * item.quantity
-                        "FIXEDTOTAL" -> item.discountAmount
-                        else -> 0.0
-                    }
-                }
-
-                // Calculate net amount first
-                val returnedNetAmount = returnedGrossAmount - returnedDiscountAmount
-
-                // Calculate VAT components correctly from net amount
-                val returnedVatAmount = returnedNetAmount * 0.12 / 1.12
-                val returnedVatableSales = returnedNetAmount / 1.12
-
-                val updatedTransaction = transaction.copy(
-                    netAmount = transaction.netAmount - returnedNetAmount,
-                    costAmount = transaction.costAmount - items.sumByDouble { it.costAmount ?: 0.0 },
-                    grossAmount = transaction.grossAmount - returnedGrossAmount,
-                    discountAmount = transaction.discountAmount - returnedDiscountAmount,
-                    customerDiscountAmount = transaction.customerDiscountAmount - returnedDiscountAmount,
-                    totalDiscountAmount = transaction.totalDiscountAmount - returnedDiscountAmount,
-                    numberOfItems = transaction.numberOfItems - items.sumOf { it.quantity.toDouble() },
-                    taxIncludedInPrice = transaction.taxIncludedInPrice - returnedVatAmount,
-                    vatAmount = transaction.vatAmount - returnedVatAmount,
-                    vatableSales = transaction.vatableSales - returnedVatableSales,
-                    comment = "${transaction.comment}\nReturn processed: $remarks",
-                )
-
-                // Create returned items with correct amounts
-                val returnedItems = items.map { item ->
-                    val effectivePrice = if (item.priceOverride!! > 0.0) item.priceOverride else item.price
-                    val itemTotal = effectivePrice * item.quantity
-                    val discountAmount = when (item.discountType.uppercase()) {
-                        "PERCENTAGE", "PWD", "SC" -> itemTotal * item.discountRate
-                        "FIXED" -> item.discountAmount * item.quantity
-                        "FIXEDTOTAL" -> item.discountAmount
-                        else -> 0.0
-                    }
-                    val netAmount = itemTotal - discountAmount
-                    val vatAmount = netAmount * 0.12 / 1.12
-                    val vatableSales = netAmount / 1.12
-
-                    item.copy(
-                        quantity = -item.quantity,
-                        subtotal = -itemTotal,
-                        vatAmount = -vatAmount,
-                        discountAmount = -discountAmount,
-                        total = -netAmount,
-                        comment = "Returned: $remarks",
-                        taxIncludedInPrice = -vatAmount,
-                        netAmountNotIncludingTax = -vatableSales
-                    )
-                }
-
-                transactionViewModel.updateTransactionSummary(updatedTransaction)
-                transactionViewModel.updateTransactionRecords(returnedItems)
-                updateInventory(returnedItems)
-
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(
-                        this@Window1,
-                        "Return processed successfully",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    printReturnReceipt(updatedTransaction, returnedItems, remarks)
-                }
-            } catch (e: Exception) {
-                Log.e("ReturnTransaction", "Error processing return: ${e.message}", e)
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(
-                        this@Window1,
-                        "Error processing return: ${e.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                    transactionViewModel.loadTransactions()
-                }
-            }}
-        }*/
     private fun processReturnTransaction(
         transaction: TransactionSummary,
         items: List<TransactionRecord>,
@@ -806,103 +1103,222 @@ class Window1 : AppCompatActivity() {
     ) {
         lifecycleScope.launch {
             try {
-                // Calculate correct amounts for returned items
-                val returnedGrossAmount = items.sumByDouble { item ->
-                    val effectivePrice =
-                        if (item.priceOverride!! > 0.0) item.priceOverride else item.price
-                    effectivePrice * item.quantity
-                }
+                // Get current store from session
+                val currentStore = SessionManager.getCurrentUser()?.storeid
+                    ?: throw IllegalStateException("No store ID found in current session")
 
-                // Calculate all discount components separately
-                val returnedDiscountAmount = items.sumByDouble { item ->
-                    when (item.discountType.uppercase()) {
-                        "PERCENTAGE", "PWD", "SC" -> {
-                            val itemTotal =
-                                (if (item.priceOverride!! > 0.0) item.priceOverride else item.price) * item.quantity
-                            itemTotal * item.discountRate
-                        }
+                // Generate return transaction ID using number sequence
+                val returnTransactionId = numberSequenceRemoteRepository.getNextTransactionNumber(currentStore)
 
-                        "FIXED" -> item.discountAmount * item.quantity
-                        "FIXEDTOTAL" -> item.discountAmount
-                        else -> 0.0
-                    }
-                }
+                // Get store key and generate store-specific sequence
+                val storeKey = numberSequenceRemoteRepository.getCurrentStoreKey(currentStore)
+                val storeSequence = "$currentStore-${returnTransactionId.split("-").last()}"
 
-                // Calculate net amount
-                val returnedNetAmount = returnedGrossAmount - returnedDiscountAmount
+                // Get original transaction records to update
+                val originalTransactionItems = transactionViewModel.getTransactionItems(transaction.transactionId)
 
-                // Calculate VAT components correctly from net amount
-                val returnedVatAmount = returnedNetAmount * 0.12 / 1.12
-                val returnedVatableSales = returnedNetAmount / 1.12
-
-                // Calculate the proportion of return amount to original transaction amount
-                val returnProportion = returnedNetAmount / transaction.netAmount
-
-                // Calculate partial payment adjustment proportionally
-                val returnedPartialPayment = if (transaction.partialPayment > 0) {
-                    transaction.partialPayment * returnProportion
-                } else {
-                    0.0
-                }
-
-                val updatedTransaction = transaction.copy(
-                    netAmount = transaction.netAmount - returnedNetAmount,
-                    costAmount = transaction.costAmount - items.sumByDouble {
-                        it.costAmount ?: 0.0
-                    },
-                    grossAmount = transaction.grossAmount - returnedGrossAmount,
-                    discountAmount = transaction.discountAmount - returnedDiscountAmount,
-                    customerDiscountAmount = transaction.customerDiscountAmount - returnedDiscountAmount,
-                    totalDiscountAmount = transaction.totalDiscountAmount - returnedDiscountAmount,
-                    numberOfItems = transaction.numberOfItems - items.sumOf { it.quantity.toDouble() },
-                    taxIncludedInPrice = transaction.taxIncludedInPrice - returnedVatAmount,
-                    vatAmount = transaction.vatAmount - returnedVatAmount,
-                    vatableSales = transaction.vatableSales - returnedVatableSales,
-                    partialPayment = transaction.partialPayment - returnedPartialPayment,
-                    comment = "${transaction.comment}\nReturn processed: $remarks",
-
-
-                    )
-
-                // Create returned items with correct amounts and preserving discount information
+                // Calculate return amounts
                 val returnedItems = items.map { item ->
-                    val effectivePrice =
-                        if (item.priceOverride!! > 0.0) item.priceOverride else item.price
-                    val itemTotal = effectivePrice * item.quantity
+                    val effectivePrice = item.priceOverride ?: item.price
+                    val returnQuantity = item.quantity
 
-                    // Preserve original discount information but make it negative
-                    val discountAmount = when (item.discountType.uppercase()) {
-                        "PERCENTAGE", "PWD", "SC" -> itemTotal * item.discountRate
-                        "FIXED" -> item.discountAmount * item.quantity
+                    // Calculate return amounts
+                    val returnGrossAmount = effectivePrice * returnQuantity
+                    val returnDiscountAmount = when (item.discountType.uppercase()) {
+                        "PERCENTAGE", "PWD", "SC" -> effectivePrice * returnQuantity * item.discountRate
+                        "FIXED" -> item.discountAmount * returnQuantity
                         "FIXEDTOTAL" -> item.discountAmount
                         else -> 0.0
                     }
+                    val returnNetAmount = returnGrossAmount - returnDiscountAmount
+                    val returnVatAmount = returnNetAmount * 0.12 / 1.12
+                    val returnVatableSales = returnNetAmount / 1.12
 
-                    val netAmount = itemTotal - discountAmount
-                    val vatAmount = netAmount * 0.12 / 1.12
-                    val vatableSales = netAmount / 1.12
-
-                    item.copy(
-                        quantity = -item.quantity,
-                        subtotal = -itemTotal,
-                        vatAmount = -vatAmount,
-                        discountAmount = -discountAmount,
-                        discountRate = item.discountRate,  // Preserve original discount rate
-                        lineDiscountAmount = -(item.lineDiscountAmount
-                            ?: 0.0),  // Preserve line discount
-                        total = -netAmount,
-                        comment = "Returned: $remarks",
-                        taxIncludedInPrice = -vatAmount,
-                        netAmountNotIncludingTax = -vatableSales,
-                        // Preserve all discount-related fields but make amounts negative
+                    // Create return transaction record with negative quantities
+                    TransactionRecord(
+                        transactionId = returnTransactionId,
+                        name = item.name,
+                        price = item.price,
+                        quantity = -returnQuantity,
+                        subtotal = -returnGrossAmount,
+                        vatRate = item.vatRate,
+                        vatAmount = -returnVatAmount,
+                        discountRate = item.discountRate,
+                        discountAmount = -returnDiscountAmount,
+                        total = -returnNetAmount,
+                        receiptNumber = returnTransactionId,
+                        paymentMethod = transaction.paymentMethod,
+                        ar = 0.0,
+                        comment = "Return: $remarks",
+                        lineNum = item.lineNum,
+                        itemId = item.itemId,
+                        itemGroup = item.itemGroup,
+                        netPrice = item.netPrice,
+                        costAmount = item.costAmount?.let { -it },
+                        netAmount = item.netAmount?.let { -it },
+                        grossAmount = item.grossAmount?.let { -it },
+                        customerAccount = item.customerAccount,
+                        store = item.store,
                         priceOverride = item.priceOverride,
-                        discountType = item.discountType
+                        staff = getCurrentStaff(),
+                        discountOfferId = item.discountOfferId,
+                        lineDiscountAmount = item.lineDiscountAmount?.let { -it },
+                        lineDiscountPercentage = item.lineDiscountPercentage,
+                        customerDiscountAmount = item.customerDiscountAmount?.let { -it },
+                        taxAmount = item.taxAmount?.let { -it },
+                        isReturned = true,
+                        returnTransactionId = transaction.transactionId,
+                        returnQuantity = returnQuantity.toDouble(),
+                        returnLineId = item.lineNum?.toDouble() ?: 0.0,
+                        storeKey = storeKey,
+                        storeSequence = storeSequence,
+                        unit = "PCS",
+                        unitQuantity = item.unitQuantity,
+                        unitPrice = item.price,
+                        createdDate = item.createdDate,
+                        taxExempt = 0.0,
+                        currency = "PHP",
+                        discountType = item.discountType,
+                        netAmountNotIncludingTax = item.netAmountNotIncludingTax?.let { -it }
 
                     )
                 }
 
-                transactionViewModel.updateTransactionSummary(updatedTransaction)
-                transactionViewModel.updateTransactionRecords(returnedItems)
+                // Update original transaction items to mark them as returned
+                val updatedOriginalItems = originalTransactionItems.map { originalItem ->
+                    val matchingReturnItem = returnedItems.find {
+                        it.itemId == originalItem.itemId &&
+                                it.lineNum == originalItem.lineNum
+                    }
+
+                    if (matchingReturnItem != null) {
+                        originalItem.copy(
+                            isReturned = true,
+                            returnTransactionId = returnTransactionId,
+                            returnQuantity = matchingReturnItem.returnQuantity?.absoluteValue ?: 0.0
+                        )
+                    } else {
+                        originalItem
+                    }
+                }
+
+                // Create return transaction summary with all negative values
+                val returnTransactionSummary = TransactionSummary(
+                    transactionId = returnTransactionId,
+                    type = 2, // Return transaction type
+                    receiptId = returnTransactionId,
+                    store = transaction.store,
+                    staff = getCurrentStaff(),
+                    storeKey = storeKey,
+                    storeSequence = storeSequence,
+                    customerAccount = transaction.customerAccount,
+                    netAmount = -abs(returnedItems.sumOf { it.netAmount ?: 0.0 }),
+                    costAmount = -abs(returnedItems.sumOf { it.costAmount ?: 0.0 }),
+                    grossAmount = -abs(returnedItems.sumOf { it.grossAmount ?: 0.0 }),
+                    partialPayment = 0.0,
+                    transactionStatus = 1,
+                    discountAmount = -abs(returnedItems.sumOf { it.discountAmount }),
+                    customerDiscountAmount = -abs(returnedItems.sumOf { it.discountAmount }),
+                    totalDiscountAmount = -abs(returnedItems.sumOf { it.discountAmount }),
+                    numberOfItems = -abs(returnedItems.sumOf { it.quantity.toDouble() }),
+                    refundReceiptId = transaction.transactionId,
+                    currency = "PHP",
+                    zReportId = null,
+                    createdDate = Date(),
+                    priceOverride = 0.0,
+                    comment = "Return for transaction: ${transaction.transactionId} - $remarks",
+                    receiptEmail = null,
+                    markupAmount = 0.0,
+                    markupDescription = null,
+                    taxIncludedInPrice = -abs(returnedItems.sumOf { it.vatAmount }),
+                    windowNumber = transaction.windowNumber,
+                    paymentMethod = transaction.paymentMethod,
+                    customerName = transaction.customerName,
+                    vatAmount = -abs(returnedItems.sumOf { it.vatAmount }),
+                    vatExemptAmount = 0.0,
+                    vatableSales = -abs(returnedItems.sumOf { it.netAmount ?: 0.0 }),
+                    discountType = transaction.discountType,
+                    totalAmountPaid = -abs(transaction.totalAmountPaid),
+                    changeGiven = -abs(transaction.changeGiven),
+                    gCash = if (transaction.paymentMethod.uppercase() == "GCASH" || transaction.paymentMethod.uppercase() == "Gcash")
+                        -abs(returnedItems.sumOf { it.netAmount ?: 0.0 })
+                    else 0.0,
+                    payMaya = if (transaction.paymentMethod.uppercase() == "PAYMAYA" || transaction.paymentMethod.uppercase() == "Paymaya")
+                        -abs(returnedItems.sumOf { it.netAmount ?: 0.0 })
+                    else 0.0,
+                    cash = if (transaction.paymentMethod.uppercase() == "CASH" || transaction.paymentMethod.uppercase() == "Cash")
+                        -abs(returnedItems.sumOf { it.netAmount ?: 0.0 })
+                    else 0.0,
+                    card = if (transaction.paymentMethod.uppercase() == "CARD" || transaction.paymentMethod.uppercase() == "Card")
+                        -abs(returnedItems.sumOf { it.netAmount ?: 0.0 })
+                    else 0.0,
+                    loyaltyCard = if (transaction.paymentMethod.uppercase() == "LOYALTYCARD" || transaction.paymentMethod.uppercase() == "Loyaltycard")
+                        -abs(returnedItems.sumOf { it.netAmount ?: 0.0 })
+                    else 0.0,
+                    charge = if (transaction.paymentMethod.uppercase() == "CHARGE" || transaction.paymentMethod.uppercase() == "Charge")
+                        -abs(returnedItems.sumOf { it.netAmount ?: 0.0 })
+                    else 0.0,
+                    foodpanda = if (transaction.paymentMethod.uppercase() == "FOODPANDA" || transaction.paymentMethod.uppercase() == "Foodpanda")
+                        -abs(returnedItems.sumOf { it.netAmount ?: 0.0 })
+                    else 0.0,
+                    grabfood = if (transaction.paymentMethod.uppercase() == "GRABFOOD" || transaction.paymentMethod.uppercase() == "Grabfood")
+                        -abs(returnedItems.sumOf { it.netAmount ?: 0.0 })
+                    else 0.0,
+                    representation = if (transaction.paymentMethod.uppercase() == "REPRESENTATION" || transaction.paymentMethod.uppercase() == "Representation")
+                        -abs(returnedItems.sumOf { it.netAmount ?: 0.0 })
+                    else 0.0,
+                    syncStatus = false
+                )
+
+                // Perform database operations
+                transactionDao.apply {
+                    // Update original transaction items to mark returned items
+                    updateTransactionRecords(updatedOriginalItems)
+
+                    // Insert return transaction summary
+                    insertTransactionSummary(returnTransactionSummary)
+
+                    // Insert return transaction records
+                    insertAll(returnedItems)
+
+                    // Update original transaction's refund receipt ID
+                    updateRefundReceiptId(transaction.transactionId, returnTransactionId)
+                }
+                // Sync the return transaction
+                transactionViewModel.syncTransaction(returnTransactionId)
+
+                // Observe the sync result
+                transactionViewModel.syncStatus.observe(this@Window1) { result ->
+                    result.fold(
+                        onSuccess = { response ->
+                            Log.e(
+                                "Return",
+                                "Return transaction synced successfully: ${response}"
+                            )
+                            Toast.makeText(
+                                this@Window1,
+                                "Return transaction synced successfully",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        onFailure = { error ->
+                            Log.e("Return", "Sync failed: ${error.message}")
+                            Toast.makeText(
+                                this@Window1,
+                                "Return transaction saved locally but sync failed: ${error.message}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    )
+                }
+                val transactionLogger = TransactionLogger(this@Window1)
+                transactionLogger.logReturn(
+                    returnTransaction = returnTransactionSummary,
+                    originalTransaction = transaction,
+                    returnedItems = returnedItems,
+                    remarks = remarks
+                )
+                // Update inventory
                 updateInventory(returnedItems)
 
                 withContext(Dispatchers.Main) {
@@ -911,7 +1327,7 @@ class Window1 : AppCompatActivity() {
                         "Return processed successfully",
                         Toast.LENGTH_SHORT
                     ).show()
-                    printReturnReceipt(updatedTransaction, returnedItems, remarks)
+                    printReturnReceipt(returnTransactionSummary, returnedItems, remarks)
                 }
             } catch (e: Exception) {
                 Log.e("ReturnTransaction", "Error processing return: ${e.message}", e)
@@ -921,13 +1337,375 @@ class Window1 : AppCompatActivity() {
                         "Error processing return: ${e.message}",
                         Toast.LENGTH_LONG
                     ).show()
-                    transactionViewModel.loadTransactions()
                 }
             }
         }
     }
 
-    private fun printReturnReceipt(
+//
+//    private fun processReturn(
+//        returnDialog: AlertDialog,
+//        transaction: TransactionSummary,
+//        returnable: List<TransactionRecord>,
+//        remarksEditText: TextInputEditText,
+//        returnButton: Button
+//    ) {
+//        val selectedItems = getSelectedItems(returnable)
+//        val remarks = remarksEditText.text.toString().trim()
+//
+//        when {
+//            selectedItems.isEmpty() -> {
+//                Toast.makeText(this, "Please select items to return", Toast.LENGTH_SHORT).show()
+//            }
+//
+//            remarks.isEmpty() -> {
+//                remarksEditText.error = "Remarks are required"
+//            }
+//
+//            else -> {
+//                lifecycleScope.launch {
+//                    try {
+//                        // Show loading dialog
+//                        val loadingDialog = AlertDialog.Builder(this@Window1)
+//                            .setMessage("Processing return...")
+//                            .setCancelable(false)
+//                            .create()
+//                        loadingDialog.show()
+//
+//                        val updatedItems = selectedItems.map { it.copy(isReturned = true) }
+//                        transactionViewModel.updateTransactionRecords(updatedItems)
+//                        processReturnTransaction(transaction, selectedItems, remarks)
+//                        loadingDialog.dismiss()
+//                        returnDialog.dismiss()
+////                        recreate()
+//                        Toast.makeText(
+//                            this@Window1,
+//                            "Return processed successfully",
+//                            Toast.LENGTH_SHORT
+//                        ).show()
+//                    } catch (e: Exception) {
+//                        Log.e(TAG, "Error processing return", e)
+//                        Toast.makeText(
+//                            this@Window1,
+//                            "Error processing return: ${e.message}",
+//                            Toast.LENGTH_LONG
+//                        ).show()
+//                    }
+//                }
+//            }
+//        }
+//    }
+//    private fun processReturn//    private fun processReturnTransaction(
+////        transaction: TransactionSummary,
+////        items: List<TransactionRecord>,
+////        remarks: String
+////    ) {
+////        lifecycleScope.launch {
+////            try {
+////                // Calculate amounts directly from selected items without any doubling
+////                val returnedGrossAmount = items.sumOf { item ->
+////                    val effectivePrice = if (item.priceOverride!! > 0.0) item.priceOverride else item.price
+////                    effectivePrice * item.quantity
+////                }
+////
+////                // Calculate discount amount directly from the items
+////                val returnedDiscountAmount = items.sumOf { item ->
+////                    when (item.discountType.uppercase()) {
+////                        "PERCENTAGE", "PWD", "SC" -> {
+////                            val itemTotal = (if (item.priceOverride!! > 0.0) item.priceOverride else item.price) * item.quantity
+////                            itemTotal * item.discountRate
+////                        }
+////                        "FIXED" -> item.discountAmount * item.quantity
+////                        "FIXEDTOTAL" -> item.discountAmount
+////                        else -> 0.0
+////                    }
+////                }
+////
+////                // Calculate net amount as gross minus discount
+////                val returnedNetAmount = returnedGrossAmount - returnedDiscountAmount
+////
+////                // Calculate VAT components from net amount only once
+////                val returnedVatAmount = returnedNetAmount * 0.12 / 1.12
+////                val returnedVatableSales = returnedNetAmount / 1.12
+////
+////                // Calculate partial payment proportion if exists
+////                val returnProportion = if (transaction.netAmount != 0.0) {
+////                    returnedNetAmount / transaction.netAmount
+////                } else 0.0
+////
+////                val returnedPartialPayment = transaction.partialPayment * returnProportion
+////
+////                // Update transaction with correct amounts
+////                val updatedTransaction = transaction.copy(
+////                    netAmount = transaction.netAmount - returnedNetAmount,
+////                    costAmount = transaction.costAmount - items.sumOf { it.costAmount ?: 0.0 },
+////                    grossAmount = transaction.grossAmount - returnedGrossAmount,
+////                    discountAmount = transaction.discountAmount - returnedDiscountAmount,
+////                    customerDiscountAmount = transaction.customerDiscountAmount - returnedDiscountAmount,
+////                    totalDiscountAmount = transaction.totalDiscountAmount - returnedDiscountAmount,
+////                    numberOfItems = transaction.numberOfItems - items.sumOf { it.quantity.toDouble() },
+////                    taxIncludedInPrice = transaction.taxIncludedInPrice - returnedVatAmount,
+////                    vatAmount = transaction.vatAmount - returnedVatAmount,
+////                    vatableSales = transaction.vatableSales - returnedVatableSales,
+////                    partialPayment = transaction.partialPayment - returnedPartialPayment,
+////                    comment = "${transaction.comment}\nReturn processed: $remarks"
+////                )
+////
+////                // Create return items with correct negative amounts
+////                val returnedItems = items.map { item ->
+////                    val effectivePrice = if (item.priceOverride!! > 0.0) item.priceOverride else item.price
+////                    val itemTotal = effectivePrice * item.quantity
+////                    val itemDiscount = when (item.discountType.uppercase()) {
+////                        "PERCENTAGE", "PWD", "SC" -> itemTotal * item.discountRate
+////                        "FIXED" -> item.discountAmount * item.quantity
+////                        "FIXEDTOTAL" -> item.discountAmount
+////                        else -> 0.0
+////                    }
+////                    val netAmount = itemTotal - itemDiscount
+////                    val vatAmount = netAmount * 0.12 / 1.12
+////
+////                    item.copy(
+////                        quantity = -item.quantity,
+////                        subtotal = 0.0,
+////                        grossAmount = 0.0,
+////                        costAmount = 0.0,
+////                        netAmount = 0.0,
+////                        vatAmount = 0.0,
+////                        taxAmount = 0.0,
+////                        taxIncludedInPrice = 0.0,
+////                        netAmountNotIncludingTax = 0.0,
+////                        discountAmount = 0.0,
+////                        lineDiscountAmount = 0.0,
+////                        customerDiscountAmount = 0.0,
+////                        returnTransactionId = transaction.transactionId,
+////                        returnQuantity = -item.quantity.toDouble(),
+////                        returnLineId = item.lineNum?.toDouble() ?: 0.0,
+////                        comment = "Returned: $remarks",
+////                        discountRate = item.discountRate,
+////                        priceOverride = item.priceOverride,
+////                        discountType = item.discountType,
+////                        total = 0.0
+////                    )
+////                }
+////
+////                // Update local database
+////                transactionViewModel.updateTransactionSummary(updatedTransaction)
+////                transactionViewModel.updateTransactionRecords(returnedItems)
+////                updateInventory(returnedItems)
+////
+////                // Process refund on server
+////                val currentStore = SessionManager.getCurrentUser()?.storeid
+////                    ?: throw IllegalStateException("No store ID found in current session")
+////
+////                val refundResult = transactionViewModel.repository.processRefundOnServer(
+////                    currentStore,
+////                    updatedTransaction,
+////                    returnedItems,
+////                    remarks
+////                )
+////
+////                // Handle the refund result
+////                refundResult.fold(
+////                    onSuccess = { response ->
+////                        withContext(Dispatchers.Main) {
+////                            Toast.makeText(
+////                                this@Window1,
+////                                "Return processed and synced successfully",
+////                                Toast.LENGTH_SHORT
+////                            ).show()
+////                            // Print return receipt only after successful server sync
+////                            printReturnReceipt(updatedTransaction, returnedItems, remarks)
+////                        }
+////                    },
+////                    onFailure = { error ->
+////                        Log.e("ReturnTransaction", "Error syncing return with server: ${error.message}", error)
+////                        withContext(Dispatchers.Main) {
+////                            Toast.makeText(
+////                                this@Window1,
+////                                "Return processed locally but sync failed: ${error.message}",
+////                                Toast.LENGTH_LONG
+////                            ).show()
+////                        }
+////                        // Still print receipt even if sync fails, but mark it as "Not Synced"
+////                        printReturnReceipt(updatedTransaction, returnedItems, "$remarks (Not Synced)")
+////                    }
+////                )
+////
+////                // Update sync status in local database
+////                transactionViewModel.repository.transactionDao.updateSyncStatus(
+////                    updatedTransaction.transactionId,
+////                    refundResult.isSuccess
+////                )
+////
+////            } catch (e: Exception) {
+////                Log.e("ReturnTransaction", "Error processing return: ${e.message}", e)
+////                withContext(Dispatchers.Main) {
+////                    Toast.makeText(
+////                        this@Window1,
+////                        "Error processing return: ${e.message}",
+////                        Toast.LENGTH_LONG
+////                    ).show()
+////                    transactionViewModel.loadTransactions()
+////                }
+////            }
+////        }
+////    }(
+//        transaction: TransactionSummary,
+//        items: List<TransactionRecord>,
+//        remarks: String
+//    ) {
+//        lifecycleScope.launch {
+//            try {
+//                // Calculate amounts directly from selected items without any doubling
+//                val returnedGrossAmount = items.sumOf { item ->
+//                    val effectivePrice = if (item.priceOverride!! > 0.0) item.priceOverride else item.price
+//                    effectivePrice * item.quantity
+//                }
+//
+//                // Calculate discount amount directly from the items
+//                val returnedDiscountAmount = items.sumOf { item ->
+//                    when (item.discountType.uppercase()) {
+//                        "PERCENTAGE", "PWD", "SC" -> {
+//                            val itemTotal = (if (item.priceOverride!! > 0.0) item.priceOverride else item.price) * item.quantity
+//                            itemTotal * item.discountRate
+//                        }
+//                        "FIXED" -> item.discountAmount * item.quantity
+//                        "FIXEDTOTAL" -> item.discountAmount
+//                        else -> 0.0
+//                    }
+//                }
+//
+//                // Calculate net amount as gross minus discount
+//                val returnedNetAmount = returnedGrossAmount - returnedDiscountAmount
+//
+//                // Calculate VAT components from net amount only once
+//                val returnedVatAmount = returnedNetAmount * 0.12 / 1.12
+//                val returnedVatableSales = returnedNetAmount / 1.12
+//
+//                // Calculate partial payment proportion if exists
+//                val returnProportion = if (transaction.netAmount != 0.0) {
+//                    returnedNetAmount / transaction.netAmount
+//                } else 0.0
+//
+//                val returnedPartialPayment = transaction.partialPayment * returnProportion
+//
+//                // Update transaction with correct amounts
+//                val updatedTransaction = transaction.copy(
+//                    netAmount = transaction.netAmount - returnedNetAmount,
+//                    costAmount = transaction.costAmount - items.sumOf { it.costAmount ?: 0.0 },
+//                    grossAmount = transaction.grossAmount - returnedGrossAmount,
+//                    discountAmount = transaction.discountAmount - returnedDiscountAmount,
+//                    customerDiscountAmount = transaction.customerDiscountAmount - returnedDiscountAmount,
+//                    totalDiscountAmount = transaction.totalDiscountAmount - returnedDiscountAmount,
+//                    numberOfItems = transaction.numberOfItems - items.sumOf { it.quantity.toDouble() },
+//                    taxIncludedInPrice = transaction.taxIncludedInPrice - returnedVatAmount,
+//                    vatAmount = transaction.vatAmount - returnedVatAmount,
+//                    vatableSales = transaction.vatableSales - returnedVatableSales,
+//                    partialPayment = transaction.partialPayment - returnedPartialPayment,
+//                    comment = "${transaction.comment}\nReturn processed: $remarks"
+//                )
+//
+//                // Create return items with correct negative amounts
+//                val returnedItems = items.map { item ->
+//                    val effectivePrice = if (item.priceOverride!! > 0.0) item.priceOverride else item.price
+//                    val itemTotal = effectivePrice * item.quantity
+//                    val itemDiscount = when (item.discountType.uppercase()) {
+//                        "PERCENTAGE", "PWD", "SC" -> itemTotal * item.discountRate
+//                        "FIXED" -> item.discountAmount * item.quantity
+//                        "FIXEDTOTAL" -> item.discountAmount
+//                        else -> 0.0
+//                    }
+//                    val netAmount = itemTotal - itemDiscount
+//                    val vatAmount = netAmount * 0.12 / 1.12
+//
+//                    item.copy(
+//                        quantity = -item.quantity,
+//                        subtotal = 0.0,
+//                        grossAmount = 0.0,
+//                        costAmount = 0.0,
+//                        netAmount = 0.0,
+//                        vatAmount = 0.0,
+//                        taxAmount = 0.0,
+//                        taxIncludedInPrice = 0.0,
+//                        netAmountNotIncludingTax = 0.0,
+//                        discountAmount = 0.0,
+//                        lineDiscountAmount = 0.0,
+//                        customerDiscountAmount = 0.0,
+//                        returnTransactionId = transaction.transactionId,
+//                        returnQuantity = -item.quantity.toDouble(),
+//                        returnLineId = item.lineNum?.toDouble() ?: 0.0,
+//                        comment = "Returned: $remarks",
+//                        discountRate = item.discountRate,
+//                        priceOverride = item.priceOverride,
+//                        discountType = item.discountType,
+//                        total = 0.0
+//                    )
+//                }
+//
+//                // Update local database
+//                transactionViewModel.updateTransactionSummary(updatedTransaction)
+//                transactionViewModel.updateTransactionRecords(returnedItems)
+//                updateInventory(returnedItems)
+//
+//                // Process refund on server
+//                val currentStore = SessionManager.getCurrentUser()?.storeid
+//                    ?: throw IllegalStateException("No store ID found in current session")
+//
+//                val refundResult = transactionViewModel.repository.processRefundOnServer(
+//                    currentStore,
+//                    updatedTransaction,
+//                    returnedItems,
+//                    remarks
+//                )
+//
+//                // Handle the refund result
+//                refundResult.fold(
+//                    onSuccess = { response ->
+//                        withContext(Dispatchers.Main) {
+//                            Toast.makeText(
+//                                this@Window1,
+//                                "Return processed and synced successfully",
+//                                Toast.LENGTH_SHORT
+//                            ).show()
+//                            // Print return receipt only after successful server sync
+//                            printReturnReceipt(updatedTransaction, returnedItems, remarks)
+//                        }
+//                    },
+//                    onFailure = { error ->
+//                        Log.e("ReturnTransaction", "Error syncing return with server: ${error.message}", error)
+//                        withContext(Dispatchers.Main) {
+//                            Toast.makeText(
+//                                this@Window1,
+//                                "Return processed locally but sync failed: ${error.message}",
+//                                Toast.LENGTH_LONG
+//                            ).show()
+//                        }
+//                        // Still print receipt even if sync fails, but mark it as "Not Synced"
+//                        printReturnReceipt(updatedTransaction, returnedItems, "$remarks (Not Synced)")
+//                    }
+//                )
+//
+//                // Update sync status in local database
+//                transactionViewModel.repository.transactionDao.updateSyncStatus(
+//                    updatedTransaction.transactionId,
+//                    refundResult.isSuccess
+//                )
+//
+//            } catch (e: Exception) {
+//                Log.e("ReturnTransaction", "Error processing return: ${e.message}", e)
+//                withContext(Dispatchers.Main) {
+//                    Toast.makeText(
+//                        this@Window1,
+//                        "Error processing return: ${e.message}",
+//                        Toast.LENGTH_LONG
+//                    ).show()
+//                    transactionViewModel.loadTransactions()
+//                }
+//            }
+//        }
+//    }
+
+private fun printReturnReceipt(
         transaction: TransactionSummary,
         returnedItems: List<TransactionRecord>,
         remarks: String
@@ -963,29 +1741,9 @@ class Window1 : AppCompatActivity() {
         }
     }
 
-
     private fun updateInventory(returnItems: List<TransactionRecord>) {
         // Implement your inventory update logic here
         // This might involve increasing the stock of returned items
-    }
-
-    private fun setupOverlay() {
-        val toggleButton = findViewById<ImageButton>(R.id.toggleButton)
-        val overlayLayout = findViewById<ConstraintLayout>(R.id.overlayLayout)
-        val searchCardView = findViewById<CardView>(R.id.searchCardView)
-        val insertButton = findViewById<Button>(R.id.insertButton)
-
-        toggleButton.setOnClickListener {
-            if (overlayLayout.visibility == View.GONE) {
-                overlayLayout.visibility = View.VISIBLE
-                searchCardView.visibility = View.GONE
-                insertButton.visibility = View.GONE
-            } else {
-                overlayLayout.visibility = View.GONE
-                searchCardView.visibility = View.VISIBLE
-                insertButton.visibility = View.VISIBLE
-            }
-        }
     }
 
 
@@ -1026,13 +1784,10 @@ class Window1 : AppCompatActivity() {
         productViewModel.selectCategory(null) // Reset category filter
     }*/
 
-    private fun initializeAutoDatabaseTransferManager() {
-        autoDatabaseTransferManager = AutoDatabaseTransferManager(this, lifecycleScope)
-        autoDatabaseTransferManager.startMonitoringConnectivity()
-    }
 
 
     override fun onDestroy() {
+        transactionSyncService?.stopSyncService()
         super.onDestroy()
         if (::refreshJob.isInitialized) {
             refreshJob.cancel()
@@ -1061,60 +1816,123 @@ class Window1 : AppCompatActivity() {
 
         // Access the EditText inside the SearchView and set the background
         val editText = searchView.findViewById<EditText>(androidx.appcompat.R.id.search_src_text)
-        editText.setBackgroundResource(android.R.color.transparent) // Set background to transparent
-
-        // Set the text color for the query and hint
-        editText.setTextColor(Color.BLACK) // Set text color to black
-        editText.setHintTextColor(Color.GRAY) // Set hint text color to gray
+        editText.setBackgroundResource(android.R.color.transparent)
+        editText.setTextColor(Color.BLACK)
+        editText.setHintTextColor(Color.GRAY)
 
         // Move the search icon to the right
-        searchView.findViewById<ImageView>(androidx.appcompat.R.id.search_mag_icon)
-            ?.let { searchIcon ->
-                // Remove the search icon from its parent
-                (searchIcon.parent as? ViewGroup)?.removeView(searchIcon)
-
-                // Create a new LinearLayout to hold the search icon
-                val linearLayout = LinearLayout(searchView.context).apply {
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.MATCH_PARENT
-                    )
-                    orientation = LinearLayout.HORIZONTAL
-                }
-
-                // Add the search icon to the right of the LinearLayout
-                linearLayout.addView(searchIcon, LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    marginStart = 0
-                    marginEnd = 16 // Set right margin to 16dp
-                })
-
-                // Add the LinearLayout to the SearchView
-                (searchView as ViewGroup).addView(linearLayout)
+        searchView.findViewById<ImageView>(androidx.appcompat.R.id.search_mag_icon)?.let { searchIcon ->
+            (searchIcon.parent as? ViewGroup)?.removeView(searchIcon)
+            val linearLayout = LinearLayout(searchView.context).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.MATCH_PARENT
+                )
+                orientation = LinearLayout.HORIZONTAL
             }
+            linearLayout.addView(searchIcon, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                marginStart = 0
+                marginEnd = 16
+            })
+            (searchView as ViewGroup).addView(linearLayout)
+        }
 
-        // Set the OnQueryTextListener to handle text changes and submissions
+        // Set up the window-specific search functionality
         searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(query: String?): Boolean {
-                searchView.clearFocus() // Hide the keyboard on submit
+                searchView.clearFocus()
                 return true
             }
 
             override fun onQueryTextChange(newText: String?): Boolean {
-                productViewModel.filterProducts(newText)
+                filterProductsForCurrentWindow(newText)
                 return true
             }
         })
 
-        // Handle the focus change for the SearchView to hide the keyboard when it loses focus
         searchView.setOnQueryTextFocusChangeListener { _, hasFocus ->
             if (!hasFocus) {
                 val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
                 imm.hideSoftInputFromWindow(searchView.windowToken, 0)
             }
         }
+    }
+    private fun filterProductsForCurrentWindow(query: String?) {
+        lifecycleScope.launch {
+            try {
+                val window = windowViewModel.allWindows.first().find { it.id == windowId }
+                if (window != null) {
+                    val description = window.description.uppercase()
+                    val allProducts = productViewModel.allProducts.value ?: emptyList()
+
+                    // First filter by window type
+                    val windowFilteredProducts = when {
+                        description.contains("GRABFOOD") -> {
+                            allProducts.filter { it.grabfood > 0 }
+                                .map { it.copy(price = it.grabfood) }
+                        }
+                        description.contains("FOODPANDA") -> {
+                            allProducts.filter { it.foodpanda > 0 }
+                                .map { it.copy(price = it.foodpanda) }
+                        }
+                        description.contains("MANILARATE") -> {
+                            allProducts.filter { it.manilaprice > 0 }
+                                .map { it.copy(price = it.manilaprice) }
+                        }
+                        description.contains("PARTYCAKES") -> {
+                            allProducts.filter {
+                                it.itemGroup.equals("PARTY CAKES", ignoreCase = true)
+                            }
+                        }
+                        description.contains("PURCHASE") -> {
+                            allProducts.filter {
+                                it.price > 0 && it.grabfood == 0.0 &&
+                                        it.foodpanda == 0.0 && it.manilaprice == 0.0
+                            }
+                        }
+                        else -> allProducts
+                    }
+
+                    // Then apply search filter
+                    val searchFilteredProducts = if (query.isNullOrBlank()) {
+                        windowFilteredProducts
+                    } else {
+                        windowFilteredProducts.filter { product ->
+                            product.itemName.contains(query, ignoreCase = true) ||
+                                    product.itemGroup.contains(query, ignoreCase = true)
+                        }
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        productAdapter.submitList(searchFilteredProducts)
+                        updateAvailableCategories(searchFilteredProducts)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("Window1", "Error filtering products", e)
+            }
+        }
+    }
+    private fun updateAvailableCategories(products: List<Product>) {
+        val availableCategories = products
+            .map { it.itemGroup.uppercase() }
+            .distinct()
+            .mapNotNull { itemGroup ->
+                categoryViewModel.categories.value?.find {
+                    it.name.uppercase() == itemGroup
+                }
+            }
+            .sortedBy { it.name }
+
+        val displayCategories = listOf(
+            Category(-1, "All"),
+            Category(-2, "Mix & Match")
+        ) + availableCategories
+
+        categoryAdapter.setCategories(displayCategories)
     }
 
     private fun filterProducts(query: String?) {
@@ -1217,6 +2035,108 @@ class Window1 : AppCompatActivity() {
             throw IllegalStateException("No window ID provided")
         }
     }
+//    private fun initializeRepositories() {
+//        val cartDao = database.cartDao()
+//        val cartRepository = CartRepository(cartDao)
+//        transactionDao = database.transactionDao()
+//        val cashFundDao = database.cashFundDao()
+//        cashFundRepository = CashFundRepository(cashFundDao)
+//        numberSequenceRepository = NumberSequenceRepository(database.numberSequenceDao())
+//
+//        val numberSequenceApi = RetrofitClient.numberSequenceApi
+//        val numberSequenceRemoteDao = database.numberSequenceRemoteDao()
+//        numberSequenceRemoteRepository = NumberSequenceRemoteRepository(numberSequenceApi, numberSequenceRemoteDao)
+//    }
+
+//    private fun initializeViewModels() {
+//        productViewModel = ViewModelProvider(
+//            this,
+//            ProductViewModel.ProductViewModelFactory(application)
+//        ).get(ProductViewModel::class.java)
+//
+//        val cartRepository = CartRepository(database.cartDao())
+//        val cartViewModelFactory = CartViewModelFactory(cartRepository)
+//        cartViewModel = ViewModelProvider(this, cartViewModelFactory)[CartViewModel::class.java]
+//        cartViewModel.setCurrentWindow(windowId)
+//
+//        val categoryApi = RetrofitClient.categoryApi
+//        val categoryDao = database.categoryDao()
+//        val categoryRepository = CategoryRepository(categoryApi, categoryDao)
+//        categoryViewModel = ViewModelProvider(
+//            this,
+//            CategoryViewModelFactory(categoryRepository)
+//        ).get(CategoryViewModel::class.java)
+//        val discountApiService = RetrofitClient.discountApiService
+//        val discountDao =
+//            database.discountDao() // Assuming you have this method in your AppDatabase
+//        val discountRepository = DiscountRepository(discountApiService, discountDao)
+//        val discountViewModelFactory = DiscountViewModelFactory(discountRepository)
+//        discountViewModel =
+//            ViewModelProvider(this, discountViewModelFactory)[DiscountViewModel::class.java]
+//        windowViewModel = ViewModelProvider(this).get(WindowViewModel::class.java)
+//
+//        productViewModel.loadAlignedProducts()
+//
+//        val arApi = RetrofitClient.arApi
+//        val arDao = database.arDao() // Assuming you have this method in your AppDatabase
+//        val arRepository = ARRepository(arApi, arDao)
+//        val arViewModelFactory = ARViewModelFactory(arRepository)
+//        arViewModel = ViewModelProvider(this, arViewModelFactory)[ARViewModel::class.java]
+//
+//        // Initialize CustomerViewModel
+//        val customerApi = RetrofitClient.customerApi
+//        val customerDao =
+//            database.customerDao() // Assuming you have this method in your AppDatabase
+//        val customerRepository = CustomerRepository(customerApi, customerDao)
+//        val customerViewModelFactory = CustomerViewModelFactory(customerRepository)
+//        customerViewModel =
+//            ViewModelProvider(this, customerViewModelFactory)[CustomerViewModel::class.java]
+//
+//        val numberSequenceApi = RetrofitClient.numberSequenceApi
+//        val numberSequenceRemoteDao = database.numberSequenceRemoteDao()
+//        numberSequenceRemoteRepository = NumberSequenceRemoteRepository(numberSequenceApi, numberSequenceRemoteDao)
+//
+////        val repository = TransactionRepository(transactionDao)
+//        val numberSequenceRepository = NumberSequenceRepository(database.numberSequenceDao())
+//        val transactionRepository = TransactionRepository(
+//            transactionDao,
+//            numberSequenceRepository
+//        )
+//
+//        val factory = TransactionViewModel.TransactionViewModelFactory(
+//            repository = transactionRepository,
+//            numberSequenceRepository = numberSequenceRepository  // Add this parameter
+//        )
+//        transactionViewModel = ViewModelProvider(this, factory)[TransactionViewModel::class.java]
+//
+//
+//        // Set up the observer
+//        transactionViewModel.syncStatus.observe(this@Window1) { result ->
+//            result.fold(
+//                onSuccess = { response ->
+////                    Log.e("Sync", "Successfully synced transaction: ${response.transactionId}")
+//                    Toast.makeText(
+//                        this@Window1,
+//                        "Transaction synced successfully",
+//                        Toast.LENGTH_SHORT
+//                    ).show()
+//                },
+//                onFailure = { error ->
+//                    Log.e("Sync", "Failed to sync: ${error.message}")
+//                    Toast.makeText(
+//                        this@Window1,
+//                        "Failed to sync transaction: ${error.message}",
+//                        Toast.LENGTH_LONG
+//                    ).show()
+//                }
+//            )
+//        }
+//    }
+//    private fun setupMixMatchButton() {
+//        binding.buttonMixMatch.setOnClickListener {
+//            showMixMatchDialog()
+//        }
+//    }
 
     private fun initializeRepositories() {
         val cartDao = database.cartDao()
@@ -1226,84 +2146,107 @@ class Window1 : AppCompatActivity() {
         cashFundRepository = CashFundRepository(cashFundDao)
         numberSequenceRepository = NumberSequenceRepository(database.numberSequenceDao())
 
+        val numberSequenceApi = RetrofitClient.numberSequenceApi
+        val numberSequenceRemoteDao = database.numberSequenceRemoteDao()
+        numberSequenceRemoteRepository = NumberSequenceRemoteRepository(numberSequenceApi, numberSequenceRemoteDao)
+
     }
+    private fun setupTransactionView() {
+        val numberSequenceRepository = NumberSequenceRepository(database.numberSequenceDao())
+        val transactionRepository = TransactionRepository(
+            database.transactionDao(),
+            numberSequenceRemoteRepository
+        )
+        val factory = TransactionViewModel.TransactionViewModelFactory(
+            repository = transactionRepository,
+            numberSequenceRemoteRepository = numberSequenceRemoteRepository
+        )
+        transactionViewModel = ViewModelProvider(this, factory).get(TransactionViewModel::class.java)
 
-    private fun initializeViewModels() {
-        productViewModel = ViewModelProvider(
-            this,
-            ProductViewModel.ProductViewModelFactory(application)
-        ).get(ProductViewModel::class.java)
-
-        val cartRepository = CartRepository(database.cartDao())
-        val cartViewModelFactory = CartViewModelFactory(cartRepository)
-        cartViewModel = ViewModelProvider(this, cartViewModelFactory)[CartViewModel::class.java]
-        cartViewModel.setCurrentWindow(windowId)
-
-        val categoryApi = RetrofitClient.categoryApi
-        val categoryDao = database.categoryDao()
-        val categoryRepository = CategoryRepository(categoryApi, categoryDao)
-        categoryViewModel = ViewModelProvider(
-            this,
-            CategoryViewModelFactory(categoryRepository)
-        ).get(CategoryViewModel::class.java)
-        val discountApiService = RetrofitClient.discountApiService
-        val discountDao =
-            database.discountDao() // Assuming you have this method in your AppDatabase
-        val discountRepository = DiscountRepository(discountApiService, discountDao)
-        val discountViewModelFactory = DiscountViewModelFactory(discountRepository)
-        discountViewModel =
-            ViewModelProvider(this, discountViewModelFactory)[DiscountViewModel::class.java]
-        windowViewModel = ViewModelProvider(this).get(WindowViewModel::class.java)
-
-        productViewModel.loadAlignedProducts()
-
-        val arApi = RetrofitClient.arApi
-        val arDao = database.arDao() // Assuming you have this method in your AppDatabase
-        val arRepository = ARRepository(arApi, arDao)
-        val arViewModelFactory = ARViewModelFactory(arRepository)
-        arViewModel = ViewModelProvider(this, arViewModelFactory)[ARViewModel::class.java]
-
-        // Initialize CustomerViewModel
-        val customerApi = RetrofitClient.customerApi
-        val customerDao =
-            database.customerDao() // Assuming you have this method in your AppDatabase
-        val customerRepository = CustomerRepository(customerApi, customerDao)
-        val customerViewModelFactory = CustomerViewModelFactory(customerRepository)
-        customerViewModel =
-            ViewModelProvider(this, customerViewModelFactory)[CustomerViewModel::class.java]
-
-        val repository = TransactionRepository(transactionDao)
-        val factory = TransactionViewModel.TransactionViewModelFactory(repository)
-        transactionViewModel = ViewModelProvider(this, factory)[TransactionViewModel::class.java]
-
-        // Set up the observer
-        transactionViewModel.syncStatus.observe(this@Window1) { result ->
-            result.fold(
-                onSuccess = { response ->
-                    Log.d("Sync", "Successfully synced transaction: ${response.transactionId}")
-                    Toast.makeText(
-                        this@Window1,
-                        "Transaction synced successfully",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                },
-                onFailure = { error ->
-                    Log.e("Sync", "Failed to sync: ${error.message}")
-                    Toast.makeText(
-                        this@Window1,
-                        "Failed to sync transaction: ${error.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            )
+        transactionAdapter = TransactionAdapter { transaction ->
+            showTransactionDetailsDialog(transaction)
         }
     }
-//    private fun setupMixMatchButton() {
-//        binding.buttonMixMatch.setOnClickListener {
-//            showMixMatchDialog()
-//        }
-//    }
+private fun initializeViewModels() {
+    productViewModel = ViewModelProvider(
+        this,
+        ProductViewModel.ProductViewModelFactory(application)
+    ).get(ProductViewModel::class.java)
 
+    val cartRepository = CartRepository(database.cartDao())
+    val cartViewModelFactory = CartViewModelFactory(cartRepository)
+    cartViewModel = ViewModelProvider(this, cartViewModelFactory)[CartViewModel::class.java]
+    cartViewModel.setCurrentWindow(windowId)
+
+    val categoryApi = RetrofitClient.categoryApi
+    val categoryDao = database.categoryDao()
+    val categoryRepository = CategoryRepository(categoryApi, categoryDao)
+    categoryViewModel = ViewModelProvider(
+        this,
+        CategoryViewModelFactory(categoryRepository)
+    ).get(CategoryViewModel::class.java)
+    val discountApiService = RetrofitClient.discountApiService
+    val discountDao =
+        database.discountDao() // Assuming you have this method in your AppDatabase
+    val discountRepository = DiscountRepository(discountApiService, discountDao)
+    val discountViewModelFactory = DiscountViewModelFactory(discountRepository)
+    discountViewModel =
+        ViewModelProvider(this, discountViewModelFactory)[DiscountViewModel::class.java]
+    windowViewModel = ViewModelProvider(this).get(WindowViewModel::class.java)
+
+    productViewModel.loadAlignedProducts()
+
+    val arApi = RetrofitClient.arApi
+    val arDao = database.arDao() // Assuming you have this method in your AppDatabase
+    val arRepository = ARRepository(arApi, arDao)
+    val arViewModelFactory = ARViewModelFactory(arRepository)
+    arViewModel = ViewModelProvider(this, arViewModelFactory)[ARViewModel::class.java]
+
+    // Initialize CustomerViewModel
+    val customerApi = RetrofitClient.customerApi
+    val customerDao =
+        database.customerDao() // Assuming you have this method in your AppDatabase
+    val customerRepository = CustomerRepository(customerApi, customerDao)
+    val customerViewModelFactory = CustomerViewModelFactory(customerRepository)
+    customerViewModel =
+        ViewModelProvider(this, customerViewModelFactory)[CustomerViewModel::class.java]
+
+//        val repository = TransactionRepository(transactionDao)
+    val numberSequenceRepository = NumberSequenceRepository(database.numberSequenceDao())
+
+    val transactionRepository = TransactionRepository(
+        transactionDao,
+        numberSequenceRemoteRepository
+    )
+
+    val factory = TransactionViewModel.TransactionViewModelFactory(
+        repository = transactionRepository,
+        numberSequenceRemoteRepository = numberSequenceRemoteRepository
+    )
+    transactionViewModel = ViewModelProvider(this, factory)[TransactionViewModel::class.java]
+
+
+    // Set up the observer
+    transactionViewModel.syncStatus.observe(this@Window1) { result ->
+        result.fold(
+            onSuccess = { response ->
+                Toast.makeText(
+                    this@Window1,
+                    "Transaction synced successfully",
+                    Toast.LENGTH_SHORT
+                ).show()
+            },
+            onFailure = { error ->
+                Log.e("Sync", "Failed to sync: ${error.message}")
+                Toast.makeText(
+                    this@Window1,
+                    "Failed to sync transaction: ${error.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        )
+    }
+}
     private fun initializeMixMatch() {
         val mixMatchDao = database.mixMatchDao()
         val mixMatchApi = RetrofitClient.mixMatchApi  // Use the API from RetrofitClient
@@ -1363,6 +2306,42 @@ class Window1 : AppCompatActivity() {
         try {
             val dialogView = layoutInflater.inflate(R.layout.dialog_mix_match_product_selection, null)
 
+            // Add quantity input to dialog
+            val quantityLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(16, 16, 16, 16)
+                }
+            }
+
+            val quantityLabel = TextView(this).apply {
+                text = "Bundle Quantity: "
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            }
+
+            val quantityInput = EditText(this).apply {
+                inputType = InputType.TYPE_CLASS_NUMBER
+                setText("1")
+                layoutParams = LinearLayout.LayoutParams(
+                    0,
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    1f
+                )
+            }
+
+            quantityLayout.addView(quantityLabel)
+            quantityLayout.addView(quantityInput)
+
+            // Add quantity layout to the top of the dialog
+            val container = dialogView.findViewById<LinearLayout>(R.id.containerLayout)
+            container.addView(quantityLayout, 0)
+
             val dialog = AlertDialog.Builder(
                 this,
                 com.google.android.material.R.style.ThemeOverlay_MaterialComponents_Dialog_Alert
@@ -1390,8 +2369,19 @@ class Window1 : AppCompatActivity() {
 
             applyButton?.setOnClickListener {
                 val selections = lineGroupAdapter.getSelections()
+                val bundleQuantity = quantityInput.text.toString().toIntOrNull() ?: 1
+
+                if (bundleQuantity <= 0) {
+                    Toast.makeText(
+                        this,
+                        "Please enter a valid quantity",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@setOnClickListener
+                }
+
                 if (validateSelections(mixMatch, selections)) {
-                    applyMixMatchToCart(mixMatch, selections)
+                    applyMixMatchToCart(mixMatch, selections, bundleQuantity)
                     dialog.dismiss()
                 } else {
                     Toast.makeText(
@@ -1449,16 +2439,16 @@ class Window1 : AppCompatActivity() {
 
     private fun applyMixMatchToCart(
         mixMatch: MixMatchWithDetails,
-        selections: Map<Int, String>
+        selections: Map<Int, String>,
+        bundleQuantity: Int
     ) {
-        val bundleId = System.currentTimeMillis().toInt()
-
         lifecycleScope.launch {
             try {
+                val bundleId = System.currentTimeMillis().toInt()
                 var totalBundlePrice = 0.0
-                val selectedItems = mutableListOf<Triple<Product, Int, LineGroupWithDiscounts>>()
+                val selectedItems = mutableListOf<Triple<Product, LineGroupWithDiscounts, Int>>()
 
-                // First pass: collect all selected products
+                // First pass: collect selected products
                 selections.forEach { (lineGroupId, itemIdentifier) ->
                     val lineGroup = mixMatch.lineGroups.find { it.lineGroup.id == lineGroupId }
                     val discountLine = lineGroup?.discountLines?.find { line ->
@@ -1469,11 +2459,11 @@ class Window1 : AppCompatActivity() {
                         throw Exception("Discount line not found for identifier: $itemIdentifier")
                     }
 
-                    // Simplified product lookup using only itemid
                     val product = productViewModel.findProduct(discountLine.itemId?.toString())
                         ?: throw Exception("Product not found with itemId: ${discountLine.itemId}")
 
-                    selectedItems.add(Triple(product, discountLine.qty, lineGroup!!))
+                    // Store lineGroup for lineNum info
+                    selectedItems.add(Triple(product, lineGroup!!, discountLine.qty))
                     totalBundlePrice += product.price * discountLine.qty
                 }
 
@@ -1482,7 +2472,7 @@ class Window1 : AppCompatActivity() {
                     0 -> { // Deal Price
                         val dealPrice = mixMatch.mixMatch.dealPriceValue
                         val totalDiscount = totalBundlePrice - dealPrice
-                        val itemCount = selectedItems.sumOf { it.second }
+                        val itemCount = selectedItems.sumOf { it.third }
                         Pair(totalDiscount / itemCount, "DEAL")
                     }
                     1 -> { // Percentage
@@ -1491,14 +2481,18 @@ class Window1 : AppCompatActivity() {
                     }
                     2 -> { // Fixed Total
                         val fixedDiscount = mixMatch.mixMatch.discountAmountValue
-                        val itemCount = selectedItems.sumOf { it.second }
+                        val itemCount = selectedItems.sumOf { it.third }
                         Pair(fixedDiscount / itemCount, "FIXEDTOTAL")
                     }
                     else -> Pair(0.0, "")
                 }
 
-                // Second pass: add items to cart with calculated discounts
-                selectedItems.forEach { (product, qty, lineGroup) ->
+                // Second pass: add items to cart with lineNum
+                selectedItems.forEachIndexed { index, (product, lineGroup, qty) ->
+                    val effectivePrice = product.price
+                    val itemTotal = effectivePrice * qty
+                    val lineNum = lineGroup.lineGroup.noOfItemsNeeded
+
                     val cartItem = CartItem(
                         productId = product.id,
                         productName = product.itemName,
@@ -1506,15 +2500,24 @@ class Window1 : AppCompatActivity() {
                         quantity = qty,
                         windowId = windowId,
                         bundleId = bundleId,
-                        mixMatchId = mixMatch.mixMatch.id,
+                        mixMatchId = mixMatch.mixMatch.description,
                         discountType = discountType,
                         discount = discountPerItem,
-                        vatAmount = 0.0,
+                        discountAmount = when (discountType.uppercase()) {
+                            "PERCENTAGE" -> itemTotal * (discountPerItem / 100)
+                            "FIXED" -> discountPerItem * qty
+                            "FIXEDTOTAL" -> discountPerItem
+                            else -> 0.0
+                        },
+                        vatAmount = (itemTotal * 0.12 / 1.12),
                         vatExemptAmount = 0.0,
+                        netAmount = itemTotal,
                         bundleSelections = selections.toString(),
-                        itemGroup = product.itemGroup,  // Added field
-                        itemId = product.itemid
+                        itemGroup = product.itemGroup,
+                        itemId = product.itemid,
+                        lineNum = lineNum  // Set the lineNum
                     )
+
                     cartViewModel.insert(cartItem)
                 }
 
@@ -1525,6 +2528,7 @@ class Window1 : AppCompatActivity() {
                         Toast.LENGTH_SHORT
                     ).show()
                 }
+
             } catch (e: Exception) {
                 Log.e("MixMatch", "Error applying mix match to cart", e)
                 withContext(Dispatchers.Main) {
@@ -1556,11 +2560,11 @@ class Window1 : AppCompatActivity() {
         // Adjust column width based on screen size
         val desiredColumnWidthDp = when {
             screenWidthDp >= 900 -> 200f // For larger tablets
-            screenWidthDp >= 600 -> 180f // For smaller tablets
+            screenWidthDp >= 600 -> 100f // For smaller tablets
             else -> 160f // For phones
         }
 
-        val columnCount = (screenWidthDp / desiredColumnWidthDp).toInt().coerceIn(2, 5)
+        val columnCount = (screenWidthDp / desiredColumnWidthDp).toInt().coerceIn(3, 4)
 
         binding.recyclerview.apply {
             adapter = productAdapter
@@ -1581,10 +2585,21 @@ class Window1 : AppCompatActivity() {
         }
     }
     private fun setupViewModel() {
-        val transactionRepository = TransactionRepository(database.transactionDao())
-        val factory = TransactionViewModel.TransactionViewModelFactory(transactionRepository)
-        transactionViewModel =
-            ViewModelProvider(this, factory).get(TransactionViewModel::class.java)
+//        val transactionRepository = TransactionRepository(database.transactionDao())
+//        val factory = TransactionViewModel.TransactionViewModelFactory(transactionRepository)
+//        transactionViewModel =
+//            ViewModelProvider(this, factory).get(TransactionViewModel::class.java)
+        val numberSequenceRepository = NumberSequenceRepository(database.numberSequenceDao())
+        val transactionRepository = TransactionRepository(
+            database.transactionDao(),
+            numberSequenceRemoteRepository
+        )
+
+        val factory = TransactionViewModel.TransactionViewModelFactory(
+            repository = transactionRepository,
+            numberSequenceRemoteRepository = numberSequenceRemoteRepository
+        )
+        transactionViewModel = ViewModelProvider(this, factory).get(TransactionViewModel::class.java)
 
         // Fixed flow collection
         lifecycleScope.launch {
@@ -1666,79 +2681,218 @@ class Window1 : AppCompatActivity() {
     }
 
 
-    private fun setupCategoryRecyclerView() {
-        categoryAdapter = CategoryAdapter { category ->
-            when (category.name) {
-                "All" -> {
-                    productViewModel.selectCategory(category)
-                    if (hasInternetConnection()) {
-                        reloadCategoriesAndProducts()
-                    }
-                }
-
-                "Mix & Match" -> {
-                    showMixMatchDialog()
-
-                }
-
-                else -> {
-                    productViewModel.selectCategory(category)
+//    private fun setupCategoryRecyclerView() {
+//        categoryAdapter = CategoryAdapter { category ->
+//            when (category.name) {
+//                "All" -> {
+//                    productViewModel.selectCategory(category)
+//                    if (hasInternetConnection()) {
+//                        reloadCategoriesAndProducts()
+//                    }
+//                }
+//
+//                "Mix & Match" -> {
+//                    showMixMatchDialog()
+//
+//                }
+//
+//                else -> {
+//                    productViewModel.selectCategory(category)
+//                }
+//            }
+//        }
+//
+//        binding.categoryRecyclerView.apply {
+//            layoutManager = LinearLayoutManager(this@Window1, LinearLayoutManager.HORIZONTAL, false)
+//            adapter = categoryAdapter
+//        }
+//
+//        lifecycleScope.launch {
+//            combine(
+//                productViewModel.allProducts.asFlow(),
+//                categoryViewModel.categories,
+//                productViewModel.isLoading
+//            ) { products, categories, isLoading ->
+//                if (!isLoading) {
+//                    val allCategories = categories.toMutableList()
+//
+//                    // Ensure "All" category is first
+//                    if (!allCategories.any { it.name == "All" }) {
+//                        allCategories.add(0, Category(name = "All"))
+//                    }
+//
+//                    // Ensure "Mix & Match" category exists
+//                    if (!allCategories.any { it.name == "Mix & Match" }) {
+//                        allCategories.add(1, Category(name = "Mix & Match"))
+//                    }
+//
+//                    // Filter categories that have products
+//                    allCategories.filter { category ->
+//                        category.name == "All" ||
+//                                category.name == "Mix & Match" ||
+//                                products.any { product ->
+//                                    product.itemGroup.equals(category.name, ignoreCase = true)
+//                                }
+//                    }.sortedBy {
+//                        when (it.name) {
+//                            "All" -> "0"
+//                            "Mix & Match" -> "1"
+//                            else -> it.name
+//                        }
+//                    }
+//                } else {
+//                    listOf(Category(name = "All"), Category(name = "Mix & Match"))
+//                }
+//            }.collect { validCategories ->
+//                categoryAdapter.setCategories(validCategories)
+//                if (productViewModel.selectedCategory.value == null) {
+//                    val allCategory = validCategories.first()
+//                    categoryAdapter.setSelectedCategory(allCategory)
+//                    productViewModel.selectCategory(allCategory)
+//                }
+//            }
+//        }
+//    }
+private fun setupCategoryRecyclerView() {
+    categoryAdapter = CategoryAdapter { category ->
+        when (category.name) {
+            "All" -> {
+                lifecycleScope.launch {
+                    loadWindowSpecificProducts() // This will reload all products for current window
                 }
             }
-        }
-
-        binding.categoryRecyclerView.apply {
-            layoutManager = LinearLayoutManager(this@Window1, LinearLayoutManager.HORIZONTAL, false)
-            adapter = categoryAdapter
-        }
-
-        lifecycleScope.launch {
-            combine(
-                productViewModel.allProducts.asFlow(),
-                categoryViewModel.categories,
-                productViewModel.isLoading
-            ) { products, categories, isLoading ->
-                if (!isLoading) {
-                    val allCategories = categories.toMutableList()
-
-                    // Ensure "All" category is first
-                    if (!allCategories.any { it.name == "All" }) {
-                        allCategories.add(0, Category(name = "All"))
-                    }
-
-                    // Ensure "Mix & Match" category exists
-                    if (!allCategories.any { it.name == "Mix & Match" }) {
-                        allCategories.add(1, Category(name = "Mix & Match"))
-                    }
-
-                    // Filter categories that have products
-                    allCategories.filter { category ->
-                        category.name == "All" ||
-                                category.name == "Mix & Match" ||
-                                products.any { product ->
-                                    product.itemGroup.equals(category.name, ignoreCase = true)
-                                }
-                    }.sortedBy {
-                        when (it.name) {
-                            "All" -> "0"
-                            "Mix & Match" -> "1"
-                            else -> it.name
-                        }
-                    }
-                } else {
-                    listOf(Category(name = "All"), Category(name = "Mix & Match"))
-                }
-            }.collect { validCategories ->
-                categoryAdapter.setCategories(validCategories)
-                if (productViewModel.selectedCategory.value == null) {
-                    val allCategory = validCategories.first()
-                    categoryAdapter.setSelectedCategory(allCategory)
-                    productViewModel.selectCategory(allCategory)
-                }
+            "Mix & Match" -> {
+                showMixMatchDialog()
+            }
+            else -> {
+                filterProductsByWindowAndCategory(category)
             }
         }
     }
 
+    binding.categoryRecyclerView.apply {
+        layoutManager = LinearLayoutManager(this@Window1, LinearLayoutManager.HORIZONTAL, false)
+        adapter = categoryAdapter
+    }
+
+    // Observe categories and products
+    lifecycleScope.launch {
+        combine(
+            productViewModel.allProducts.asFlow(),
+            categoryViewModel.categories,
+            windowViewModel.allWindows
+        ) { products, categories, windows ->
+            Triple(products, categories, windows)
+        }.collect { (products, categories, windows) ->
+            val currentWindow = windows.find { it.id == windowId }
+            if (currentWindow != null) {
+                updateCategoriesForWindow(currentWindow, categories, products)
+            }
+        }
+    }
+}
+    private fun filterProductsByWindowAndCategory(category: Category) {
+        lifecycleScope.launch {
+            try {
+                val window = windowViewModel.allWindows.first().find { it.id == windowId }
+                if (window != null) {
+                    val description = window.description.uppercase()
+                    val allProducts = productViewModel.allProducts.value ?: emptyList()
+
+                    // First filter by window type
+                    val windowFilteredProducts = when {
+                        description.contains("GRABFOOD") -> {
+                            allProducts.filter { it.grabfood > 0 }
+                                .map { it.copy(price = it.grabfood) }
+                        }
+                        description.contains("FOODPANDA") -> {
+                            allProducts.filter { it.foodpanda > 0 }
+                                .map { it.copy(price = it.foodpanda) }
+                        }
+                        description.contains("MANILARATE") -> {
+                            allProducts.filter { it.manilaprice > 0 }
+                                .map { it.copy(price = it.manilaprice) }
+                        }
+                        description.contains("PARTYCAKES") -> {
+                            allProducts.filter {
+                                it.itemGroup.equals("PARTY CAKES", ignoreCase = true)
+                            }
+                        }
+                        description.contains("PURCHASE") -> {
+                            allProducts.filter {
+                                it.grabfood == 0.0 && it.foodpanda == 0.0 &&
+                                        it.manilaprice == 0.0 && it.price > 0
+                            }
+                        }
+                        else -> allProducts
+                    }
+
+                    // Then filter by category
+                    val categoryFilteredProducts = windowFilteredProducts.filter { product ->
+                        product.itemGroup.equals(category.name, ignoreCase = true)
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        productAdapter.submitList(categoryFilteredProducts)
+                        findViewById<TextView>(R.id.textView3)?.text =
+                            "Products (${categoryFilteredProducts.size})"
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("Window1", "Error filtering products by category", e)
+            }
+        }
+    }
+    private fun updateCategoriesForWindow(
+        currentWindow: Window,
+        allCategories: List<Category>,
+        allProducts: List<Product>
+    ) {
+        val description = currentWindow.description.uppercase()
+
+        // Filter products based on window type
+        val windowProducts = when {
+            description.contains("GRABFOOD") -> {
+                allProducts.filter { it.grabfood > 0 }
+            }
+            description.contains("FOODPANDA") -> {
+                allProducts.filter { it.foodpanda > 0 }
+            }
+            description.contains("MANILARATE") -> {
+                allProducts.filter { it.manilaprice > 0 }
+            }
+            description.contains("PARTYCAKES") -> {
+                allProducts.filter {
+                    it.itemGroup.equals("PARTY CAKES", ignoreCase = true)
+                }
+            }
+            description.contains("PURCHASE") -> {
+                allProducts.filter {
+                    it.grabfood == 0.0 && it.foodpanda == 0.0 &&
+                            it.manilaprice == 0.0 && it.price > 0
+                }
+            }
+            else -> allProducts
+        }
+
+        // Get unique categories from filtered products
+        val categoriesInWindow = windowProducts
+            .map { it.itemGroup.uppercase() }
+            .distinct()
+            .mapNotNull { itemGroup ->
+                allCategories.find { it.name.uppercase() == itemGroup }
+            }
+            .sortedBy { it.name }
+
+        // Always include "All" and "Mix & Match" categories
+        val displayCategories = listOf(
+            Category(-1, "All"),
+            Category(-2, "Mix & Match")
+        ) + categoriesInWindow
+
+        // Update category adapter
+        categoryAdapter.setCategories(displayCategories)
+    }
     private fun hasInternetConnection(): Boolean {
         val connectivityManager =
             getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -1811,6 +2965,32 @@ class Window1 : AppCompatActivity() {
         }
     }
 
+//    private fun performXRead() {
+//        if (!checkBluetoothPermissions()) {
+//            Toast.makeText(this, "Bluetooth permission is required to print X-Read", Toast.LENGTH_LONG).show()
+//            return
+//        }
+//
+//
+//        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle)
+//            .setTitle("Confirm X-Read")
+//            .setMessage("Are you sure you want to perform an X-Read?")
+//            .setPositiveButton("Yes") { _, _ ->
+//                lifecycleScope.launch {
+//                    val transactions = transactionDao.getAllTransactionsSince(lastZReadTime)
+//                    val currentTenderDeclaration = tenderDeclarationDao.getLatestTenderDeclaration()
+//                    printXReadWithBluetoothPrinter(transactions, currentTenderDeclaration)
+//                }
+//            }
+//            .setNegativeButton("No") { dialog, _ ->
+//                dialog.dismiss()
+//            }
+//            .create()
+//
+//        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+//        dialog.show()
+//    }
+
     private fun performXRead() {
         if (!checkBluetoothPermissions()) {
             Toast.makeText(this, "Bluetooth permission is required to print X-Read", Toast.LENGTH_LONG).show()
@@ -1822,9 +3002,49 @@ class Window1 : AppCompatActivity() {
             .setMessage("Are you sure you want to perform an X-Read?")
             .setPositiveButton("Yes") { _, _ ->
                 lifecycleScope.launch {
-                    val transactions = transactionDao.getAllTransactionsSince(lastZReadTime)
-                    val currentTenderDeclaration = tenderDeclarationDao.getLatestTenderDeclaration()
-                    printXReadWithBluetoothPrinter(transactions, currentTenderDeclaration)
+                    try {
+                        // Get unprocessed transactions
+                        val transactions = transactionDao.getAllUnprocessedTransactions()
+                        val currentTenderDeclaration = tenderDeclarationDao.getLatestTenderDeclaration()
+
+                        // Always create transaction logger for BIR purposes
+                        val transactionLogger = TransactionLogger(this@Window1)
+                        transactionLogger.logXRead(
+                            transactions = transactions,
+                            tenderDeclaration = currentTenderDeclaration
+                        )
+
+                        // Print report if there are transactions
+                        if (transactions.isNotEmpty()) {
+                            printXReadWithBluetoothPrinter(transactions, currentTenderDeclaration)
+
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(
+                                    this@Window1,
+                                    "X-Read completed successfully",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(
+                                    this@Window1,
+                                    "X-Read logged. No transactions to report.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+
+                    } catch (e: Exception) {
+                        Log.e("XRead", "Error performing X-Read", e)
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(
+                                this@Window1,
+                                "Error performing X-Read: ${e.message}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
                 }
             }
             .setNegativeButton("No") { dialog, _ ->
@@ -1835,12 +3055,12 @@ class Window1 : AppCompatActivity() {
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.show()
     }
-
     private fun performZRead() {
+        // Check prerequisites
         if (!isPulloutCashFundProcessed || !isTenderDeclarationProcessed) {
             Toast.makeText(
                 this,
-                "Please process pull-out cash fund and tender declaration first",
+                "Please complete the following steps first:\n1. Pull-out Cash Fund\n2. Tender Declaration",
                 Toast.LENGTH_LONG
             ).show()
             return
@@ -1857,18 +3077,6 @@ class Window1 : AppCompatActivity() {
 
         lifecycleScope.launch {
             try {
-                val currentDate = getCurrentDate()
-                val existingZRead = zReadDao.getZReadByDate(currentDate)
-
-                if (existingZRead != null) {
-                    Toast.makeText(
-                        this@Window1,
-                        "Z-Read has already been performed today. Please wait until tomorrow.",
-                        Toast.LENGTH_LONG
-                    ).show()
-                    return@launch
-                }
-
                 val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle)
                     .setTitle("Confirm Z-Read")
                     .setMessage("Are you sure you want to perform a Z-Read? This will reset all transaction data.")
@@ -1883,7 +3091,7 @@ class Window1 : AppCompatActivity() {
                 dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
                 dialog.show()
             } catch (e: Exception) {
-                Log.e("ZRead", "Error checking Z-Read date", e)
+                Log.e("ZRead", "Error showing Z-Read dialog", e)
                 Toast.makeText(
                     this@Window1,
                     "Error: ${e.message}",
@@ -1896,17 +3104,10 @@ class Window1 : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val zReportId = generateZReportId()
-                val transactions = transactionDao.getAllTransactionsSince(lastZReadTime)
+                val transactions = transactionDao.getAllUnprocessedTransactions()
+                val totalAmount = transactions.sumOf { it.totalAmountPaid }
 
-                // Calculate total amount from transactions
-                val totalAmount = transactions.sumOf { it.totalAmountPaid } // Assuming transaction has 'amount' property
-
-                // Update transactions with Z-report ID
-                transactions.forEach { transaction ->
-                    transaction.zReportId = zReportId
-                    transactionDao.updateTransactionSummary(transaction)
-                }
-
+                // Get tender declaration - required even with no transactions
                 val currentTenderDeclaration = tenderDeclaration
                 if (currentTenderDeclaration == null) {
                     Toast.makeText(
@@ -1915,6 +3116,11 @@ class Window1 : AppCompatActivity() {
                         Toast.LENGTH_LONG
                     ).show()
                     return@launch
+                }
+
+                // Mark any existing transactions with Z-report ID
+                if (transactions.isNotEmpty()) {
+                    transactionDao.markTransactionsAsProcessed(zReportId)
                 }
 
                 // Create Z-Read record
@@ -1937,24 +3143,36 @@ class Window1 : AppCompatActivity() {
                     tenderDeclaration = currentTenderDeclaration
                 )
 
+                // Always create transaction logger for BIR purposes
+                val transactionLogger = TransactionLogger(this@Window1)
+                transactionLogger.logZRead(
+                    zReportId = zReportId,
+                    transactions = transactions,
+                    tenderDeclaration = currentTenderDeclaration
+                )
+
                 if (bluetoothPrinterHelper.printGenericReceipt(zReadContent)) {
                     Log.d("PrintZRead", "Z-Read report content sent successfully")
-
-                    // Add a small delay before sending the cut command
                     delay(1000)
 
-                    // Send the cut command
-                    val cutCommand = "\u001D\u0056\u0000"  // GS V 0 for full cut
+                    val cutCommand = byteArrayOf(0x1D, 0x56, 0x00).toString(Charset.defaultCharset())
                     if (bluetoothPrinterHelper.printGenericReceipt(cutCommand)) {
                         Log.d("PrintZRead", "Z-Read report printed and cut successfully")
 
-                        // Reset all data after successful printing
                         withContext(Dispatchers.Main) {
-                            Toast.makeText(
-                                this@Window1,
-                                "Z-Read report printed successfully",
-                                Toast.LENGTH_SHORT
-                            ).show()
+                            if (transactions.isEmpty()) {
+                                Toast.makeText(
+                                    this@Window1,
+                                    "Z-Read completed. No transactions to report.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } else {
+                                Toast.makeText(
+                                    this@Window1,
+                                    "Z-Read report printed successfully",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
                             resetAfterZRead()
                         }
                     }
@@ -1966,6 +3184,7 @@ class Window1 : AppCompatActivity() {
                         Toast.LENGTH_SHORT
                     ).show()
                 }
+
             } catch (e: Exception) {
                 Log.e("ZRead", "Error performing Z-Read", e)
                 Toast.makeText(
@@ -1976,7 +3195,6 @@ class Window1 : AppCompatActivity() {
             }
         }
     }
-
     private fun checkCashFundBeforeTransaction() {
         if (isZReadPerformed && currentCashFund <= 0) {
             showCashFundDialog()
@@ -1986,13 +3204,14 @@ class Window1 : AppCompatActivity() {
     private fun resetAfterZRead() {
         lifecycleScope.launch {
             try {
-                // Reset time tracking
+                // Reset time tracking for next Z-Read cycle
                 lastZReadTime = System.currentTimeMillis()
                 saveLastZReadTimeToPreferences(lastZReadTime)
 
                 // Clear tender declaration
                 tenderDeclarationDao.deleteAll()
                 tenderDeclaration = null
+                isTenderDeclarationProcessed = false
 
                 // Clear cash fund
                 cashFundRepository.deleteAll()
@@ -2002,25 +3221,19 @@ class Window1 : AppCompatActivity() {
                 resetCashManagementStatus()
                 isCashFundEntered = false
 
-                // Disable transactions
                 withContext(Dispatchers.Main) {
                     disableTransactions()
-                }
-
-                // Set Z-Read performed flag
-                isZReadPerformed = true
-
-                withContext(Dispatchers.Main) {
-                    // Show message to user
                     Toast.makeText(
                         this@Window1,
                         "All data has been reset. Please enter new cash fund to continue.",
                         Toast.LENGTH_LONG
                     ).show()
-
-                    // Show cash fund dialog to start new cycle
                     showCashFundDialog()
                 }
+
+                // Set Z-Read performed flag
+                isZReadPerformed = true
+
             } catch (e: Exception) {
                 Log.e("ZRead", "Error resetting after Z-Read", e)
                 withContext(Dispatchers.Main) {
@@ -2032,83 +3245,155 @@ class Window1 : AppCompatActivity() {
                 }
             }
         }
+    }
 
-}
-
+    private fun checkTenderDeclarationReset() {
+        lifecycleScope.launch {
+            val currentTenderDeclaration = tenderDeclarationDao.getLatestTenderDeclaration()
+            if (currentTenderDeclaration == null) {
+                Log.d("TenderDeclaration", "Tender declaration has been reset successfully")
+            } else {
+                Log.e("TenderDeclaration", "Tender declaration was not reset properly")
+            }
+        }
+    }
 /*  private fun resetCashManagementStatus() {
         isPulloutCashFundProcessed = false
         isTenderDeclarationProcessed = false
     }*/
-    private fun printXReadWithBluetoothPrinter(
-        transactions: List<TransactionSummary>,
-        tenderDeclaration: TenderDeclaration?
-    ) {
-        try {
-            val printerMacAddress = "DC:0D:30:70:09:19"  // Replace with your printer's MAC address
+private fun printXReadWithBluetoothPrinter(
+    transactions: List<TransactionSummary>,
+    tenderDeclaration: TenderDeclaration?
+) {
+    try {
+        val printerMacAddress = "DC:0D:30:70:09:19"  // Replace with your printer's MAC address
 
-            if (!bluetoothPrinterHelper.isConnected()) {
-                Log.d("PrintXRead", "Attempting to connect to printer")
-                if (!bluetoothPrinterHelper.connect(printerMacAddress)) {
-                    Log.e("PrintXRead", "Failed to connect to printer")
-                    Toast.makeText(this, "Failed to connect to printer", Toast.LENGTH_SHORT).show()
-                    return
-                }
+        if (!bluetoothPrinterHelper.isConnected()) {
+            Log.d("PrintXRead", "Attempting to connect to printer")
+            if (!bluetoothPrinterHelper.connect(printerMacAddress)) {
+                Log.e("PrintXRead", "Failed to connect to printer")
+                Toast.makeText(this, "Failed to connect to printer", Toast.LENGTH_SHORT).show()
+                return
             }
+        }
 
-            Log.d("PrintXRead", "Attempting to print X-Read report")
-            val xReadContent = bluetoothPrinterHelper.buildReadReport(
-                transactions,
-                isZRead = false,
-                tenderDeclaration = tenderDeclaration
-            )
-            if (bluetoothPrinterHelper.printGenericReceipt(xReadContent)) {
-                Log.d("PrintXRead", "X-Read report printed successfully")
+        Log.d("PrintXRead", "Attempting to print X-Read report")
+        val xReadContent = bluetoothPrinterHelper.buildReadReport(
+            transactions,
+            isZRead = false,
+            tenderDeclaration = tenderDeclaration
+        )
 
-                // Add a small delay before sending the cut command
-                Thread.sleep(1000)
+        if (bluetoothPrinterHelper.printGenericReceipt(xReadContent)) {
+            Log.d("PrintXRead", "X-Read report content sent successfully")
+
+            // Add a small delay before sending the cut command
+            lifecycleScope.launch(Dispatchers.IO) {
+                delay(1000)
 
                 // Send the cut command
-                val cutCommand = "\u001D\u0056\u0000"  // GS V 0 for full cut
+                val cutCommand = byteArrayOf(0x1D, 0x56, 0x00).toString(Charset.defaultCharset())
+
                 if (bluetoothPrinterHelper.printGenericReceipt(cutCommand)) {
-                    Log.d("PrintXRead", "Cut command sent successfully")
-                    Toast.makeText(
-                        this,
-                        "X-Read report printed and cut successfully",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    Log.d("PrintXRead", "X-Read report printed and cut successfully")
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            this@Window1,
+                            "X-Read report printed successfully",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 } else {
                     Log.e("PrintXRead", "Failed to send cut command")
-                    Toast.makeText(
-                        this,
-                        "X-Read report printed, but cutting failed",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            this@Window1,
+                            "X-Read report printed, but cutting failed",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
-            } else {
-                Log.e("PrintXRead", "Failed to print X-Read report")
-                Toast.makeText(this, "Failed to print X-Read report", Toast.LENGTH_SHORT).show()
             }
-        } catch (se: SecurityException) {
-            Log.e("PrintXRead", "SecurityException: ${se.message}")
-            Toast.makeText(this, "Bluetooth permission denied", Toast.LENGTH_LONG).show()
-        } catch (e: Exception) {
-            Log.e("PrintXRead", "Error printing X-Read report: ${e.message}")
-            Toast.makeText(
-                this,
-                "Error printing X-Read report: ${e.message}",
-                Toast.LENGTH_LONG
-            ).show()
+        } else {
+            Log.e("PrintXRead", "Failed to print X-Read report")
+            Toast.makeText(this, "Failed to print X-Read report", Toast.LENGTH_SHORT).show()
         }
+    } catch (se: SecurityException) {
+        Log.e("PrintXRead", "SecurityException: ${se.message}")
+        Toast.makeText(this, "Bluetooth permission denied", Toast.LENGTH_LONG).show()
+    } catch (e: Exception) {
+        Log.e("PrintXRead", "Error printing X-Read report: ${e.message}")
+        Toast.makeText(
+            this,
+            "Error printing X-Read report: ${e.message}",
+            Toast.LENGTH_LONG
+        ).show()
     }
-
+}
+//private fun printXReadWithBluetoothPrinter(
+//    transactions: List<TransactionSummary>,
+//    tenderDeclaration: TenderDeclaration?
+//) {
+//    try {
+//        val printerMacAddress = "DC:0D:30:70:09:19"
+//        if (!bluetoothPrinterHelper.isConnected()) {
+//            Log.d("PrintXRead", "Attempting to connect to printer")
+//            if (!bluetoothPrinterHelper.connect(printerMacAddress)) {
+//                Log.e("PrintXRead", "Failed to connect to printer")
+//                Toast.makeText(this, "Failed to connect to printer", Toast.LENGTH_SHORT).show()
+//                return
+//            }
+//        }
+//
+//        Log.d("PrintXRead", "Attempting to print X-Read report")
+//        val xReportId = "X-${System.currentTimeMillis()}"  // Generate X-Read ID
+//        val xReadContent = bluetoothPrinterHelper.buildReadReport(
+//            transactions,
+//            isZRead = false,
+//            tenderDeclaration = tenderDeclaration
+//        )
+//
+//        if (bluetoothPrinterHelper.printGenericReceipt(xReadContent)) {
+//            // Add TransactionLogger here
+//            val transactionLogger = TransactionLogger(this)
+//            transactionLogger.logXRead(
+////                xReportId = xReportId,
+//                transactions = transactions,
+//                tenderDeclaration = tenderDeclaration ?: return,
+////                created = lastZReadTime,
+////                endTime = System.currentTimeMillis()
+//            )
+//
+//            Log.d("PrintXRead", "X-Read report printed successfully")
+//            Thread.sleep(1000)
+//            val cutCommand = ""
+//            if (bluetoothPrinterHelper.printGenericReceipt(cutCommand)) {
+//                Log.d("PrintXRead", "Cut command sent successfully")
+//                Toast.makeText(this, "X-Read report printed and cut successfully", Toast.LENGTH_SHORT).show()
+//            } else {
+//                Log.e("PrintXRead", "Failed to send cut command")
+//                Toast.makeText(this, "X-Read report printed, but cutting failed", Toast.LENGTH_SHORT).show()
+//            }
+//        } else {
+//            Log.e("PrintXRead", "Failed to print X-Read report")
+//            Toast.makeText(this, "Failed to print X-Read report", Toast.LENGTH_SHORT).show()
+//        }
+//    } catch (e: Exception) {
+//        Log.e("PrintXRead", "Error printing X-Read report: ${e.message}")
+//        Toast.makeText(this, "Error printing X-Read report: ${e.message}", Toast.LENGTH_LONG).show()
+//    }
+//}
     private fun resetCashManagementStatus() {
         isPulloutCashFundProcessed = false
         isTenderDeclarationProcessed = false
-        isZReadPerformed = false  // Reset Z-Read flag after cash management steps
+        isZReadPerformed = false
     }
 
     private fun getCurrentTime(): String {
-        val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+        val timeZone = TimeZone.getTimeZone("Asia/Manila")
+        val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).apply {
+            this.timeZone = timeZone
+        }
         return sdf.format(Date())
     }
 
@@ -2457,10 +3742,12 @@ class Window1 : AppCompatActivity() {
 
 
     private fun getCurrentDate(): String {
-        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val timeZone = TimeZone.getTimeZone("Asia/Manila")
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).apply {
+            this.timeZone = timeZone
+        }
         return sdf.format(Date())
     }
-
 
     private fun checkForExistingCashFund() {
         lifecycleScope.launch {
@@ -2591,7 +3878,7 @@ class Window1 : AppCompatActivity() {
             }
 
             // Send cut command after printing
-            bluetoothPrinterHelper.cutPaper()
+//            bluetoothPrinterHelper.cutPaper()
 
         } catch (se: SecurityException) {
             Log.e("PrintReceipt", "SecurityException: ${se.message}")
@@ -2650,12 +3937,42 @@ class Window1 : AppCompatActivity() {
                 displayAlignedProducts(alignedProducts)
             }
         }
+        lifecycleScope.launch {
+            windowViewModel.allWindows.collect { windows ->
+                val currentWindow = windows.find { it.id == windowId }
+                if (currentWindow != null) {
+                    loadWindowSpecificProducts()
+                }
+            }
+        }
 
         lifecycleScope.launch {
             productViewModel.filteredProducts.collectLatest { products ->
                 productAdapter.submitList(products)
             }
         }
+        lifecycleScope.launch {
+            combine(
+                windowViewModel.allWindows,
+                productViewModel.allProducts.asFlow()
+            ) { windows, products ->
+                loadWindowSpecificProducts()
+            }.collect { result ->
+                // Add collector block
+                // This will be called whenever loadWindowSpecificProducts() completes
+                Log.d("Window1", "Window-based product filtering completed")
+            }
+        }
+//        lifecycleScope.launch {
+//            combine(
+//                windowViewModel.allWindows,
+//                productViewModel.allProducts.asFlow()
+//            ) { windows, products ->
+//                loadWindowSpecificProducts()
+//            }.collectLatest { result ->
+//                Log.d("Window1", "Window-based product filtering completed")
+//            }
+//        }
         lifecycleScope.launch {
             cartViewModel.currentWindowCartItems.collect { cartItems ->
                 Log.d(TAG, "Received ${cartItems.size} cart items for window $windowId")
@@ -2668,17 +3985,7 @@ class Window1 : AppCompatActivity() {
         productViewModel.allProducts.observe(this) { products ->
             productAdapter.submitList(products)
         }
-        lifecycleScope.launch {
-            try {
-                numberSequenceRepository.initializeSequence(
-                    type = "TRANSACTION",
-                    startValue = 1,
-                    paddingLength = 9
-                )
-            } catch (e: Exception) {
-                Log.e(TAG, "Error initializing number sequences", e)
-            }
-        }
+
 
         lifecycleScope.launch {
             categoryViewModel.categories.collect { categories ->
@@ -3063,7 +4370,8 @@ class Window1 : AppCompatActivity() {
                 }
             }
 
-            val cutCommand = "\u001D\u0056\u0000"  // GS V 0 for full cut
+            val cutCommand = ""  // GS V 0 for full cut
+//            V
             val contentWithCut = "$content\n$cutCommand"
 
             val printSuccess = bluetoothPrinterHelper.printGenericReceipt(contentWithCut)
@@ -3117,20 +4425,44 @@ class Window1 : AppCompatActivity() {
 
             // Rest of your existing partial payment dialog code...
             val customers = mutableListOf<Customer>()
-            customers.add(Customer(accountNum = "000000", name = "Walk-in Customer"))
+            val defaultWalkInCustomer = Customer(accountNum = "WALK-IN", name = "Walk-in Customer")
+            customers.add(defaultWalkInCustomer) // Add the Walk-in Customer as initial customer
+
+            customers.add(defaultWalkInCustomer)
             val customerAdapter = ArrayAdapter(
                 this@Window1,
                 android.R.layout.simple_dropdown_item_1line,
                 customers.map { it.name }
             )
             customerAutoComplete.setAdapter(customerAdapter)
-            customerAutoComplete.setText("Walk-in Customer", false)
+//            customerAutoComplete.setText("Walk-in Customer", false)
             var selectedCustomer = customers[0]
 
+// Set up the AutoCompleteTextView
+            customerAutoComplete.apply {
+                threshold = 1  // Start filtering after 1 character
+                setAdapter(customerAdapter)
+
+                // Only set initial text if no customer is selected
+                if (text.isEmpty()) {
+                    setText(selectedCustomer.name, false)
+                }
+            }
+
+// Update the OnItemClickListener
             customerAutoComplete.setOnItemClickListener { _, _, position, _ ->
                 selectedCustomer = customers[position]
-                dismissKeyboard(customerAutoComplete)
+                // Update the text to show the selected customer's name
+                customerAutoComplete.setText(selectedCustomer.name, false)
+
+                // Hide keyboard after selection
+                val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                imm.hideSoftInputFromWindow(customerAutoComplete.windowToken, 0)
+
+                // Debug log
+                Log.d(TAG, "Selected customer: ${selectedCustomer.name}, Account: ${selectedCustomer.accountNum}")
             }
+
 
             customerAutoComplete.setOnEditorActionListener { v, actionId, event ->
                 if (actionId == EditorInfo.IME_ACTION_DONE) {
@@ -3311,9 +4643,6 @@ class Window1 : AppCompatActivity() {
         sb.appendLine("YOUR BUSINESS NAME")
         sb.appendLine("Address Line 1")
         sb.appendLine("Address Line 2")
-        sb.appendLine("Tel: Your Phone Number")
-        sb.appendLine("TIN: Your TIN Number")
-        sb.appendLine("ACC: Your ACC Number")
         sb.appendLine(
             "Date Issued: ${
                 SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(
@@ -3520,85 +4849,194 @@ class Window1 : AppCompatActivity() {
         printReceiptWithBluetoothPrinter(content.toString())
     }
 
-    private fun setupCartRecyclerView() {
-        val cartAdapter = CartAdapter(
-            onItemClick = { cartItem -> /* Handle item click */ },
-            onDeleteClick = { cartItem ->
-                if (!partialPaymentApplied) {
-                    cartViewModel.deleteCartItem(cartItem)
-                } else {
-                    Toast.makeText(
-                        this@Window1,
-                        "Cannot delete items when partial payment is applied",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-            },
-            onQuantityChange = { cartItem, newQuantity ->
-                cartViewModel.update(cartItem.copy(quantity = newQuantity))
-            },
-            onDiscountLongPress = { cartItem ->
-                showDiscountDialog()
+//    private fun setupCartRecyclerView() {
+//        val cartAdapter = CartAdapter(
+//            onItemClick = { cartItem -> /* Handle item click */ },
+//            onDeleteClick = { cartItem ->
+//                if (!partialPaymentApplied) {
+//                    cartViewModel.deleteCartItem(cartItem)
+//                } else {
+//                    Toast.makeText(
+//                        this@Window1,
+//                        "Cannot delete items when partial payment is applied",
+//                        Toast.LENGTH_SHORT
+//                    ).show()
+//                }
+//            },
+//            onQuantityChange = { cartItem, newQuantity ->
+//                cartViewModel.update(cartItem.copy(quantity = newQuantity))
+//            },
+//            onDiscountLongPress = { cartItem ->
+//                showDiscountDialog()
+//            }
+//        )
+//
+//        binding.recyclerviewcart.apply {
+//            adapter = cartAdapter
+//            layoutManager = LinearLayoutManager(this@Window1)
+//        }
+//
+//        // Set up swipe-to-delete
+//        val itemTouchHelper = ItemTouchHelper(object :
+//            ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT) {
+//            override fun onMove(
+//                recyclerView: RecyclerView,
+//                viewHolder: RecyclerView.ViewHolder,
+//                target: RecyclerView.ViewHolder
+//            ): Boolean {
+//                return false // We don't want drag & drop
+//            }
+//
+//            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+//                val position = viewHolder.adapterPosition
+//                val cartItem = cartAdapter.currentList[position]
+//                if (!partialPaymentApplied) {
+//                    cartViewModel.deleteCartItem(cartItem)
+//                } else {
+//                    // If there's a partial payment, don't allow deletion and snap the item back
+//                    cartAdapter.notifyItemChanged(position)
+//                    Toast.makeText(
+//                        this@Window1,
+//                        "Cannot delete items when partial payment is applied",
+//                        Toast.LENGTH_SHORT
+//                    ).show()
+//                }
+//            }
+//
+//            override fun getSwipeDirs(
+//                recyclerView: RecyclerView,
+//                viewHolder: RecyclerView.ViewHolder
+//            ): Int {
+//                return if (partialPaymentApplied) {
+//                    0 // Disable swiping when partial payment is applied
+//                } else {
+//                    super.getSwipeDirs(recyclerView, viewHolder)
+//                }
+//            }
+//        })
+//
+//        itemTouchHelper.attachToRecyclerView(binding.recyclerviewcart)
+//
+//        // Observe partial payment changes
+//        lifecycleScope.launch {
+//            cartViewModel.getPartialPaymentForWindow(windowId).collect { partialPayment ->
+//                partialPaymentApplied = partialPayment > 0
+//                partialPaymentAmount = partialPayment
+//                cartAdapter.setPartialPaymentApplied(partialPaymentApplied)
+//                cartAdapter.setDeletionEnabled(!partialPaymentApplied)
+//            }
+//        }
+//    }
+
+private fun setupCartRecyclerView() {
+    class CartDeleteHelper(private val adapter: CartAdapter) {
+        fun deleteBundle(cartItem: CartItem) {
+            val bundleItems = adapter.currentList.filter { item ->
+                item.bundleId == cartItem.bundleId && item.mixMatchId == cartItem.mixMatchId
             }
-        )
-
-        binding.recyclerviewcart.apply {
-            adapter = cartAdapter
-            layoutManager = LinearLayoutManager(this@Window1)
-        }
-
-        // Set up swipe-to-delete
-        val itemTouchHelper = ItemTouchHelper(object :
-            ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT) {
-            override fun onMove(
-                recyclerView: RecyclerView,
-                viewHolder: RecyclerView.ViewHolder,
-                target: RecyclerView.ViewHolder
-            ): Boolean {
-                return false // We don't want drag & drop
-            }
-
-            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
-                val position = viewHolder.adapterPosition
-                val cartItem = cartAdapter.currentList[position]
-                if (!partialPaymentApplied) {
-                    cartViewModel.deleteCartItem(cartItem)
-                } else {
-                    // If there's a partial payment, don't allow deletion and snap the item back
-                    cartAdapter.notifyItemChanged(position)
-                    Toast.makeText(
-                        this@Window1,
-                        "Cannot delete items when partial payment is applied",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-            }
-
-            override fun getSwipeDirs(
-                recyclerView: RecyclerView,
-                viewHolder: RecyclerView.ViewHolder
-            ): Int {
-                return if (partialPaymentApplied) {
-                    0 // Disable swiping when partial payment is applied
-                } else {
-                    super.getSwipeDirs(recyclerView, viewHolder)
-                }
-            }
-        })
-
-        itemTouchHelper.attachToRecyclerView(binding.recyclerviewcart)
-
-        // Observe partial payment changes
-        lifecycleScope.launch {
-            cartViewModel.getPartialPaymentForWindow(windowId).collect { partialPayment ->
-                partialPaymentApplied = partialPayment > 0
-                partialPaymentAmount = partialPayment
-                cartAdapter.setPartialPaymentApplied(partialPaymentApplied)
-                cartAdapter.setDeletionEnabled(!partialPaymentApplied)
+            bundleItems.forEach { bundleItem ->
+                cartViewModel.deleteCartItem(bundleItem)
             }
         }
     }
 
+    lateinit var deleteHelper: CartDeleteHelper
+
+    val adapter = CartAdapter(
+        onItemClick = { cartItem -> /* Handle item click */ },
+        onDeleteClick = { cartItem ->
+            if (!partialPaymentApplied) {
+                if (cartItem.bundleId != null) {
+                    deleteHelper.deleteBundle(cartItem)
+                } else {
+                    cartViewModel.deleteCartItem(cartItem)
+                }
+            } else {
+                Toast.makeText(
+                    this@Window1,
+                    "Cannot delete items when partial payment is applied",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        },
+        onQuantityChange = { cartItem, newQuantity ->
+            cartViewModel.update(cartItem.copy(quantity = newQuantity))
+        },
+        onDiscountLongPress = { cartItem ->
+            showDiscountDialog()
+        }
+    )
+
+    deleteHelper = CartDeleteHelper(adapter)
+
+    binding.recyclerviewcart.apply {
+        this.adapter = adapter
+        layoutManager = LinearLayoutManager(this@Window1)
+    }
+
+    // Set up swipe-to-delete
+    val itemTouchHelper = ItemTouchHelper(object :
+        ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT) {
+        override fun onMove(
+            recyclerView: RecyclerView,
+            viewHolder: RecyclerView.ViewHolder,
+            target: RecyclerView.ViewHolder
+        ): Boolean {
+            return false // We don't want drag & drop
+        }
+
+        override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+            val position = viewHolder.adapterPosition
+            if (position != RecyclerView.NO_POSITION) {
+                val cartItem = adapter.currentList[position]
+
+                if (!partialPaymentApplied) {
+                    if (cartItem.bundleId != null) {
+                        deleteHelper.deleteBundle(cartItem)
+                        Toast.makeText(
+                            this@Window1,
+                            "Entire bundle has been removed",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        cartViewModel.deleteCartItem(cartItem)
+                    }
+                } else {
+                    // If there's a partial payment, don't allow deletion and snap the item back
+                    adapter.notifyItemChanged(position)
+                    Toast.makeText(
+                        this@Window1,
+                        "Cannot delete items when partial payment is applied",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+
+        override fun getSwipeDirs(
+            recyclerView: RecyclerView,
+            viewHolder: RecyclerView.ViewHolder
+        ): Int {
+            return if (partialPaymentApplied) {
+                0 // Disable swiping when partial payment is applied
+            } else {
+                super.getSwipeDirs(recyclerView, viewHolder)
+            }
+        }
+    })
+
+    itemTouchHelper.attachToRecyclerView(binding.recyclerviewcart)
+
+    // Observe partial payment changes
+    lifecycleScope.launch {
+        cartViewModel.getPartialPaymentForWindow(windowId).collect { partialPayment ->
+            partialPaymentApplied = partialPayment > 0
+            partialPaymentAmount = partialPayment
+            adapter.setPartialPaymentApplied(partialPaymentApplied)
+            adapter.setDeletionEnabled(!partialPaymentApplied)
+        }
+    }
+}
     private fun showDiscountDialog() {
         lifecycleScope.launch {
             val cartItems = cartViewModel.getAllCartItems(windowId).first()
@@ -4012,14 +5450,100 @@ class Window1 : AppCompatActivity() {
     private fun Double.roundToTwoDecimals(): Double {
         return (this * 100).roundToInt() / 100.0
     }
+    private fun setupCustomNumberKeyboard(
+        dialogView: View,
+        amountEditText: EditText,
+        buttons: List<Button>,
+        backspaceButton: Button
+    ) {
+        // Disable soft keyboard
+        amountEditText.showSoftInputOnFocus = false
+        amountEditText.isFocusable = true
+        amountEditText.isFocusableInTouchMode = true
+
+        // Prevent system keyboard from showing
+        amountEditText.setOnClickListener {
+            // Hide system keyboard
+            val inputMethodManager = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            inputMethodManager.hideSoftInputFromWindow(amountEditText.windowToken, 0)
+        }
+
+        // Set click listener for number buttons
+        val numberButtonClickListener = View.OnClickListener { view ->
+            val buttonText = (view as Button).text.toString()
+            val currentText = amountEditText.text.toString()
+
+            // Handle dot button with special logic to prevent multiple dots
+            if (buttonText == ".") {
+                if (!currentText.contains(".")) {
+                    amountEditText.setText(currentText + buttonText)
+                    amountEditText.setSelection(amountEditText.text.length)
+                }
+            } else {
+                // Limit input to 2 decimal places
+                val parts = currentText.split(".")
+                if (parts.size == 2 && parts[1].length >= 2) {
+                    return@OnClickListener
+                }
+
+                amountEditText.setText(currentText + buttonText)
+                amountEditText.setSelection(amountEditText.text.length)
+            }
+        }
+
+        // Apply number button click listener
+        buttons.forEach { button ->
+            button.setOnClickListener(numberButtonClickListener)
+        }
+
+        // Backspace button logic
+        backspaceButton.setOnClickListener {
+            val currentText = amountEditText.text.toString()
+            if (currentText.isNotEmpty()) {
+                amountEditText.setText(currentText.substring(0, currentText.length - 1))
+                amountEditText.setSelection(amountEditText.text.length)
+            }
+        }
+
+        // Long press on backspace to clear
+        backspaceButton.setOnLongClickListener {
+            amountEditText.setText("")
+            true
+        }
+    }
+    private fun isChargePayment(paymentMethod: String): Boolean {
+        return paymentMethod.equals("CHARGE", ignoreCase = true)
+    }
+
+
+    private fun isValidCustomerForCharge(customer: Customer?): Boolean {
+        return customer != null &&
+                customer.accountNum != "WALK-IN" &&
+                customer.name != "Walk-in Customer"
+    }
+    private var selectedCustomer = Customer(accountNum = "WALK-IN", name = "Walk-in Customer")
 
     private fun showPaymentDialog() {
         val dialogView = layoutInflater.inflate(R.layout.dialog_payment, null)
-        val amountPaidEditText = dialogView.findViewById<EditText>(R.id.amountPaidEditText)
-        val paymentMethodSpinner = dialogView.findViewById<Spinner>(R.id.paymentMethodSpinner)
-        val customerAutoComplete =
-            dialogView.findViewById<AutoCompleteTextView>(R.id.customerAutoComplete)
+        val amountPaidEditText = dialogView.findViewById<EditText>(R.id.amountPaidEditText1)
+        val paymentMethodSpinner = dialogView.findViewById<Spinner>(R.id.paymentMethodSpinner1)
+        if (paymentMethodSpinner == null) {
+            Log.e(TAG, "Payment method spinner is null! Check your layout XML.")
+            Toast.makeText(this, "Error initializing payment dialog", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val paymentMethodSpinner2 = dialogView.findViewById<Spinner>(R.id.paymentMethodSpinner2)
+        if (paymentMethodSpinner2 == null) {
+            Log.e(TAG, "Second payment method spinner is null!")
+        }
+
+        val customerAutoComplete = dialogView.findViewById<AutoCompleteTextView>(R.id.customerAutoComplete)
         val totalAmountTextView = dialogView.findViewById<TextView>(R.id.totalAmountTextView)
+
+        // Split payment components
+        val splitPaymentSwitch = dialogView.findViewById<Switch>(R.id.splitPaymentSwitch)
+        val secondPaymentLayout = dialogView.findViewById<LinearLayout>(R.id.secondPaymentLayout)
+        val amountPaidEditText2 = dialogView.findViewById<EditText>(R.id.amountPaidEditText2)
 
         val defaultPaymentMethods = listOf("Cash")
         val paymentMethods = mutableListOf<String>()
@@ -4029,12 +5553,145 @@ class Window1 : AppCompatActivity() {
         var discountValue = 0.0
         var partialPayment = 0.0
 
+        // Set up number buttons and backspace
+        val numberButtons = listOf(
+            dialogView.findViewById<Button>(R.id.button0),
+            dialogView.findViewById<Button>(R.id.button1),
+            dialogView.findViewById<Button>(R.id.button2),
+            dialogView.findViewById<Button>(R.id.button3),
+            dialogView.findViewById<Button>(R.id.button4),
+            dialogView.findViewById<Button>(R.id.button5),
+            dialogView.findViewById<Button>(R.id.button6),
+            dialogView.findViewById<Button>(R.id.button7),
+            dialogView.findViewById<Button>(R.id.button8),
+            dialogView.findViewById<Button>(R.id.button9),
+            dialogView.findViewById<Button>(R.id.buttonDot)
+        )
+
+        val backspaceButton = dialogView.findViewById<Button>(R.id.buttonBackspace)
+        var currentFocusedEditText: EditText = amountPaidEditText
+
+        // Focus change listeners
+        amountPaidEditText.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) {
+                currentFocusedEditText = amountPaidEditText
+            }
+        }
+
+        amountPaidEditText2.setOnFocusChangeListener { _, hasFocus ->
+            if (hasFocus) {
+                currentFocusedEditText = amountPaidEditText2
+            }
+        }
+
+        // Text change listener for second payment amount
+        amountPaidEditText2.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                if (splitPaymentSwitch.isChecked) {
+                    val secondAmount = s?.toString()?.toDoubleOrNull() ?: 0.0
+                    val remainingAmount = totalAmount - secondAmount
+                    if (currentFocusedEditText == amountPaidEditText2) {
+                        amountPaidEditText.setText(String.format("%.2f", remainingAmount.coerceAtLeast(0.0)))
+                    }
+                }
+            }
+        })
+
+        // Disable system keyboard for both EditTexts
+        fun setupEditText(editText: EditText) {
+            editText.apply {
+                showSoftInputOnFocus = false
+                isFocusable = true
+                isFocusableInTouchMode = true
+                setOnClickListener {
+                    val inputMethodManager = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                    inputMethodManager.hideSoftInputFromWindow(windowToken, 0)
+                }
+            }
+        }
+
+        setupEditText(amountPaidEditText)
+        setupEditText(amountPaidEditText2)
+
+        // Number button click listener
+        val numberButtonClickListener = View.OnClickListener { view ->
+            val buttonText = (view as Button).text.toString()
+            val currentText = currentFocusedEditText.text.toString()
+
+            when (buttonText) {
+                "." -> {
+                    if (!currentText.contains(".")) {
+                        currentFocusedEditText.setText(currentText + buttonText)
+                        currentFocusedEditText.setSelection(currentFocusedEditText.text.length)
+                    }
+                }
+                else -> {
+                    // Limit input to 2 decimal places
+                    val parts = currentText.split(".")
+                    if (parts.size == 2 && parts[1].length >= 2) {
+                        return@OnClickListener
+                    }
+
+                    currentFocusedEditText.setText(currentText + buttonText)
+                    currentFocusedEditText.setSelection(currentFocusedEditText.text.length)
+                }
+            }
+        }
+
+        // Apply click listener to all number buttons
+        numberButtons.forEach { button ->
+            button.setOnClickListener(numberButtonClickListener)
+        }
+
+        // Backspace button logic
+        backspaceButton.setOnClickListener {
+            val currentText = currentFocusedEditText.text.toString()
+            if (currentText.isNotEmpty()) {
+                currentFocusedEditText.setText(currentText.substring(0, currentText.length - 1))
+                currentFocusedEditText.setSelection(currentFocusedEditText.text.length)
+            }
+        }
+
+        backspaceButton.setOnLongClickListener {
+            currentFocusedEditText.setText("")
+            true
+        }
+
+        // Split payment toggle logic with automatic amount distribution
+        splitPaymentSwitch.setOnCheckedChangeListener { buttonView, isChecked ->
+            if (isChecked) {
+                if (totalAmount <= 0) {
+                    buttonView.isChecked = false
+                    Toast.makeText(this@Window1, "Split payment not available - no remaining balance", Toast.LENGTH_SHORT).show()
+                    return@setOnCheckedChangeListener
+                }
+
+                secondPaymentLayout.visibility = View.VISIBLE
+
+                // Set default split: first payment gets total amount, second payment starts at 0
+                amountPaidEditText.setText(String.format("%.2f", totalAmount))
+                amountPaidEditText2.setText("0.00")
+
+                // Setup second amount edit text
+                setupEditText(amountPaidEditText2)
+                amountPaidEditText2.requestFocus()  // Automatically focus the second payment field
+            } else {
+                secondPaymentLayout.visibility = View.GONE
+                amountPaidEditText2.setText("")
+                amountPaidEditText.setText(String.format("%.2f", totalAmount))
+            }
+        }
+
+        // Cart items collection and total calculation
         lifecycleScope.launch {
             cartViewModel.getAllCartItems(windowId).collect { cartItems ->
                 var gross = 0.0
                 var totalDiscount = 0.0
                 var vatAmount = 0.0
                 var priceOverrideTotal = 0.0
+                var bundleDiscount = 0.0
 
                 cartItems.forEach { cartItem ->
                     val effectivePrice = cartItem.overriddenPrice ?: cartItem.price
@@ -4042,52 +5699,67 @@ class Window1 : AppCompatActivity() {
                     gross += itemTotal
                     partialPayment = cartItem.partialPayment
 
-                    // Calculate price override difference
-                    if (cartItem.overriddenPrice != null) {
-                        val originalTotal = cartItem.price * cartItem.quantity
-                        priceOverrideTotal += itemTotal - originalTotal
-                    }
-
-                    // Calculate all discounts including PWD/SC as regular percentage discounts
+                    // Existing discount and calculation logic remains the same
                     when (cartItem.discountType.toUpperCase()) {
                         "PERCENTAGE", "PWD", "SC" -> {
                             totalDiscount += itemTotal * (cartItem.discount / 100)
                             discountType = cartItem.discountType
                             discountValue = cartItem.discount
                         }
-
                         "FIXED" -> {
                             totalDiscount += cartItem.discount * cartItem.quantity
                             discountType = "FIXED"
                             discountValue = cartItem.discount
                         }
-
                         "FIXEDTOTAL", "FIXED TOTAL" -> {
                             totalDiscount += cartItem.discount
                             discountType = "FIXEDTOTAL"
                             discountValue = cartItem.discount
+                        }
+                        "DEAL", "PERCENTAGE", "FIXEDTOTAL" -> {
+                            // Handle bundle discounts
+                            if (cartItem.bundleId != null) {
+                                bundleDiscount += when (cartItem.discountType.toUpperCase()) {
+                                    "DEAL" -> cartItem.discount
+                                    "PERCENTAGE" -> itemTotal * (cartItem.discount / 100)
+                                    "FIXEDTOTAL" -> cartItem.discount
+                                    else -> 0.0
+                                }
+                            }
                         }
                     }
 
                     vatAmount += itemTotal * 0.12 / 1.12
                 }
 
+                // Add bundle discount to total discount
+                totalDiscount += bundleDiscount
+
                 val discountedTotal = gross - totalDiscount
                 totalAmount = discountedTotal - partialPayment
 
+                amountPaidEditText.setText(String.format("%.2f", totalAmount))
+
+                // Update UI elements
+                if (totalAmount <= 0) {
+                    splitPaymentSwitch.isChecked = false
+                    splitPaymentSwitch.isEnabled = false
+                } else {
+                    splitPaymentSwitch.isEnabled = true
+                }
+
+                // Update total amount display
                 val formattedText = StringBuilder().apply {
                     append(String.format("Gross Amount: ₱%.2f", gross))
                     if (priceOverrideTotal != 0.0) {
-                        append(
-                            String.format(
-                                "\nPrice Override Adjustment: ₱%.2f",
-                                priceOverrideTotal
-                            )
-                        )
+                        append(String.format("\nPrice Override Adjustment: ₱%.2f", priceOverrideTotal))
                     }
                     append(String.format("\nVAT Amount: ₱%.2f", vatAmount))
                     if (totalDiscount > 0) {
                         append(String.format("\nTotal Discount: ₱%.2f", totalDiscount))
+                        if (bundleDiscount > 0) {
+                            append(String.format("\n  Bundle Discount: ₱%.2f", bundleDiscount))
+                        }
                     }
                     append(String.format("\nDiscounted Total: ₱%.2f", discountedTotal))
                     if (partialPayment > 0) {
@@ -4103,28 +5775,23 @@ class Window1 : AppCompatActivity() {
             }
         }
 
-
         // Setup for payment methods spinner
         lifecycleScope.launch {
-            launch {
-                arViewModel.arTypes.collectLatest { arTypes ->
+            arViewModel.arTypes.collectLatest { arTypes ->
+                // Use withContext(Dispatchers.Main) if UI updates are needed
+                withContext(Dispatchers.Main) {
                     paymentMethods.clear()
                     paymentMethods.addAll(defaultPaymentMethods)
                     if (arTypes.isNotEmpty()) {
                         paymentMethods.addAll(arTypes.map { it.ar })
-                        Log.i(TAG, "Received ${arTypes.size} AR types")
-                    } else {
-                        Log.i(TAG, "No AR types received. Using default payment methods.")
                     }
-                    updatePaymentMethodSpinner(paymentMethodSpinner, paymentMethods)
 
-                    // Set Cash as default
-                    val cashIndex = paymentMethods.indexOf("Cash")
-                    if (cashIndex != -1) {
-                        paymentMethodSpinner.setSelection(cashIndex)
-                    }
+                    // Update spinners on main thread
+                    updatePaymentMethodSpinner(paymentMethodSpinner, paymentMethods, customerAutoComplete)
+                    updatePaymentMethodSpinner(paymentMethodSpinner2, paymentMethods, customerAutoComplete)
                 }
             }
+
 
             launch {
                 arViewModel.error.collectLatest { errorMessage ->
@@ -4132,7 +5799,8 @@ class Window1 : AppCompatActivity() {
                         Log.e(TAG, "Error in AR ViewModel: $errorMessage")
                         paymentMethods.clear()
                         paymentMethods.addAll(defaultPaymentMethods)
-                        updatePaymentMethodSpinner(paymentMethodSpinner, paymentMethods)
+                        updatePaymentMethodSpinner(paymentMethodSpinner, paymentMethods, customerAutoComplete)
+                        updatePaymentMethodSpinner(paymentMethodSpinner2, paymentMethods, customerAutoComplete)
                     }
                 }
             }
@@ -4140,16 +5808,17 @@ class Window1 : AppCompatActivity() {
 
         arViewModel.refreshARTypes()
 
-        // Setup for customer selection
+        // Setup for customer selection (existing code remains the same)
         val customers = mutableListOf<Customer>()
-        customers.add(Customer(accountNum = "000000", name = "Walk-in Customer"))
+        customers.add(selectedCustomer)
+
         val customerAdapter = ArrayAdapter(
             this,
             android.R.layout.simple_dropdown_item_1line,
-            customers.map { it.name })
+            customers.map { it.name }
+        )
         customerAutoComplete.setAdapter(customerAdapter)
         customerAutoComplete.setText("Walk-in Customer", false)
-        var selectedCustomer = customers[0]
 
         lifecycleScope.launch {
             try {
@@ -4162,6 +5831,143 @@ class Window1 : AppCompatActivity() {
                 updateCustomerList(customers, emptyList(), customerAdapter)
             }
         }
+
+        // Handle customer selection and search (existing code remains the same)
+//        setupCustomerSelection(
+//            customerAutoComplete,
+//            customers,
+//            customerAdapter,
+//            paymentMethodSpinner,
+//            paymentMethodSpinner2,
+//            dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+//        ) { customer ->
+//            selectedCustomer = customer
+//        }
+
+
+        // Create and show the dialog
+        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle)
+            .setTitle("Payment")
+            .setView(dialogView)
+            .setPositiveButton("Pay", null)
+            .setNegativeButton("Cancel") { dialog, _ -> dialog.cancel() }
+            .create()
+
+        // Set custom background
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+
+        // Handle dialog show and payment processing
+        dialog.setOnShowListener {
+            val payButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+
+            // Update spinner initialization to include the pay button
+            updatePaymentMethodSpinner(paymentMethodSpinner, paymentMethods, customerAutoComplete, payButton)
+            updatePaymentMethodSpinner(paymentMethodSpinner2, paymentMethods, customerAutoComplete, payButton)
+
+            // Update customer selection setup
+            setupCustomerSelection(
+                customerAutoComplete,
+                customers,
+                customerAdapter,
+                paymentMethodSpinner,
+                paymentMethodSpinner2,
+                payButton
+            ) { customer ->
+                selectedCustomer = customer
+            }
+
+            payButton.setOnClickListener {
+                val isSplitPayment = splitPaymentSwitch.isChecked
+
+                // Collect payment methods and amounts
+                val paymentMethods = mutableListOf<String>()
+                val paymentAmounts = mutableListOf<Double>()
+
+                // First payment method
+                val paymentMethod1 = paymentMethodSpinner?.selectedItem?.toString() ?: run {
+                    Toast.makeText(this, "Payment method not selected", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+
+                // Check if payment method is CHARGE and validate customer
+                val isCharge = isChargePayment(paymentMethod1) ||
+                        (isSplitPayment && isChargePayment(paymentMethodSpinner2?.selectedItem?.toString() ?: ""))
+
+                if (isCharge && !isValidCustomerForCharge(selectedCustomer)) {
+                    Toast.makeText(
+                        this,
+                        "Please select a valid customer for charge payment",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    customerAutoComplete.error = "Customer required for charge"
+                    return@setOnClickListener
+                }
+
+                val amountPaid1 = amountPaidEditText?.text.toString().toDoubleOrNull() ?: run {
+                    Toast.makeText(this, "Invalid payment amount", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                paymentMethods.add(paymentMethod1)
+                paymentAmounts.add(amountPaid1)
+
+                // Second payment method if split payment
+                if (isSplitPayment) {
+                    val paymentMethod2 = paymentMethodSpinner2.selectedItem.toString()
+                    val amountPaid2 = amountPaidEditText2.text.toString().toDoubleOrNull() ?: 0.0
+
+                    if (amountPaid2 > 0) {
+                        paymentMethods.add(paymentMethod2)
+                        paymentAmounts.add(amountPaid2)
+                    }
+                }
+
+                // Validate total payment
+                val totalPaid = paymentAmounts.sum()
+
+                // Check if total paid is sufficient
+                if (totalPaid < totalAmount) {
+                    Toast.makeText(this, "Insufficient payment amount", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+
+                val change = if (totalPaid > totalAmount) totalPaid - totalAmount else 0.0
+
+                // Process the payment
+                processPayment(
+                    paymentAmounts[0],
+                    paymentMethods[0],
+                    1.12, // VAT rate
+                    discountType,
+                    discountValue,
+                    selectedCustomer,
+                    totalAmount,
+                    // Pass other payment methods and amounts if split
+                    otherPaymentMethods = if (paymentMethods.size > 1) paymentMethods.slice(1 until paymentMethods.size) else emptyList(),
+                    otherPaymentAmounts = if (paymentAmounts.size > 1) paymentAmounts.slice(1 until paymentAmounts.size) else emptyList()
+                )
+
+                // Show change if applicable
+                if (change > 0) {
+                    Toast.makeText(this, "Change: ₱${String.format("%.2f", change)}", Toast.LENGTH_SHORT).show()
+                }
+
+                dialog.dismiss()
+            }
+        }
+
+        dialog.show()
+    }
+
+    private fun setupCustomerSelection(
+        customerAutoComplete: AutoCompleteTextView,
+        customers: MutableList<Customer>,
+        adapter: ArrayAdapter<String>,
+        paymentMethodSpinner: Spinner,
+        paymentMethodSpinner2: Spinner?,
+        payButton: Button,
+        onCustomerSelected: (Customer) -> Unit
+    ) {
+        // Handle keyboard done action
         customerAutoComplete.setOnEditorActionListener { v, actionId, event ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
                 val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
@@ -4172,144 +5978,125 @@ class Window1 : AppCompatActivity() {
             }
         }
 
-        customerAutoComplete.setOnItemClickListener { _, _, position, _ ->
-            selectedCustomer = customers[position]
-            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.hideSoftInputFromWindow(customerAutoComplete.windowToken, 0)
+        // Handle customer selection
+        customerAutoComplete.setOnItemClickListener { parent, view, position, id ->
+            val selectedCustomerName = parent.getItemAtPosition(position).toString()
+            val customer = customers.find { it.name == selectedCustomerName }
+                ?: Customer(accountNum = "WALK-IN", name = "Walk-in Customer")
+
+            // Check if CHARGE is selected in either spinner
+            val isCharge1 = isChargePayment(paymentMethodSpinner.selectedItem?.toString() ?: "")
+            val isCharge2 = paymentMethodSpinner2?.let {
+                isChargePayment(it.selectedItem?.toString() ?: "")
+            } ?: false
+
+            if ((isCharge1 || isCharge2) && !isValidCustomerForCharge(customer)) {
+                customerAutoComplete.error = "Please select a valid customer for charge payment"
+                payButton.isEnabled = false
+                // Clear the selection if it's invalid for charge
+                customerAutoComplete.setText("")
+                return@setOnItemClickListener
+            }
+
+            // Update UI and selected customer
+            customerAutoComplete.setText(customer.name, false)
+            customerAutoComplete.error = null
+            payButton.isEnabled = true
+            onCustomerSelected(customer)
         }
 
-        customerAutoComplete.setOnItemClickListener { _, _, position, _ ->
-            selectedCustomer = customers[position]
-        }
-
+        // Handle customer search
         customerAutoComplete.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
             override fun afterTextChanged(s: Editable?) {
                 lifecycleScope.launch {
                     try {
-                        if (s?.length ?: 0 >= 1) {
-                            customerViewModel.searchCustomers(s.toString())
-                        } else {
-                            updateCustomerList(
-                                customers,
-                                customerViewModel.customers.value,
-                                customerAdapter
-                            )
+                        val searchText = s?.toString() ?: ""
+                        if (searchText.length >= 1) {
+                            customerViewModel.searchCustomers(searchText)
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Error searching customers: ${e.message}")
-                        updateCustomerList(customers, emptyList(), customerAdapter)
                     }
                 }
             }
         })
 
-        lifecycleScope.launch {
-            customerViewModel.searchResults.collectLatest { searchResults ->
-                updateCustomerList(customers, searchResults, customerAdapter)
-            }
-        }
+        // Add text change listener for validation
+        customerAutoComplete.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                val currentText = s?.toString() ?: ""
+                val isCharge1 = isChargePayment(paymentMethodSpinner.selectedItem?.toString() ?: "")
+                val isCharge2 = paymentMethodSpinner2?.let {
+                    isChargePayment(it.selectedItem?.toString() ?: "")
+                } ?: false
 
-        // Add listener to payment method spinner
-        paymentMethodSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(
-                parent: AdapterView<*>?,
-                view: View?,
-                position: Int,
-                id: Long
-            ) {
-                val selectedMethod = parent?.getItemAtPosition(position).toString()
-                if (selectedMethod == "Cash") {
-                    amountPaidEditText.isEnabled = true
-                    amountPaidEditText.setText("") // Clear the text for new input
-                } else {
-                    amountPaidEditText.isEnabled = false
-                    amountPaidEditText.setText(
-                        String.format(
-                            "%.2f",
-                            totalAmount
-                        )
-                    ) // Display total amount
+                if ((isCharge1 || isCharge2) && (currentText.isEmpty() || currentText == "Walk-in Customer")) {
+                    customerAutoComplete.error = "Please select a valid customer for charge payment"
+                    payButton.isEnabled = false
                 }
             }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        })
+    }
+    // Extension function to round to two decimals
+    private fun updatePaymentMethodSpinner(
+        spinner: Spinner?,
+        methods: List<String>,
+        customerAutoComplete: AutoCompleteTextView,
+        payButton: Button? = null
+    ) {
+        if (spinner == null) {
+            Log.e(TAG, "Attempted to update null spinner")
+            return
         }
 
+        val uniqueMethods = methods.distinct().sorted()
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, uniqueMethods)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinner.adapter = adapter
 
-        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle)
-            .setTitle("Payment")
-            .setView(dialogView)
-            .setPositiveButton("Pay", null)
-            .setNegativeButton("Cancel") { dialog, _ -> dialog.cancel() }
-            .create()
+        // Add selection listener
+        spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val selectedMethod = parent?.getItemAtPosition(position).toString()
 
-// Set custom background
-        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+                if (isChargePayment(selectedMethod)) {
+                    // Clear customer field and reset selected customer
+                    customerAutoComplete.setText("")
+                    selectedCustomer = Customer(accountNum = "WALK-IN", name = "Walk-in Customer")
 
-        dialog.setOnShowListener {
-            val payButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-            payButton.setOnClickListener {
-                val paymentMethod = paymentMethodSpinner.selectedItem.toString()
-                val amountPaid = amountPaidEditText.text.toString().toDoubleOrNull() ?: 0.0
-
-                val isAR = paymentMethod != "Cash"
-
-                if (!isAR && amountPaid < totalAmount) {
-                    Toast.makeText(this, "Insufficient amount", Toast.LENGTH_SHORT).show()
+                    // Update UI to show requirement
+                    customerAutoComplete.hint = "Select Customer (Required for Charge)"
+                    customerAutoComplete.error = "Customer required for charge"
+                    payButton?.isEnabled = false
                 } else {
-                    val change = if (isAR) 0.0 else amountPaid - totalAmount
-                    if (!isAR && change < 0) {
-                        Toast.makeText(
-                            this,
-                            "Error: Negative change calculated",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    } else {
-                        if (!isAR && change > 0) {
-                            Toast.makeText(this, "Change: ₱%.2f".format(change), Toast.LENGTH_SHORT)
-                                .show()
-                        }
+                    // Reset to default state
+                    customerAutoComplete.hint = "Select Customer"
+                    customerAutoComplete.error = null
+                    payButton?.isEnabled = true
 
-                        processPayment(
-                            if (isAR) totalAmount else amountPaid,
-                            paymentMethod,
-                            1.12, // VAT rate (12%)
-                            discountType,
-                            discountValue,
-                            selectedCustomer
-                        )
-                        dialog.dismiss()
+                    // Reset to walk-in customer if no specific customer is selected
+                    if (customerAutoComplete.text.isEmpty()) {
+                        customerAutoComplete.setText("Walk-in Customer", false)
+                        selectedCustomer = Customer(accountNum = "WALK-IN", name = "Walk-in Customer")
                     }
                 }
             }
+
+            override fun onNothingSelected(parent: AdapterView<*>?) {
+                customerAutoComplete.hint = "Select Customer"
+                customerAutoComplete.error = null
+                payButton?.isEnabled = true
+            }
         }
 
-        dialog.show()
-    }
-
-    private fun updatePaymentMethodSpinner(spinner: Spinner, methods: List<String>) {
-        val uniqueMethods = methods.distinct().sorted()
-
-        // Create custom layout for selected item
-        val adapter = ArrayAdapter(this, R.layout.spinner_item, uniqueMethods)
-        // Create custom layout for dropdown items
-        adapter.setDropDownViewResource(R.layout.spinner_dropdown_item)
-        spinner.adapter = adapter
-
-        // Set listener to ensure text color is maintained after selection
-        spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(
-                parent: AdapterView<*>?,
-                view: View?,
-                position: Int,
-                id: Long
-            ) {
-                (view as? TextView)?.setTextColor(Color.BLACK)
-            }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        // Select default method (Cash)
+        val cashIndex = uniqueMethods.indexOf("Cash")
+        if (cashIndex != -1) {
+            spinner.setSelection(cashIndex)
         }
     }
 
@@ -4319,12 +6106,218 @@ class Window1 : AppCompatActivity() {
         adapter: ArrayAdapter<String>
     ) {
         customersList.clear()
+        // Update the Walk-in customer with a standard account number
         customersList.add(Customer(accountNum = "WALK-IN", name = "Walk-in Customer"))
+
+        // Add all other customers, preserving their full details
         customersList.addAll(newCustomers)
+
+        // Update adapter with customer names
         adapter.clear()
         adapter.addAll(customersList.map { it.name })
         adapter.notifyDataSetChanged()
+
+        // For debugging - log the customer list
+        customersList.forEach { customer ->
+            Log.d(TAG, "Customer in list: ${customer.name}, Account: ${customer.accountNum}")
+        }
     }
+
+    private fun updatePricesForWindow(windowDescription: String) {
+        lifecycleScope.launch {
+            try {
+                val currentProducts = productViewModel.allProducts.value ?: return@launch
+
+                // Update prices based on window type
+                val updatedProducts = currentProducts.map { product ->
+                    when {
+                        windowDescription.contains("GRABFOOD") && product.grabfood > 0 -> {
+                            product.copy(price = product.grabfood)
+                        }
+                        windowDescription.contains("FOODPANDA") && product.foodpanda > 0 -> {
+                            product.copy(price = product.foodpanda)
+                        }
+                        windowDescription.contains("MANILARATE") && product.manilaprice > 0 -> {
+                            product.copy(price = product.manilaprice)
+                        }
+                        else -> product
+                    }
+                }
+
+                // Update the product list with adjusted prices
+                withContext(Dispatchers.Main) {
+                    productAdapter.submitList(updatedProducts)
+                }
+            } catch (e: Exception) {
+                Log.e("Window1", "Error updating prices for window", e)
+            }
+        }
+    }
+    private fun loadWindowSpecificProducts() {
+        lifecycleScope.launch {
+            try {
+                val window = windowViewModel.allWindows.first().find { it.id == windowId }
+
+                if (window != null) {
+                    val description = window.description.uppercase()
+                    Log.d("Window1", "Window description: $description")
+
+                    val allProducts = productViewModel.allProducts.value ?: emptyList()
+
+                    // Filter products based on window description
+                    val filteredProducts = when {
+                        description.contains("GRABFOOD") -> {
+                            allProducts.filter { product ->
+                                product.grabfood > 0
+                            }.map { product ->
+                                product.copy(price = product.grabfood)
+                            }
+                        }
+                        description.contains("FOODPANDA") -> {
+                            allProducts.filter { product ->
+                                product.foodpanda > 0
+                            }.map { product ->
+                                product.copy(price = product.foodpanda)
+                            }
+                        }
+                        description.contains("MANILARATE") -> {
+                            allProducts.filter { product ->
+                                product.manilaprice > 0
+                            }.map { product ->
+                                product.copy(price = product.manilaprice)
+                            }
+                        }
+                        description.contains("PARTYCAKES") -> {
+                            allProducts.filter { product ->
+                                product.itemName.equals("PARTY CAKES", ignoreCase = true)
+                            }
+                        }
+                        description.contains("PURCHASE") -> {
+                            // For PURCHASE windows, show items that only have regular price and no other prices
+                            allProducts.filter { product ->
+                                product.price > 0 && product.grabfood == 0.0 &&
+                                        product.foodpanda == 0.0 && product.manilaprice == 0.0
+                            }
+                        }
+                        else -> allProducts
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        productAdapter.submitList(filteredProducts)
+                        updateAvailableCategories(filteredProducts)
+                        findViewById<TextView>(R.id.textView3)?.text = "Products (${filteredProducts.size})"
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("Window1", "Error loading window-specific products", e)
+            }
+        }
+    }
+//    private fun loadWindowSpecificProducts() {
+//        lifecycleScope.launch {
+//            try {
+//                Log.d("Window1", "Starting loadWindowSpecificProducts for windowId: $windowId")
+//
+//                // Get current window description using windowViewModel
+//                val window = windowViewModel.allWindows.first().find { it.id == windowId }
+//
+//                if (window != null) {
+//                    val description = window.description.uppercase()
+//                    Log.d("Window1", "Window description: $description")
+//
+//                    val allProducts = productViewModel.allProducts.value ?: emptyList()
+//                    Log.d("Window1", "Total products before filtering: ${allProducts.size}")
+//
+//                    // Filter products based on window description
+//                    val filteredProducts = when {
+//                        description.contains("GRABFOOD") -> {
+//                            Log.d("Window1", "Applying GRABFOOD filter")
+//                            allProducts.filter { product ->
+//                                val hasGrabPrice = product.grabfood > 0
+//                                if (hasGrabPrice) {
+//                                    Log.d("Window1", "Product ${product.itemName} has GrabFood price: ${product.grabfood}")
+//                                }
+//                                hasGrabPrice
+//                            }.map { product ->
+//                                product.copy(price = product.grabfood)
+//                            }
+//                        }
+//                        description.contains("FOODPANDA") -> {
+//                            Log.d("Window1", "Applying FOODPANDA filter")
+//                            allProducts.filter { product ->
+//                                val hasFoodPandaPrice = product.foodpanda > 0
+//                                if (hasFoodPandaPrice) {
+//                                    Log.d("Window1", "Product ${product.itemName} has FoodPanda price: ${product.foodpanda}")
+//                                }
+//                                hasFoodPandaPrice
+//                            }.map { product ->
+//                                product.copy(price = product.foodpanda)
+//                            }
+//                        }
+//                        description.contains("MANILARATE") -> {
+//                            Log.d("Window1", "Applying MANILARATE filter")
+//                            allProducts.filter { product ->
+//                                val hasManilaPrice = product.manilaprice > 0
+//                                if (hasManilaPrice) {
+//                                    Log.d("Window1", "Product ${product.itemName} has Manila price: ${product.manilaprice}")
+//                                }
+//                                hasManilaPrice
+//                            }.map { product ->
+//                                product.copy(price = product.manilaprice)
+//                            }
+//                        }
+//                        description.contains("PARTYCAKES") -> {
+//                            Log.d("Window1", "Applying PARTYCAKES filter")
+//                            allProducts.filter { product ->
+//                                val isPartyCake = product.itemName.equals("PARTY CAKES", ignoreCase = true)
+//                                if (isPartyCake) {
+//                                    Log.d("Window1", "Product ${product.itemName} is a party cake")
+//                                }
+//                                isPartyCake
+//                            }
+//                        }
+//                        description.contains("PURCHASE") -> {
+//                            Log.d("Window1", "Applying PURCHASE filter")
+//                            allProducts.filter { product ->
+//                                val isRegularPrice = product.grabfood == 0.0 &&
+//                                        product.foodpanda == 0.0 &&
+//                                        product.manilaprice == 0.0 &&
+//                                        product.price > 0
+//                                if (isRegularPrice) {
+//                                    Log.d("Window1", "Product ${product.itemName} has regular price: ${product.price}")
+//                                }
+//                                isRegularPrice
+//                            }
+//                        }
+//                        else -> {
+//                            Log.d("Window1", "No specific filter applied")
+//                            allProducts
+//                        }
+//                    }
+//
+//                    Log.d("Window1", "Filtered products count: ${filteredProducts.size}")
+//
+//                    // Update the product display
+//                    withContext(Dispatchers.Main) {
+//                        productAdapter.submitList(filteredProducts)
+//                        findViewById<TextView>(R.id.textView3)?.text = "Products (${filteredProducts.size})"
+//                    }
+//                } else {
+//                    Log.e("Window1", "Window not found for id: $windowId")
+//                }
+//
+//            } catch (e: Exception) {
+//                Log.e("Window1", "Error loading window-specific products: ${e.message}", e)
+//                withContext(Dispatchers.Main) {
+//                    Toast.makeText(
+//                        this@Window1,
+//                        "Error loading products: ${e.message}",
+//                        Toast.LENGTH_SHORT
+//                    ).show()
+//                }
+//            }
+//        }
+//    }
 
     private fun addToCart(product: Product) {
         if (currentCashFund <= 0) {
@@ -4335,37 +6328,79 @@ class Window1 : AppCompatActivity() {
             ).show()
             return
         }
+
         lifecycleScope.launch {
             val existingItems = cartViewModel.getAllCartItems(windowId).first()
             val partialPayment = existingItems.firstOrNull()?.partialPayment ?: 0.0
 
-            val existingItem = existingItems.find { it.productId == product.id }
-            if (existingItem != null) {
-                cartViewModel.update(
-                    existingItem.copy(
-                        quantity = existingItem.quantity + 1,
-                        partialPayment = partialPayment
-                    )
-                )
-            } else {
-                cartViewModel.insert(
-                    CartItem(
-                        productId = product.id,
-                        quantity = 1,
-                        windowId = windowId,
-                        productName = product.itemName,
-                        price = product.price,
-                        partialPayment = partialPayment,
-                        vatAmount = 0.0,
-                        vatExemptAmount = 0.0,
-                        itemGroup = product.itemGroup,  // Added field
-                        itemId = product.itemid
-                    )
-                )
+            // Find matching items, separating discounted and non-discounted
+            val existingNonDiscountedItem = existingItems.find { item ->
+                item.productId == product.id &&
+                        item.discount == 0.0 &&
+                        item.discountType.isEmpty() &&
+                        item.bundleId == null
             }
-            Log.d(TAG, "Added/Updated cart item for product ${product.id} in window $windowId")
 
-            // Update total amount after adding/updating the item
+            val existingDiscountedItem = existingItems.find { item ->
+                item.productId == product.id &&
+                        (item.discount > 0.0 ||
+                                item.discountType.isNotEmpty() ||
+                                item.bundleId != null)
+            }
+
+            when {
+                // If clicking a non-discounted item
+                existingNonDiscountedItem != null -> {
+                    // Update quantity of existing non-discounted item
+                    cartViewModel.update(
+                        existingNonDiscountedItem.copy(
+                            quantity = existingNonDiscountedItem.quantity + 1,
+                            partialPayment = partialPayment
+                        )
+                    )
+                }
+                // If the product exists but only as a discounted item, create new non-discounted entry
+                existingDiscountedItem != null -> {
+                    // Create new cart item without discount
+                    cartViewModel.insert(
+                        CartItem(
+                            productId = product.id,
+                            quantity = 1,
+                            windowId = windowId,
+                            productName = product.itemName,
+                            price = product.price,
+                            partialPayment = partialPayment,
+                            vatAmount = 0.0,
+                            vatExemptAmount = 0.0,
+                            itemGroup = product.itemGroup,
+                            itemId = product.itemid,
+                            discount = 0.0,
+                            discountType = ""
+                        )
+                    )
+                }
+                // If the product doesn't exist in cart at all
+                else -> {
+                    cartViewModel.insert(
+                        CartItem(
+                            productId = product.id,
+                            quantity = 1,
+                            windowId = windowId,
+                            productName = product.itemName,
+                            price = product.price,
+                            partialPayment = partialPayment,
+                            vatAmount = 0.0,
+                            vatExemptAmount = 0.0,
+                            itemGroup = product.itemGroup,
+                            itemId = product.itemid,
+                            discount = 0.0,
+                            discountType = ""
+                        )
+                    )
+                }
+            }
+
+            Log.d(TAG, "Added/Updated cart item for product ${product.id} in window $windowId")
             updateTotalAmount(cartViewModel.getAllCartItems(windowId).first())
         }
     }
@@ -4382,22 +6417,41 @@ class Window1 : AppCompatActivity() {
         loadLastTransactionNumber()
     }
 
+    // In your ViewModel or Repository
     private suspend fun generateTransactionId(): String {
-        return numberSequenceRepository.getNextNumber("TRANSACTION")
+        val currentStore = SessionManager.getCurrentUser()?.storeid
+            ?: throw IllegalStateException("No store ID found in current session")
+        return numberSequenceRepository.getNextNumber("TRANSACTION", currentStore)
     }
+
 
     private fun loadLastTransactionNumber() {
         val sharedPref = getSharedPreferences("TransactionPrefs", Context.MODE_PRIVATE)
         lastTransactionNumber = sharedPref.getInt("lastTransactionNumber", 0)
     }
-    private fun checkCurrentSequence() {
-        lifecycleScope.launch {
-            val currentValue = numberSequenceRepository.getCurrentValue("TRANSACTION")
-            Log.d(TAG, "Current transaction number: $currentValue")
-            // Optionally update UI to show current value
-            // binding.textViewSequence.text = "Current Sequence: $currentValue"
+
+private fun initializeSequences() {
+    lifecycleScope.launch {
+        try {
+            val currentStore = SessionManager.getCurrentUser()?.storeid
+            if (currentStore != null) {
+                // Initialize sequence for the current store
+                numberSequenceRepository.initializeSequence(
+                    type = "TRANSACTION",
+                    storeId = currentStore,
+                    startValue = 1,
+                    paddingLength = 9
+                )
+
+                // Check current sequence value
+                val currentValue = numberSequenceRepository.getCurrentValue("TRANSACTION", currentStore)
+                Log.d(TAG, "Current sequence for store $currentStore: $currentValue")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing number sequences", e)
         }
     }
+}
     // Add this function to save the last transaction number to SharedPreferences
     private fun saveLastTransactionNumber() {
         val sharedPref = getSharedPreferences("TransactionPrefs", Context.MODE_PRIVATE)
@@ -4417,10 +6471,13 @@ class Window1 : AppCompatActivity() {
         val sequenceInput = dialogView.findViewById<EditText>(R.id.editTextSequence)
         val currentSequence = dialogView.findViewById<TextView>(R.id.textViewCurrentSequence)
 
-        // Load current sequence
+        // Load current sequence for the current store
         lifecycleScope.launch {
-            val currentValue = numberSequenceRepository.getCurrentValue("TRANSACTION")
-            currentSequence.text = "Current Sequence: ${currentValue ?: 0}"
+            val currentStore = SessionManager.getCurrentUser()?.storeid
+            if (currentStore != null) {
+                val currentValue = numberSequenceRepository.getCurrentValue("TRANSACTION", currentStore)
+                currentSequence.text = "Current Sequence: ${currentValue ?: 0}"
+            }
         }
 
         val dialog = AlertDialog.Builder(this)
@@ -4444,7 +6501,7 @@ class Window1 : AppCompatActivity() {
 
             lifecycleScope.launch {
                 try {
-                    numberSequenceRepository.resetSequence("TRANSACTION", newValue)
+                    numberSequenceRepository.resetSequence("TRANSACTION", newValue.toString())
                     Toast.makeText(
                         this@Window1,
                         "Sequence number updated successfully",
@@ -4461,249 +6518,701 @@ class Window1 : AppCompatActivity() {
             }
         }
     }
+//    suspend fun someMethodThatAccessesDatabase() {
+//        withContext(Dispatchers.IO) {
+//            // Database operations here
+//            numberSequenceRemoteRepository.getNextTransactionNumber(storeId)
+//        }
+//    }
+//private fun processPayment(
+//    amountPaid: Double,
+//    paymentMethod: String,
+//    vatRate: Double,
+//    discountType: String,
+//    discountValue: Double,
+//    selectedCustomer: Customer,
+//    totalAmountDue: Double,
+//    otherPaymentMethods: List<String> = emptyList(),
+//    otherPaymentAmounts: List<Double> = emptyList()
+//) {
+//    lifecycleScope.launch(Dispatchers.IO) {
+//        try {
+//            Log.d("Payment", "Starting payment process...")
+//            val cartItems = cartViewModel.getAllCartItems(windowId).first()
+//            val transactionComment = cartItems.firstOrNull()?.cartComment ?: ""
+//
+//            if (cartItems.isEmpty()) {
+//                withContext(Dispatchers.Main) {
+//                    Toast.makeText(
+//                        this@Window1,
+//                        "Cannot process payment. Cart is empty.",
+//                        Toast.LENGTH_SHORT
+//                    ).show()
+//                }
+//                return@launch
+//            }
+//
+//            val currentStore = SessionManager.getCurrentUser()?.storeid
+//            Log.d("Payment", "Current store ID: $currentStore")
+//
+//            if (currentStore == null) {
+//                withContext(Dispatchers.Main) {
+//                    Toast.makeText(
+//                        this@Window1,
+//                        "No store ID found in session",
+//                        Toast.LENGTH_SHORT
+//                    ).show()
+//                }
+//                return@launch
+//            }
+//
+//            try {
+//                Log.d("Payment", "Fetching number sequence for store: $currentStore")
+//                val numberSequenceResult = numberSequenceRemoteRepository.fetchAndUpdateNumberSequence(currentStore)
+//
+//                numberSequenceResult.onSuccess { numberSequence ->
+//                    Log.d("Payment", "Successfully fetched number sequence: $numberSequence")
+//
+//                    // All database operations within withContext(Dispatchers.IO)
+//                    withContext(Dispatchers.IO) {
+//                        val transactionId = numberSequenceRemoteRepository.getNextTransactionNumber(currentStore)
+//                        Log.d("Payment", "Generated transaction ID: $transactionId")
+//
+//                        val storeKey = numberSequenceRemoteRepository.getCurrentStoreKey(currentStore)
+//
+//                        Log.d("Payment", "Generated store key: $storeKey")
+//
+//
+//                        var gross = 0.0
+//            var totalDiscount = 0.0
+//            var bundleDiscount = 0.0
+//            var vatAmount = 0.0
+//            var vatableSales = 0.0
+//            var partialPayment = 0.0
+//            var priceOverrideTotal = 0.0
+//            var hasPriceOverride = false
+//
+//            // Get existing discount from first cart item if partial payment exists
+//            val existingPartialPayment = cartItems.firstOrNull()?.partialPayment ?: 0.0
+//            val existingDiscount = if (existingPartialPayment > 0) {
+//                cartItems.firstOrNull()?.discountAmount ?: 0.0
+//            } else null
+//
+//            // Group items by bundleId for bundle discount calculation
+//            val bundledItems = cartItems.groupBy { it.bundleId }
+//
+//            // Calculate totals from cart items
+//            cartItems.forEach { cartItem ->
+//                val originalPrice = cartItem.price
+//                val effectivePrice = cartItem.overriddenPrice ?: originalPrice
+//                val itemTotal = effectivePrice * cartItem.quantity
+//                gross += itemTotal
+//                partialPayment = cartItem.partialPayment
+//
+//                // If we have existing discount from partial payment, use that instead of recalculating
+//                if (existingDiscount != null) {
+//                    totalDiscount = existingDiscount
+//                } else {
+//                    // Calculate regular discounts
+//                    when (cartItem.discountType.uppercase()) {
+//                        "FIXEDTOTAL" -> {
+//                            if (cartItem.bundleId == null) {
+//                                totalDiscount += cartItem.discountAmount
+//                            }
+//                        }
+//                        "PERCENTAGE", "PWD", "SC" -> {
+//                            if (cartItem.bundleId == null) {
+//                                totalDiscount += itemTotal * (cartItem.discount / 100)
+//                            }
+//                        }
+//                        "FIXED" -> {
+//                            if (cartItem.bundleId == null) {
+//                                totalDiscount += cartItem.discount * cartItem.quantity
+//                            }
+//                        }
+//                    }
+//
+//                    // Calculate bundle discounts
+//                    if (cartItem.bundleId != null) {
+//                        val bundleItems = bundledItems[cartItem.bundleId]
+//                        if (bundleItems != null) {
+//                            when (cartItem.discountType.uppercase()) {
+//                                "DEAL" -> bundleDiscount += cartItem.discount
+//                                "PERCENTAGE" -> bundleDiscount += itemTotal * (cartItem.discount / 100)
+//                                "FIXEDTOTAL" -> bundleDiscount += cartItem.discount
+//                            }
+//                        }
+//                    }
+//                }
+//
+//                vatableSales += itemTotal / vatRate
+//                vatAmount += itemTotal * 0.12 / 1.12
+//            }
+//
+//            // Add bundle discount to total discount
+//            totalDiscount += bundleDiscount
+//
+//            val discountedSubtotal = gross - totalDiscount
+//            val netSales = discountedSubtotal - partialPayment
+//            val totalAmountDue = netSales.roundToTwoDecimals()
+////                val transactionId = cartItems.firstOrNull()?.transactionId ?: generateTransactionId()
+//
+//
+////            val transactionId = numberSequenceRepository.getNextNumber("TRANSACTION", currentStore)
+////
+////
+////            val storeKey = numberSequenceRepository.getCurrentStoreKey("TRANSACTION", currentStore)
+//
+//            // Create store-specific sequence
+//            val storeSequence = "$currentStore-${transactionId.split("-").last()}"
+//            // Determine if the payment method is AR
+//            val isAR = paymentMethod != "Cash"
+//
+//            val change = if (isAR) 0.0 else (amountPaid - totalAmountDue).roundToTwoDecimals()
+//            val ar = if (isAR) totalAmountDue else 0.0
+//
+//            val paymentMethodAmounts = mutableMapOf(
+//                "GCASH" to 0.0,
+//                "PAYMAYA" to 0.0,
+//                "CASH" to 0.0,
+//                "CARD" to 0.0,
+//                "LOYALTYCARD" to 0.0,
+//                "CHARGE" to 0.0,
+//                "FOODPANDA" to 0.0,
+//                "GRABFOOD" to 0.0,
+//                "REPRESENTATION" to 0.0
+//            )
+//
+//            // Set the primary payment method amount
+//            val primaryPaymentKey = paymentMethod.uppercase()
+//            paymentMethodAmounts[primaryPaymentKey] = amountPaid
+//
+//            // Distribute remaining payment methods if provided
+//            otherPaymentMethods.forEachIndexed { index, method ->
+//                if (index < otherPaymentAmounts.size) {
+//                    paymentMethodAmounts[method.uppercase()] = otherPaymentAmounts[index]
+//                }
+//            }
+//
+//            // Prepare the transaction summary
+//            val transactionSummary = TransactionSummary(
+//                transactionId = transactionId,
+//                type = if (isAR) 3 else 1, // 3 for AR, 1 for Cash
+//                receiptId = transactionId,
+//                store = getCurrentStore(),
+//                staff = getCurrentStaff(),
+//                storeKey = storeKey,
+//                storeSequence = storeSequence,
+//                customerAccount = selectedCustomer.name,
+//                netAmount = discountedSubtotal,
+//                costAmount = gross - vatAmount,
+//                grossAmount = gross,
+//                partialPayment = partialPayment,
+//                transactionStatus = 1,
+//                discountAmount = totalDiscount,
+//                customerDiscountAmount = totalDiscount,
+//                totalDiscountAmount = totalDiscount,
+//                numberOfItems = cartItems.sumOf { it.quantity }.toDouble(),
+//                refundReceiptId = null,
+//                currency = "PHP",
+//                zReportId = null,
+//                createdDate = Date(),
+//                priceOverride = if (hasPriceOverride) priceOverrideTotal else 0.0,
+//                comment = transactionComment,
+//                receiptEmail = null,
+//                markupAmount = 0.0,
+//                markupDescription = null,
+//                taxIncludedInPrice = vatAmount,
+//                windowNumber = windowId,
+//                // Update these payment fields
+//                gCash = paymentMethodAmounts["GCASH"] ?: 0.0,
+//                payMaya = paymentMethodAmounts["PAYMAYA"] ?: 0.0,
+//                cash = paymentMethodAmounts["CASH"] ?: 0.0,
+//                card = paymentMethodAmounts["CARD"] ?: 0.0,
+//                loyaltyCard = paymentMethodAmounts["LOYALTYCARD"] ?: 0.0,
+//                charge = paymentMethodAmounts["CHARGE"] ?: 0.0,
+//                foodpanda = paymentMethodAmounts["FOODPANDA"] ?: 0.0,
+//                grabfood = paymentMethodAmounts["GRABFOOD"] ?: 0.0,
+//                representation = paymentMethodAmounts["REPRESENTATION"] ?: 0.0,
+//                changeGiven = change,
+//                totalAmountPaid = if (isAR) 0.0 else amountPaid,  // Make sure this is set correctly
+//                paymentMethod = paymentMethod,
+//                customerName = selectedCustomer.name,
+//                vatAmount =  (discountedSubtotal / 1.12) * 0.12,
+//                vatExemptAmount = 0.0,
+//                vatableSales = discountedSubtotal / 1.12,
+//                discountType = discountType,
+//                syncStatus = false
+//            )
+//
+//            // Insert the transaction summary into the database
+//                        transactionSummary.syncStatus = false
+//                        transactionDao.insertTransactionSummary(transactionSummary)
+//                        transactionDao.insertAll(transactionRecords)
+//
+//
+//                        updateTransactionRecords(
+//                            transactionId,
+//                            cartItems,
+//                            paymentMethod,
+//                            ar,
+//                            vatRate,
+//                            totalDiscount,
+//                            netSales,
+//                            partialPayment,
+//                            discountType
+//                        )
+//
+//                        val transactionRecords = getTransactionRecords(
+//                            transactionId,
+//                            cartItems,
+//                            paymentMethod,
+//                            ar,
+//                            vatRate,
+//                            discountType
+//
+//                        )
+//                        transactionRecords.forEach { record ->
+//                            record.syncStatusRecord = false
+//                        }
+//
+//                        // Insert the records
+//                        // UI operations moved to Main dispatcher
+//                        withContext(Dispatchers.Main) {
+//                            // Your existing receipt printing and UI update code
+//                            if (isAR) {
+//                                printReceiptWithBluetoothPrinter(
+//                                    transactionSummary,
+//                                    transactionRecords,
+//                                    BluetoothPrinterHelper.ReceiptType.AR,
+//                                    isARReceipt = true,
+//                                    copyType = "Customer Copy"
+//                                )
+//                printReceiptWithBluetoothPrinter(
+//                    transactionSummary,
+//                    transactionRecords,
+//                    BluetoothPrinterHelper.ReceiptType.AR,
+//                    isARReceipt = true,
+//                    copyType = "Staff Copy"
+//                )
+//            } else {
+//                printReceiptWithBluetoothPrinter(
+//                    transactionSummary,
+//                    transactionRecords,
+//                    BluetoothPrinterHelper.ReceiptType.ORIGINAL
+//                )
+//            }
+//
+//                            showChangeAndReceiptDialog(
+//                                change,
+//                                cartItems,
+//                                transactionId,
+//                                paymentMethod,
+//                                ar,
+//                                vatAmount,
+//                                totalDiscount,
+//                                netSales,
+//                                if (gross > 0) totalDiscount / gross else 0.0,
+//                                transactionComment,
+//                                partialPayment,
+//                                amountPaid
+//                            )
+//                        }
+//
+//                        // Back to IO dispatcher for cleanup
+//                        transactionDao.updateSyncStatus(transactionId, false)
+//                        cartViewModel.deleteAll(windowId)
+//                        cartViewModel.clearCartComment(windowId)
+//
+//                        withContext(Dispatchers.Main) {
+//                            updateTotalAmount(emptyList())
+//                            SessionManager.setCurrentNumberSequence(numberSequence)
+//
+//                            val transactionLogger = TransactionLogger(this@Window1)
+//                            transactionLogger.logPayment(
+//                                transactionSummary,
+//                                paymentMethod,
+//                                totalAmountDue
+//                            )
+//                        }
+//                    }
+//                }.onFailure { error ->
+//                    Log.e("Payment", "Failed to fetch number sequence: ${error.message}")
+//                    withContext(Dispatchers.Main) {
+//                        Toast.makeText(
+//                            this@Window1,
+//                            "Failed to generate transaction number: ${error.message}",
+//                            Toast.LENGTH_LONG
+//                        ).show()
+//                    }
+//                }
+//            } catch (e: Exception) {
+//                Log.e("Payment", "Error in number sequence processing", e)
+//                withContext(Dispatchers.Main) {
+//                    Toast.makeText(
+//                        this@Window1,
+//                        "Error in number sequence: ${e.message}",
+//                        Toast.LENGTH_LONG
+//                    ).show()
+//                }
+//            }
+//        } catch (e: Exception) {
+//            Log.e("Payment", "Error during payment processing: ${e.message}")
+//            withContext(Dispatchers.Main) {
+//                Toast.makeText(
+//                    this@Window1,
+//                    "Error processing payment: ${e.message}",
+//                    Toast.LENGTH_LONG
+//                ).show()
+//            }
+//        }
+//    }
+//}
 
-    private fun processPayment(
+        private fun processPayment(
         amountPaid: Double,
         paymentMethod: String,
         vatRate: Double,
         discountType: String,
         discountValue: Double,
-        customer: Customer
+        selectedCustomer: Customer,
+        totalAmountDue: Double,
+        otherPaymentMethods: List<String> = emptyList(),
+        otherPaymentAmounts: List<Double> = emptyList()
     ) {
-
-        lifecycleScope.launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             try {
+                Log.d("Payment", "Starting payment process...")
                 val cartItems = cartViewModel.getAllCartItems(windowId).first()
                 val transactionComment = cartItems.firstOrNull()?.cartComment ?: ""
 
                 if (cartItems.isEmpty()) {
-                    Toast.makeText(
-                        this@Window1,
-                        "Cannot process payment. Cart is empty.",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            this@Window1,
+                            "Cannot process payment. Cart is empty.",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                     return@launch
                 }
 
-                var gross = 0.0
-                var totalDiscount = 0.0
-                var vatAmount = 0.0
-                var vatableSales = 0.0
-                var partialPayment = 0.0
-                var priceOverrideTotal = 0.0
-                var hasPriceOverride = false
+                val currentStore = SessionManager.getCurrentUser()?.storeid
+                Log.d("Payment", "Current store ID: $currentStore")
 
-                // Get existing discount from first cart item if partial payment exists
-                val existingPartialPayment = cartItems.firstOrNull()?.partialPayment ?: 0.0
-                val existingDiscount = if (existingPartialPayment > 0) {
-                    cartItems.firstOrNull()?.discountAmount ?: 0.0
-                } else null
+                if (currentStore == null) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            this@Window1,
+                            "No store ID found in session",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    return@launch
+                }
 
-                // Calculate totals from cart items
-                cartItems.forEach { cartItem ->
-                    val originalPrice = cartItem.price
-                    val effectivePrice = cartItem.overriddenPrice ?: originalPrice
-                    val itemTotal = effectivePrice * cartItem.quantity
-                    gross += itemTotal
-                    partialPayment = cartItem.partialPayment
+                try {
+                    Log.d("Payment", "Fetching number sequence for store: $currentStore")
+                    val numberSequenceResult = numberSequenceRemoteRepository.fetchAndUpdateNumberSequence(currentStore)
 
-                    // If we have existing discount from partial payment, use that instead of recalculating
-                    if (existingDiscount != null) {
-                        totalDiscount = existingDiscount
-                    } else {
-                        // Calculate discount only if there's no partial payment
-                        when (cartItem.discountType.uppercase()) {
-                            "FIXEDTOTAL" -> {
-                                totalDiscount += cartItem.discountAmount
+                    numberSequenceResult.onSuccess { numberSequence ->
+                        Log.d("Payment", "Successfully fetched number sequence: $numberSequence")
+
+                        // All database operations within withContext(Dispatchers.IO)
+                        withContext(Dispatchers.IO) {
+                            val transactionId = numberSequenceRemoteRepository.getNextTransactionNumber(currentStore)
+                            Log.d("Payment", "Generated transaction ID: $transactionId")
+
+                            val storeKey = numberSequenceRemoteRepository.getCurrentStoreKey(currentStore)
+
+                            Log.d("Payment", "Generated store key: $storeKey")
+
+
+                            var gross = 0.0
+                            var totalDiscount = 0.0
+                            var bundleDiscount = 0.0
+                            var vatAmount = 0.0
+                            var vatableSales = 0.0
+                            var partialPayment = 0.0
+                            var priceOverrideTotal = 0.0
+                            var hasPriceOverride = false
+
+                            // Get existing discount from first cart item if partial payment exists
+                            val existingPartialPayment = cartItems.firstOrNull()?.partialPayment ?: 0.0
+                            val existingDiscount = if (existingPartialPayment > 0) {
+                                cartItems.firstOrNull()?.discountAmount ?: 0.0
+                            } else null
+
+                            // Group items by bundleId for bundle discount calculation
+                            val bundledItems = cartItems.groupBy { it.bundleId }
+
+                            // Calculate totals from cart items
+                            cartItems.forEach { cartItem ->
+                                val originalPrice = cartItem.price
+                                val effectivePrice = cartItem.overriddenPrice ?: originalPrice
+                                val itemTotal = effectivePrice * cartItem.quantity
+                                gross += itemTotal
+                                partialPayment = cartItem.partialPayment
+
+                                // If we have existing discount from partial payment, use that instead of recalculating
+                                if (existingDiscount != null) {
+                                    totalDiscount = existingDiscount
+                                } else {
+                                    // Calculate regular discounts
+                                    when (cartItem.discountType.uppercase()) {
+                                        "FIXEDTOTAL" -> {
+                                            if (cartItem.bundleId == null) {
+                                                totalDiscount += cartItem.discountAmount
+                                            }
+                                        }
+                                        "PERCENTAGE", "PWD", "SC" -> {
+                                            if (cartItem.bundleId == null) {
+                                                totalDiscount += itemTotal * (cartItem.discount / 100)
+                                            }
+                                        }
+                                        "FIXED" -> {
+                                            if (cartItem.bundleId == null) {
+                                                totalDiscount += cartItem.discount * cartItem.quantity
+                                            }
+                                        }
+                                    }
+
+                                    // Calculate bundle discounts
+                                    if (cartItem.bundleId != null) {
+                                        val bundleItems = bundledItems[cartItem.bundleId]
+                                        if (bundleItems != null) {
+                                            when (cartItem.discountType.uppercase()) {
+                                                "DEAL" -> bundleDiscount += cartItem.discount
+                                                "PERCENTAGE" -> bundleDiscount += itemTotal * (cartItem.discount / 100)
+                                                "FIXEDTOTAL" -> bundleDiscount += cartItem.discount
+                                            }
+                                        }
+                                    }
+                                }
+
+                                vatableSales += itemTotal / vatRate
+                                vatAmount += itemTotal * 0.12 / 1.12
                             }
 
-                            "PERCENTAGE", "PWD", "SC" -> {
-                                totalDiscount += itemTotal * (cartItem.discount / 100)
+                            // Add bundle discount to total discount
+                            totalDiscount += bundleDiscount
+
+                            val discountedSubtotal = gross - totalDiscount
+                            val netSales = discountedSubtotal - partialPayment
+                            val totalAmountDue = netSales.roundToTwoDecimals()
+//                val transactionId = cartItems.firstOrNull()?.transactionId ?: generateTransactionId()
+
+
+//            val transactionId = numberSequenceRepository.getNextNumber("TRANSACTION", currentStore)
+//
+//
+//            val storeKey = numberSequenceRepository.getCurrentStoreKey("TRANSACTION", currentStore)
+
+                            // Create store-specific sequence
+                            val storeSequence = "$currentStore-${transactionId.split("-").last()}"
+                            // Determine if the payment method is AR
+                            val isAR = paymentMethod != "Cash"
+
+                            val change = if (isAR) 0.0 else (amountPaid - totalAmountDue).roundToTwoDecimals()
+                            val ar = if (isAR) totalAmountDue else 0.0
+
+                            val paymentMethodAmounts = mutableMapOf(
+                                "GCASH" to 0.0,
+                                "PAYMAYA" to 0.0,
+                                "CASH" to 0.0,
+                                "CARD" to 0.0,
+                                "LOYALTYCARD" to 0.0,
+                                "CHARGE" to 0.0,
+                                "FOODPANDA" to 0.0,
+                                "GRABFOOD" to 0.0,
+                                "REPRESENTATION" to 0.0
+                            )
+
+                            // Set the primary payment method amount
+                            val primaryPaymentKey = paymentMethod.uppercase()
+                            paymentMethodAmounts[primaryPaymentKey] = amountPaid
+
+                            // Distribute remaining payment methods if provided
+                            otherPaymentMethods.forEachIndexed { index, method ->
+                                if (index < otherPaymentAmounts.size) {
+                                    paymentMethodAmounts[method.uppercase()] = otherPaymentAmounts[index]
+                                }
                             }
 
-                            "FIXED" -> {
-                                totalDiscount += cartItem.discount * cartItem.quantity
+                            // Prepare the transaction summary
+                            val transactionSummary = TransactionSummary(
+                                transactionId = transactionId,
+                                type = if (isAR) 3 else 1, // 3 for AR, 1 for Cash
+                                receiptId = transactionId,
+                                store = getCurrentStore(),
+                                staff = getCurrentStaff(),
+                                storeKey = storeKey,
+                                storeSequence = storeSequence,
+                                customerAccount = selectedCustomer.name,
+                                netAmount = discountedSubtotal,
+                                costAmount = gross - vatAmount,
+                                grossAmount = gross,
+                                partialPayment = partialPayment,
+                                transactionStatus = 1,
+                                discountAmount = totalDiscount,
+                                customerDiscountAmount = totalDiscount,
+                                totalDiscountAmount = totalDiscount,
+                                numberOfItems = cartItems.sumOf { it.quantity }.toDouble(),
+                                refundReceiptId = null,
+                                currency = "PHP",
+                                zReportId = null,
+                                createdDate = Date(),
+                                priceOverride = if (hasPriceOverride) priceOverrideTotal else 0.0,
+                                comment = transactionComment,
+                                receiptEmail = null,
+                                markupAmount = 0.0,
+                                markupDescription = null,
+                                taxIncludedInPrice = vatAmount,
+                                windowNumber = windowId,
+                                // Update these payment fields
+                                gCash = paymentMethodAmounts["GCASH"] ?: 0.0,
+                                payMaya = paymentMethodAmounts["PAYMAYA"] ?: 0.0,
+                                cash = paymentMethodAmounts["CASH"] ?: 0.0,
+                                card = paymentMethodAmounts["CARD"] ?: 0.0,
+                                loyaltyCard = paymentMethodAmounts["LOYALTYCARD"] ?: 0.0,
+                                charge = paymentMethodAmounts["CHARGE"] ?: 0.0,
+                                foodpanda = paymentMethodAmounts["FOODPANDA"] ?: 0.0,
+                                grabfood = paymentMethodAmounts["GRABFOOD"] ?: 0.0,
+                                representation = paymentMethodAmounts["REPRESENTATION"] ?: 0.0,
+                                changeGiven = change,
+                                totalAmountPaid = if (isAR) 0.0 else amountPaid,  // Make sure this is set correctly
+                                paymentMethod = paymentMethod,
+                                customerName = selectedCustomer.name,
+                                vatAmount =  (discountedSubtotal / 1.12) * 0.12,
+                                vatExemptAmount = 0.0,
+                                vatableSales = discountedSubtotal / 1.12,
+                                discountType = discountType,
+                                syncStatus = false
+                            )
+
+                            // Insert the transaction summary into the database
+                            transactionDao.insertTransactionSummary(transactionSummary)
+
+                            updateTransactionRecords(
+                                transactionId,
+                                cartItems,
+                                paymentMethod,
+                                ar,
+                                vatRate,
+                                totalDiscount,
+                                netSales,
+                                partialPayment,
+                                discountType
+                            )
+
+                            val transactionRecords = getTransactionRecords(
+                                transactionId,
+                                cartItems,
+                                paymentMethod,
+                                ar,
+                                vatRate,
+                                discountType
+                            )
+                            transactionRecords.forEach { record ->
+                            record.syncStatusRecord = false
+                        }
+
+                            // UI operations moved to Main dispatcher
+                            withContext(Dispatchers.Main) {
+                                // Your existing receipt printing and UI update code
+                                if (isAR) {
+                                    printReceiptWithBluetoothPrinter(
+                                        transactionSummary,
+                                        transactionRecords,
+                                        BluetoothPrinterHelper.ReceiptType.AR,
+                                        isARReceipt = true,
+                                        copyType = "Customer Copy"
+                                    )
+                                    printReceiptWithBluetoothPrinter(
+                                        transactionSummary,
+                                        transactionRecords,
+                                        BluetoothPrinterHelper.ReceiptType.AR,
+                                        isARReceipt = true,
+                                        copyType = "Staff Copy"
+                                    )
+                                } else {
+                                    printReceiptWithBluetoothPrinter(
+                                        transactionSummary,
+                                        transactionRecords,
+                                        BluetoothPrinterHelper.ReceiptType.ORIGINAL
+                                    )
+                                }
+
+                                showChangeAndReceiptDialog(
+                                    change,
+                                    cartItems,
+                                    transactionId,
+                                    paymentMethod,
+                                    ar,
+                                    vatAmount,
+                                    totalDiscount,
+                                    netSales,
+                                    if (gross > 0) totalDiscount / gross else 0.0,
+                                    transactionComment,
+                                    partialPayment,
+                                    amountPaid
+                                )
+                            }
+
+                            // Back to IO dispatcher for cleanup
+                            transactionDao.updateSyncStatus(transactionId, false)
+                            cartViewModel.deleteAll(windowId)
+                            cartViewModel.clearCartComment(windowId)
+
+                            withContext(Dispatchers.Main) {
+                                updateTotalAmount(emptyList())
+                                SessionManager.setCurrentNumberSequence(numberSequence)
+
+                                val items = withContext(Dispatchers.IO) {
+                                    transactionDao.getTransactionItems(transactionId)
+                                }
+
+                                val transactionLogger = TransactionLogger(this@Window1)
+                                transactionLogger.logPayment(
+                                    transactionSummary = transactionSummary,
+                                    paymentMethod = paymentMethod,
+                                    items = items
+                                )
+
                             }
                         }
-                    }
-
-                    vatableSales += itemTotal / vatRate
-                    vatAmount += itemTotal * 0.12 / 1.12
-                }
-
-                val discountedSubtotal = gross - totalDiscount
-                val netSales = discountedSubtotal - partialPayment
-                val totalAmountDue = netSales.roundToTwoDecimals()
-                val transactionId =
-                    cartItems.firstOrNull()?.transactionId ?: generateTransactionId()
-
-                // Determine if the payment method is AR
-                val isAR = paymentMethod != "Cash"
-
-                val change = if (isAR) 0.0 else (amountPaid - totalAmountDue).roundToTwoDecimals()
-                val ar = if (isAR) totalAmountDue else 0.0
-
-                // Prepare the transaction summary
-                val transactionSummary = TransactionSummary(
-                    transactionId = transactionId,
-                    type = if (isAR) 3 else 1, // 3 for AR, 1 for Cash
-                    receiptId = transactionId,
-                    store = getCurrentStore(),
-                    staff = getCurrentStaff(),
-                    customerAccount = customer.accountNum,
-                    netAmount = discountedSubtotal,
-                    costAmount = gross - vatAmount,
-                    grossAmount = gross,
-                    partialPayment = partialPayment,
-                    transactionStatus = 1,
-                    discountAmount = totalDiscount,
-                    customerDiscountAmount = totalDiscount,
-                    totalDiscountAmount = totalDiscount,
-                    numberOfItems = cartItems.sumOf { it.quantity }.toDouble(),
-                    refundReceiptId = null,
-                    currency = "PHP",
-                    zReportId = null,
-                    createdDate = Date(),
-                    priceOverride = if (hasPriceOverride) priceOverrideTotal else 0.0,
-                    comment = transactionComment,
-                    receiptEmail = null,
-                    markupAmount = 0.0,
-                    markupDescription = null,
-                    taxIncludedInPrice = vatAmount,
-                    windowNumber = windowId,
-                    gCash = if (paymentMethod == "Gcash") amountPaid else 0.0,
-                    payMaya = if (paymentMethod == "PayMaya") amountPaid else 0.0,
-                    cash = if (paymentMethod == "Cash") amountPaid else 0.0,
-                    card = if (paymentMethod == "Credit Card" || paymentMethod == "Debit Card") amountPaid else 0.0,
-                    loyaltyCard = 0.0,
-                    changeGiven = change,
-                    totalAmountPaid = if (isAR) 0.0 else amountPaid,
-                    paymentMethod = paymentMethod,
-                    customerName = customer.name,
-                    vatAmount = (gross - vatAmount) * 0.12,
-                    vatExemptAmount = 0.0,
-                    vatableSales = gross - vatAmount,
-                    discountType = discountType
-                )
-
-                // Insert the transaction summary into the database
-                transactionDao.insertTransactionSummary(transactionSummary)
-
-                // Update transaction records
-                updateTransactionRecords(
-                    transactionId,
-                    cartItems,
-                    paymentMethod,
-                    ar,
-                    vatRate,
-                    totalDiscount,
-                    netSales,
-                    partialPayment,
-                    discountType
-                )
-
-                // Get transaction records
-                val transactionRecords = getTransactionRecords(
-                    transactionId,
-                    cartItems,
-                    paymentMethod,
-                    ar,
-                    vatRate,
-                    discountType
-                )
-
-                Log.d("Payment", "Transaction Records before printing: ${
-                    transactionRecords.map {
-                        "Item: ${it.name}, DiscountType: ${it.discountType}, Amount: ${it.discountAmount}"
-                    }
-                }")
-                // Print receipts
-                if (isAR) {
-                    printReceiptWithBluetoothPrinter(
-                        transactionSummary,
-                        transactionRecords,
-                        BluetoothPrinterHelper.ReceiptType.AR,
-                        isARReceipt = true,
-                        copyType = "Customer Copy"
-                    )
-                    printReceiptWithBluetoothPrinter(
-                        transactionSummary,
-                        transactionRecords,
-                        BluetoothPrinterHelper.ReceiptType.AR,
-                        isARReceipt = true,
-                        copyType = "Staff Copy"
-                    )
-                } else {
-                    printReceiptWithBluetoothPrinter(
-                        transactionSummary,
-                        transactionRecords,
-                        BluetoothPrinterHelper.ReceiptType.ORIGINAL
-                    )
-                }
-
-                // Show change and receipt dialog
-                showChangeAndReceiptDialog(
-                    change,
-                    cartItems,
-                    transactionId,
-                    paymentMethod,
-                    ar,
-                    vatAmount,
-                    totalDiscount,
-                    netSales,
-                    if (gross > 0) totalDiscount / gross else 0.0,
-                    transactionComment,
-                    partialPayment,
-                    amountPaid
-                )
-
-                // Clear cart after payment
-                transactionDao.updateSyncStatus(transactionId, false)
-
-                transactionViewModel.syncTransaction(transactionId)
-
-                // Observe the sync result
-                transactionViewModel.syncStatus.observe(this@Window1) { result ->
-                    result.fold(
-                        onSuccess = { response ->
-                            Log.d(
-                                "Payment",
-                                "Transaction synced successfully: ${response.transactionId}"
-                            )
+                    }.onFailure { error ->
+                        Log.e("Payment", "Failed to fetch number sequence: ${error.message}")
+                        withContext(Dispatchers.Main) {
                             Toast.makeText(
                                 this@Window1,
-                                "Transaction synced successfully",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        },
-                        onFailure = { error ->
-                            Log.e("Payment", "Sync failed: ${error.message}")
-                            Toast.makeText(
-                                this@Window1,
-                                "Transaction saved locally but sync failed: ${error.message}",
+                                "Failed to generate transaction number: ${error.message}",
                                 Toast.LENGTH_LONG
                             ).show()
                         }
-                    )
+                    }
+                } catch (e: Exception) {
+                    Log.e("Payment", "Error in number sequence processing", e)
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            this@Window1,
+                            "Error in number sequence: ${e.message}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                 }
-
-                // Clear cart and update UI
-                cartViewModel.deleteAll(windowId)
-                cartViewModel.clearCartComment(windowId)
-                updateTotalAmount(emptyList())
-
             } catch (e: Exception) {
                 Log.e("Payment", "Error during payment processing: ${e.message}")
-                Toast.makeText(
-                    this@Window1,
-                    "Error processing payment: ${e.message}",
-                    Toast.LENGTH_LONG
-                ).show()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@Window1,
+                        "Error processing payment: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
         }
     }
-
-
     private suspend fun updateTransactionRecords(
         transactionId: String,
         cartItems: List<CartItem>,
@@ -4713,12 +7222,24 @@ class Window1 : AppCompatActivity() {
         totalDiscount: Double,
         netSales: Double,
         partialPayment: Double,
-        discountType: String
+        discountType: String,
+        otherPaymentMethods: List<String> = emptyList(),
+        otherPaymentAmounts: List<Double> = emptyList()
     ) {
+        val currentStore = SessionManager.getCurrentUser()?.storeid
+            ?: throw IllegalStateException("No store ID found in current session")
+
+        val storeKey = numberSequenceRemoteRepository.getCurrentStoreKey(currentStore)
+        val storeSequence = "$currentStore-${transactionId.split("-").last()}"
+
         val existingPartialPayment = cartItems.firstOrNull()?.partialPayment ?: 0.0
         val existingDiscount = if (existingPartialPayment > 0) {
             cartItems.firstOrNull()?.discountAmount ?: 0.0
         } else null
+
+        // Combine all payment methods and amounts
+        val allPaymentMethods = listOf(paymentMethod) + otherPaymentMethods
+        val allPaymentAmounts = listOf(netSales) + otherPaymentAmounts
 
         cartItems.forEachIndexed { index, cartItem ->
             val effectivePrice = cartItem.overriddenPrice ?: cartItem.price
@@ -4738,106 +7259,109 @@ class Window1 : AppCompatActivity() {
 
             val itemVat = itemTotal * 0.12 / 1.12
 
-            val transactionRecord = TransactionRecord(
-                transactionId = transactionId,
-                name = cartItem.productName,
-                price = cartItem.price,
-                quantity = cartItem.quantity,
-                subtotal = itemTotal,
-                vatRate = vatRate - 1,
-                vatAmount = itemVat,
-                discountRate = when (cartItem.discountType.uppercase()) {
-                    "PERCENTAGE", "PWD", "SC" -> cartItem.discount / 100
-                    else -> if (itemTotal > 0) itemDiscount / itemTotal else 0.0
-                },
-                discountAmount = when (cartItem.discountType.uppercase()) {
-                    "FIXED" -> cartItem.discount  // Store per-item discount
-                    "PERCENTAGE", "PWD", "SC" -> itemTotal * (cartItem.discount / 100)  // Store total discount
-                    "FIXEDTOTAL" -> cartItem.discountAmount  // Store fixed total discount
-                    else -> 0.0
-                },
-                total = itemTotal - itemDiscount,
-                receiptNumber = transactionId,
-                timestamp = System.currentTimeMillis(),
-                paymentMethod = paymentMethod,
-                ar = if (ar > 0.0) ((cartItem.overriddenPrice
-                    ?: cartItem.price) * cartItem.quantity) else 0.0,
-                windowNumber = windowId,
-                partialPaymentAmount = if (index == 0) partialPayment else 0.0,
-                comment = cartItem.cartComment ?: "",
-                lineNum = index + 1,
-                receiptId = transactionId,
-                itemId = cartItem.itemId.toString(),
-                itemGroup = cartItem.itemGroup.toString(),
-                netPrice = cartItem.price,
-                costAmount = itemTotal / vatRate,
-                netAmount = itemTotal - itemDiscount,
-                grossAmount = itemTotal,
-                customerAccount = null,
-                store = getCurrentStore(),
-                priceOverride = cartItem.overriddenPrice ?: 0.0,
-                staff = getCurrentStaff(),
-                discountOfferId = null,
-                lineDiscountAmount = itemDiscount,
-                lineDiscountPercentage = if (itemTotal > 0) (itemDiscount / itemTotal) * 100 else 0.0,
-                customerDiscountAmount = itemDiscount,
-                unit = "PCS",
-                unitQuantity = cartItem.quantity.toDouble(),
-                unitPrice = cartItem.price,
-                taxAmount = itemVat,
-                createdDate = Date(),
-                remarks = null,
-                inventoryBatchId = null,
-                inventoryBatchExpiryDate = null,
-                giftCard = null,
-                returnTransactionId = null,
-                returnQuantity = null,
-                creditMemoNumber = null,
-                taxIncludedInPrice = itemVat,
-                description = null,
-                returnLineId = null,
-                priceUnit = 1.0,
-                discountType = when (cartItem.discountType.toUpperCase()) {
-                    "PWD" -> "PWD"
-                    "SC" -> "SC"
-                    "PERCENTAGE" -> "PERCENTAGE"
-                    "FIXED" -> "FIXED"
-                    "FIXEDTOTAL", "FIXED TOTAL" -> "FIXEDTOTAL"
-                    else -> "No Discount"
-                },
-                netAmountNotIncludingTax = itemTotal - itemDiscount - itemVat,
-                storeTaxGroup = null,
-                currency = "PHP",
-                taxExempt = 0.0
-            )
-            Log.d(
-                "TransactionDebug", """
-            Created TransactionRecord:
-            Item: ${transactionRecord.name}
-            DiscountType: ${transactionRecord.discountType}
-            DiscountAmount: ${transactionRecord.discountAmount}
-            Original CartItem DiscountAmount: ${cartItem.discountAmount}
-        """.trimIndent()
-            )
+            // Create a list to track split payments for this item
+            val splitPayments = allPaymentMethods.mapIndexed { paymentIndex, method ->
+                val paymentProportion = allPaymentAmounts[paymentIndex] / netSales
+                val splitItemTotal = itemTotal * paymentProportion
+                val splitItemDiscount = itemDiscount * paymentProportion
 
-            transactionDao.insertOrUpdateTransactionRecord(transactionRecord)
+                TransactionRecord(
+                    transactionId = transactionId,
+                    name = cartItem.productName,
+                    price = cartItem.price,
+                    quantity = cartItem.quantity,
+                    subtotal = splitItemTotal,
+                    vatRate = vatRate - 1,
+                    vatAmount = itemVat * paymentProportion,
+                    discountRate = when (cartItem.discountType.uppercase()) {
+                        "PERCENTAGE", "PWD", "SC" -> cartItem.discount / 100
+                        else -> if (splitItemTotal > 0) splitItemDiscount / splitItemTotal else 0.0
+                    },
+                    discountAmount = splitItemDiscount,
+                    total = splitItemTotal - splitItemDiscount,
+                    receiptNumber = transactionId,
+                    timestamp = System.currentTimeMillis(),
+                    paymentMethod = method.uppercase(),
+                    ar = if (ar > 0.0) ((effectivePrice * cartItem.quantity) * paymentProportion) else 0.0,
+                    windowNumber = windowId,
+                    partialPaymentAmount = if (index == 0) partialPayment * paymentProportion else 0.0,
+                    comment = cartItem.cartComment ?: "",
+                    lineNum = index + 1,
+                    receiptId = transactionId,
+                    itemId = cartItem.itemId.toString(),
+                    itemGroup = cartItem.itemGroup.toString(),
+                    netPrice = cartItem.price,
+                    costAmount = splitItemTotal / vatRate,
+                    netAmount = splitItemTotal - splitItemDiscount,
+                    grossAmount = splitItemTotal,
+                    customerAccount = null,
+                    store = getCurrentStore(),
+                    priceOverride = cartItem.overriddenPrice ?: 0.0,
+                    staff = getCurrentStaff(),
+                    discountOfferId = cartItem.mixMatchId ?: "",
+                    lineDiscountAmount = splitItemDiscount,
+                    lineDiscountPercentage = if (splitItemTotal > 0) (splitItemDiscount / splitItemTotal) * 100 else 0.0,
+                    customerDiscountAmount = splitItemDiscount,
+                    unit = "PCS",
+                    unitQuantity = cartItem.quantity.toDouble(),
+                    unitPrice = cartItem.price,
+                    taxAmount = ((splitItemTotal - splitItemDiscount) / 1.12) * 0.12,
+                    createdDate = Date(),
+                    discountType = when (cartItem.discountType.toUpperCase()) {
+                        "PWD" -> "PWD"
+                        "SC" -> "SC"
+                        "PERCENTAGE" -> "PERCENTAGE"
+                        "FIXED" -> "FIXED"
+                        "FIXEDTOTAL", "FIXED TOTAL" -> "FIXEDTOTAL"
+                        else -> "No Discount"
+                    },
+                    netAmountNotIncludingTax = (splitItemTotal - splitItemDiscount) / 1.12,
+                    currency = "PHP",
+                    storeKey = storeKey,
+                    storeSequence = storeSequence
+                )
+            }
+
+            // Insert each split payment transaction record
+            splitPayments.forEach { transactionRecord ->
+                transactionDao.insertOrUpdateTransactionRecord(transactionRecord)
+            }
         }
     }
 
-    private fun getTransactionRecords(
+    private suspend fun getTransactionRecords(
         transactionId: String,
         cartItems: List<CartItem>,
         paymentMethod: String,
         ar: Double,
         vatRate: Double,
-        discountType: String
+        discountType: String,
+        otherPaymentMethods: List<String> = emptyList(),
+        otherPaymentAmounts: List<Double> = emptyList()
     ): List<TransactionRecord> {
+        val currentStore = SessionManager.getCurrentUser()?.storeid
+            ?: throw IllegalStateException("No store ID found in current session")
+
+        val storeKey = numberSequenceRemoteRepository.getCurrentStoreKey(currentStore)
+        val storeSequence = "$currentStore-${transactionId.split("-").last()}"
+
         val existingPartialPayment = cartItems.firstOrNull()?.partialPayment ?: 0.0
         val existingDiscount = if (existingPartialPayment > 0) {
             cartItems.firstOrNull()?.discountAmount ?: 0.0
         } else null
 
-        return cartItems.mapIndexed { index, cartItem ->
+        // Calculate total amount to split
+        val totalAmount = cartItems.sumOf {
+            (it.overriddenPrice ?: it.price) * it.quantity
+        } - (existingDiscount ?: 0.0)
+
+        // Combine all payment methods and amounts
+        val allPaymentMethods = listOf(paymentMethod) + otherPaymentMethods
+        val allPaymentAmounts = listOf(totalAmount) + otherPaymentAmounts
+
+        val transactionRecords = mutableListOf<TransactionRecord>()
+
+        cartItems.forEachIndexed { index, cartItem ->
             val effectivePrice = cartItem.overriddenPrice ?: cartItem.price
             val itemTotal = effectivePrice * cartItem.quantity
 
@@ -4854,80 +7378,337 @@ class Window1 : AppCompatActivity() {
             }
 
             val itemVat = itemTotal * 0.12 / 1.12
+            val netAmountNotIncludingTax = (itemTotal - itemDiscount) / 1.12
 
-            TransactionRecord(
-                transactionId = transactionId,
-                name = cartItem.productName,
-                price = cartItem.price,
-                quantity = cartItem.quantity,
-                subtotal = itemTotal,
-                vatRate = vatRate - 1,
-                vatAmount = itemVat,
-                discountRate = when (cartItem.discountType.uppercase()) {
-                    "PERCENTAGE", "PWD", "SC" -> cartItem.discount / 100
-                    else -> if (itemTotal > 0) itemDiscount / itemTotal else 0.0
-                },
-                discountAmount = when (cartItem.discountType.uppercase()) {
-                    "FIXED" -> cartItem.discount  // Store per-item discount
-                    "PERCENTAGE", "PWD", "SC" -> itemTotal * (cartItem.discount / 100)  // Store total discount
-                    "FIXEDTOTAL" -> cartItem.discountAmount  // Store fixed total discount
-                    else -> 0.0
-                },
-                total = itemTotal - itemDiscount,
-                receiptNumber = transactionId,
-                timestamp = System.currentTimeMillis(),
-                paymentMethod = paymentMethod,
-                ar = if (ar > 0.0) (effectivePrice * cartItem.quantity) else 0.0,
-                windowNumber = windowId,
-                partialPaymentAmount = if (index == 0) cartItem.partialPayment ?: 0.0 else 0.0,
-                comment = cartItem.cartComment ?: "",
-                lineNum = index + 1,
-                receiptId = transactionId,
-                itemId = cartItem.productId.toString(),
-                itemGroup = cartItem.id.toString(),
-                netPrice = cartItem.price,
-                costAmount = itemTotal / vatRate,
-                netAmount = itemTotal - itemDiscount,
-                grossAmount = itemTotal,
-                customerAccount = null,
-                store = getCurrentStore(),
-                priceOverride = cartItem.overriddenPrice ?: 0.0,
-                staff = getCurrentStaff(),
-                discountOfferId = null,
-                lineDiscountAmount = itemDiscount,
-                lineDiscountPercentage = if (itemTotal > 0) (itemDiscount / itemTotal) * 100 else 0.0,
-                customerDiscountAmount = itemDiscount,
-                unit = "PCS",
-                unitQuantity = cartItem.quantity.toDouble(),
-                unitPrice = cartItem.price,
-                taxAmount = itemVat,
-                createdDate = Date(),
-                remarks = null,
-                inventoryBatchId = null,
-                inventoryBatchExpiryDate = null,
-                giftCard = null,
-                returnTransactionId = null,
-                returnQuantity = null,
-                creditMemoNumber = null,
-                taxIncludedInPrice = itemVat,
-                description = null,
-                returnLineId = null,
-                priceUnit = 1.0,
-                discountType = when (cartItem.discountType.toUpperCase()) {
-                    "PWD" -> "PWD"
-                    "SC" -> "SC"
-                    "PERCENTAGE" -> "PERCENTAGE"
-                    "FIXED" -> "FIXED"
-                    "FIXED TOTAL", "FIXEDTOTAL" -> "FIXEDTOTAL"
-                    else -> "No Discount"
-                },
-                netAmountNotIncludingTax = itemTotal - itemDiscount - itemVat,
-                storeTaxGroup = null,
-                currency = "PHP",
-                taxExempt = 0.0
-            )
+            // Create split transaction records for each payment method
+            val splitRecords = allPaymentMethods.mapIndexed { paymentIndex, method ->
+                val paymentProportion = allPaymentAmounts[paymentIndex] / totalAmount
+                val splitItemTotal = itemTotal * paymentProportion
+                val splitItemDiscount = itemDiscount * paymentProportion
+
+                TransactionRecord(
+                    transactionId = transactionId,
+                    name = cartItem.productName,
+                    price = cartItem.price,
+                    quantity = cartItem.quantity,
+                    subtotal = splitItemTotal,
+                    vatRate = vatRate - 1,
+                    vatAmount = itemVat * paymentProportion,
+                    discountRate = when (cartItem.discountType.uppercase()) {
+                        "PERCENTAGE", "PWD", "SC" -> cartItem.discount / 100
+                        else -> if (splitItemTotal > 0) splitItemDiscount / splitItemTotal else 0.0
+                    },
+                    discountAmount = splitItemDiscount,
+                    total = splitItemTotal - splitItemDiscount,
+                    receiptNumber = transactionId,
+                    timestamp = System.currentTimeMillis(),
+                    paymentMethod = method.uppercase(),
+                    ar = if (ar > 0.0) ((effectivePrice * cartItem.quantity) * paymentProportion) else 0.0,
+                    windowNumber = windowId,
+                    partialPaymentAmount = if (index == 0) cartItem.partialPayment * paymentProportion else 0.0,
+                    comment = cartItem.cartComment ?: "",
+                    lineNum = index + 1,
+                    receiptId = transactionId,
+                    itemId = cartItem.productId.toString(),
+                    itemGroup = cartItem.id.toString(),
+                    netPrice = cartItem.price,
+                    costAmount = splitItemTotal / vatRate,
+                    netAmount = splitItemTotal - splitItemDiscount,
+                    grossAmount = splitItemTotal,
+                    customerAccount = null,
+                    store = getCurrentStore(),
+                    priceOverride = cartItem.overriddenPrice ?: 0.0,
+                    staff = getCurrentStaff(),
+                    discountOfferId = cartItem.mixMatchId ?: "",
+                    lineDiscountAmount = splitItemDiscount,
+                    lineDiscountPercentage = if (splitItemTotal > 0) (splitItemDiscount / splitItemTotal) * 100 else 0.0,
+                    customerDiscountAmount = splitItemDiscount,
+                    unit = "PCS",
+                    unitQuantity = cartItem.quantity.toDouble(),
+                    unitPrice = cartItem.price,
+                    taxAmount = itemVat * paymentProportion,
+                    createdDate = Date(),
+                    discountType = when (cartItem.discountType.toUpperCase()) {
+                        "PWD" -> "PWD"
+                        "SC" -> "SC"
+                        "PERCENTAGE" -> "PERCENTAGE"
+                        "FIXED" -> "FIXED"
+                        "FIXED TOTAL", "FIXEDTOTAL" -> "FIXEDTOTAL"
+                        else -> "No Discount"
+                    },
+                    netAmountNotIncludingTax = netAmountNotIncludingTax * paymentProportion,
+                    storeTaxGroup = null,
+                    currency = "PHP",
+                    taxExempt = 0.0,
+                    storeKey = storeKey,
+                    storeSequence = storeSequence
+                )
+            }
+
+            transactionRecords.addAll(splitRecords)
         }
+
+        return transactionRecords
     }
+
+
+//    private suspend fun updateTransactionRecords(
+//        transactionId: String,
+//        cartItems: List<CartItem>,
+//        paymentMethod: String,
+//        ar: Double,
+//        vatRate: Double,
+//        totalDiscount: Double,
+//        netSales: Double,
+//        partialPayment: Double,
+//        discountType: String,
+//        otherPaymentMethods: List<String> = emptyList(),
+//        otherPaymentAmounts: List<Double> = emptyList()
+//    ) {
+//        val currentStore = SessionManager.getCurrentUser()?.storeid
+//            ?: throw IllegalStateException("No store ID found in current session")
+//
+//        val storeKey = numberSequenceRepository.getCurrentStoreKey("TRANSACTION", currentStore)
+//        val storeSequence = "$currentStore-${transactionId.split("-").last()}"
+//
+//        val existingPartialPayment = cartItems.firstOrNull()?.partialPayment ?: 0.0
+//        val existingDiscount = if (existingPartialPayment > 0) {
+//            cartItems.firstOrNull()?.discountAmount ?: 0.0
+//        } else null
+//
+//        cartItems.forEachIndexed { index, cartItem ->
+//            val effectivePrice = cartItem.overriddenPrice ?: cartItem.price
+//            val itemTotal = effectivePrice * cartItem.quantity
+//
+//            // Use existing discount if partial payment exists
+//            val itemDiscount = if (existingDiscount != null) {
+//                if (index == 0) existingDiscount else 0.0 // Apply discount only to first item
+//            } else {
+//                when (cartItem.discountType.uppercase()) {
+//                    "PERCENTAGE", "PWD", "SC" -> itemTotal * (cartItem.discount / 100)
+//                    "FIXED" -> cartItem.discount * cartItem.quantity
+//                    "FIXEDTOTAL" -> cartItem.discountAmount
+//                    else -> 0.0
+//                }
+//            }
+//
+//            val itemVat = itemTotal * 0.12 / 1.12
+//
+//            val transactionRecord = TransactionRecord(
+//                transactionId = transactionId,
+//                name = cartItem.productName,
+//                price = cartItem.price,
+//                quantity = cartItem.quantity,
+//                subtotal = itemTotal,
+//                vatRate = vatRate - 1,
+//                vatAmount = itemVat,
+//                discountRate = when (cartItem.discountType.uppercase()) {
+//                    "PERCENTAGE", "PWD", "SC" -> cartItem.discount / 100
+//                    else -> if (itemTotal > 0) itemDiscount / itemTotal else 0.0
+//                },
+//                discountAmount = when (cartItem.discountType.uppercase()) {
+//                    "FIXED" -> cartItem.discount  // Store per-item discount
+//                    "PERCENTAGE", "PWD", "SC" -> itemTotal * (cartItem.discount / 100)  // Store total discount
+//                    "FIXEDTOTAL" -> cartItem.discountAmount  // Store fixed total discount
+//                    else -> 0.0
+//                },
+//                total = itemTotal - itemDiscount,
+//                receiptNumber = transactionId,
+//                timestamp = System.currentTimeMillis(),
+//                paymentMethod = paymentMethod,
+//                ar = if (ar > 0.0) ((cartItem.overriddenPrice
+//                    ?: cartItem.price) * cartItem.quantity) else 0.0,
+//                windowNumber = windowId,
+//                partialPaymentAmount = if (index == 0) partialPayment else 0.0,
+//                comment = cartItem.cartComment ?: "",
+//                lineNum = index + 1,
+//                receiptId = transactionId,
+//                itemId = cartItem.itemId.toString(),
+//                itemGroup = cartItem.itemGroup.toString(),
+//                netPrice = cartItem.price,
+//                costAmount = itemTotal / vatRate,
+//                netAmount = itemTotal - itemDiscount,
+//                grossAmount = itemTotal,
+//                customerAccount = null,
+//                store = getCurrentStore(),
+//                priceOverride = cartItem.overriddenPrice ?: 0.0,
+//                staff = getCurrentStaff(),
+//                discountOfferId = cartItem.mixMatchId ?: "",
+//                lineDiscountAmount = itemDiscount,
+//                lineDiscountPercentage = if (itemTotal > 0) (itemDiscount / itemTotal) * 100 else 0.0,
+//                customerDiscountAmount = itemDiscount,
+//                unit = "PCS",
+//                unitQuantity = cartItem.quantity.toDouble(),
+//                unitPrice = cartItem.price,
+//                taxAmount =((itemTotal - itemDiscount) / 1.12) * 0.12,
+//                createdDate = Date(),
+//                remarks = null,
+//                inventoryBatchId = null,
+//                inventoryBatchExpiryDate = null,
+//                giftCard = null,
+//                returnTransactionId = null,
+//                returnQuantity = null,
+//                creditMemoNumber = null,
+//                taxIncludedInPrice = ((itemTotal - itemDiscount) / 1.12) * 0.12,
+//                description = null,
+//                returnLineId = null,
+//                priceUnit = 1.0,
+//                discountType = when (cartItem.discountType.toUpperCase()) {
+//                    "PWD" -> "PWD"
+//                    "SC" -> "SC"
+//                    "PERCENTAGE" -> "PERCENTAGE"
+//                    "FIXED" -> "FIXED"
+//                    "FIXEDTOTAL", "FIXED TOTAL" -> "FIXEDTOTAL"
+//                    else -> "No Discount"
+//                },
+//                netAmountNotIncludingTax = (itemTotal - itemDiscount) / 1.12,
+//                storeTaxGroup = null,
+//                currency = "PHP",
+//                taxExempt = 0.0,
+//                storeKey = storeKey,
+//                storeSequence = storeSequence,
+//
+//
+//
+//            )
+//            Log.d("TransactionSync", "MixMatchId (DiscountOfferId): ${cartItem.mixMatchId}")
+//
+//
+//            Log.d("TransactionDebug", """
+//            Cart Item Details:
+//            ProductName: ${cartItem.productName}
+//            MixMatchId: ${cartItem.mixMatchId}
+//            DiscountType: ${cartItem.discountType}
+//            Is MixMatchId null: ${cartItem.mixMatchId == null}
+//        """.trimIndent())
+//            Log.d(
+//                "TransactionDebug", """
+//            Created TransactionRecord:
+//            Item: ${transactionRecord.name}
+//            DiscountType: ${transactionRecord.discountType}
+//            DiscountAmount: ${transactionRecord.discountAmount}
+//            Original CartItem DiscountAmount: ${cartItem.discountAmount}
+//        """.trimIndent()
+//
+//            )
+//
+//            transactionDao.insertOrUpdateTransactionRecord(transactionRecord)
+//        }
+//    }
+//
+//    private suspend fun getTransactionRecords(
+//        transactionId: String,
+//        cartItems: List<CartItem>,
+//        paymentMethod: String,
+//        ar: Double,
+//        vatRate: Double,
+//        discountType: String
+//    ): List<TransactionRecord> {
+//        val currentStore = SessionManager.getCurrentUser()?.storeid
+//            ?: throw IllegalStateException("No store ID found in current session")
+//
+//        val storeKey = numberSequenceRepository.getCurrentStoreKey("TRANSACTION", currentStore)
+//        val storeSequence = "$currentStore-${transactionId.split("-").last()}"
+//
+//        val existingPartialPayment = cartItems.firstOrNull()?.partialPayment ?: 0.0
+//        val existingDiscount = if (existingPartialPayment > 0) {
+//            cartItems.firstOrNull()?.discountAmount ?: 0.0
+//        } else null
+//
+//        return cartItems.mapIndexed { index, cartItem ->
+//            val effectivePrice = cartItem.overriddenPrice ?: cartItem.price
+//            val itemTotal = effectivePrice * cartItem.quantity
+//
+//            // Use existing discount if partial payment exists
+//            val itemDiscount = if (existingDiscount != null) {
+//                if (index == 0) existingDiscount else 0.0 // Apply discount only to first item
+//            } else {
+//                when (cartItem.discountType.uppercase()) {
+//                    "PERCENTAGE", "PWD", "SC" -> itemTotal * (cartItem.discount / 100)
+//                    "FIXED" -> cartItem.discount * cartItem.quantity
+//                    "FIXEDTOTAL" -> cartItem.discountAmount
+//                    else -> 0.0
+//                }
+//            }
+//
+//            val itemVat = itemTotal * 0.12 / 1.12
+//            val netAmountNotIncludingTax = (itemTotal - itemDiscount) / 1.12
+//
+//            TransactionRecord(
+//                transactionId = transactionId,
+//                name = cartItem.productName,
+//                price = cartItem.price,
+//                quantity = cartItem.quantity,
+//                subtotal = itemTotal,
+//                vatRate = vatRate - 1,
+//                vatAmount = itemVat,
+//                discountRate = when (cartItem.discountType.uppercase()) {
+//                    "PERCENTAGE", "PWD", "SC" -> cartItem.discount / 100
+//                    else -> if (itemTotal > 0) itemDiscount / itemTotal else 0.0
+//                },
+//                discountAmount = when (cartItem.discountType.uppercase()) {
+//                    "FIXED" -> cartItem.discount  // Store per-item discount
+//                    "PERCENTAGE", "PWD", "SC" -> itemTotal * (cartItem.discount / 100)  // Store total discount
+//                    "FIXEDTOTAL" -> cartItem.discountAmount  // Store fixed total discount
+//                    else -> 0.0
+//                },
+//                total = itemTotal - itemDiscount,
+//                receiptNumber = transactionId,
+//                timestamp = System.currentTimeMillis(),
+//                paymentMethod = paymentMethod,
+//                ar = if (ar > 0.0) (effectivePrice * cartItem.quantity) else 0.0,
+//                windowNumber = windowId,
+//                partialPaymentAmount = if (index == 0) cartItem.partialPayment ?: 0.0 else 0.0,
+//                comment = cartItem.cartComment ?: "",
+//                lineNum = index + 1,
+//                receiptId = transactionId,
+//                itemId = cartItem.productId.toString(),
+//                itemGroup = cartItem.id.toString(),
+//                netPrice = cartItem.price,
+//                costAmount = itemTotal / vatRate,
+//                netAmount = itemTotal - itemDiscount,
+//                grossAmount = itemTotal,
+//                customerAccount = null,
+//                store = getCurrentStore(),
+//                priceOverride = cartItem.overriddenPrice ?: 0.0,
+//                staff = getCurrentStaff(),
+//                discountOfferId = cartItem.mixMatchId ?: "",
+//                lineDiscountAmount = itemDiscount,
+//                lineDiscountPercentage = if (itemTotal > 0) (itemDiscount / itemTotal) * 100 else 0.0,
+//                customerDiscountAmount = itemDiscount,
+//                unit = "PCS",
+//                unitQuantity = cartItem.quantity.toDouble(),
+//                unitPrice = cartItem.price,
+//                taxAmount = itemVat,
+//                createdDate = Date(),
+//                remarks = null,
+//                inventoryBatchId = null,
+//                inventoryBatchExpiryDate = null,
+//                giftCard = null,
+//                returnTransactionId = null,
+//                returnQuantity = null,
+//                creditMemoNumber = null,
+//                taxIncludedInPrice = itemVat,
+//                description = null,
+//                returnLineId = null,
+//                priceUnit = 1.0,
+//                discountType = when (cartItem.discountType.toUpperCase()) {
+//                    "PWD" -> "PWD"
+//                    "SC" -> "SC"
+//                    "PERCENTAGE" -> "PERCENTAGE"
+//                    "FIXED" -> "FIXED"
+//                    "FIXED TOTAL", "FIXEDTOTAL" -> "FIXEDTOTAL"
+//                    else -> "No Discount"
+//                },
+//                netAmountNotIncludingTax = netAmountNotIncludingTax,
+//                storeTaxGroup = null,
+//                currency = "PHP",
+//                taxExempt = 0.0,
+//                storeKey = storeKey,
+//                storeSequence = storeSequence
+//            )
+//        }
+//    }
 
     private fun showChangeAndReceiptDialog(
         change: Double,
@@ -5051,3 +7832,75 @@ class Window1 : AppCompatActivity() {
         Log.d(TAG, "Displayed change dialog: $change")
     }
 }
+//    private fun printReceiptWithItems(transaction: TransactionSummary) {
+//        lifecycleScope.launch {
+//            try {
+//                val items = withContext(Dispatchers.IO) {
+//                    transactionViewModel.getTransactionItems(transaction.transactionId)
+//                }
+//
+//                if (items.isEmpty()) {
+//                    withContext(Dispatchers.Main) {
+//                        Toast.makeText(
+//                            this@Window1,
+//                            "No items found for this transaction",
+//                            Toast.LENGTH_SHORT
+//                        ).show()
+//                    }
+//                    return@launch
+//                }
+//
+//                val printerMacAddress =
+//                    "DC:0D:30:70:09:19"  // Replace with your printer's MAC address
+//
+//                if (!bluetoothPrinterHelper.isConnected() && !bluetoothPrinterHelper.connect(
+//                        printerMacAddress
+//                    )
+//                ) {
+//                    withContext(Dispatchers.Main) {
+//                        Toast.makeText(
+//                            this@Window1,
+//                            "Failed to connect to printer",
+//                            Toast.LENGTH_SHORT
+//                        ).show()
+//                    }
+//                    return@launch
+//                }
+//
+//                // Generate the receipt content using the new format
+//                val receiptContent = bluetoothPrinterHelper.generateReceiptContent(
+//                    transaction,
+//                    items,
+//                    BluetoothPrinterHelper.ReceiptType.REPRINT // or REPRINT
+//                )
+//                // Write the content to the printer
+//                bluetoothPrinterHelper.outputStream?.write(receiptContent.toByteArray())
+//                bluetoothPrinterHelper.outputStream?.flush()
+//
+//                val transactionLogger = TransactionLogger(this@Window1)
+//                transactionLogger.logReprint(
+//                    transaction = transaction,
+//                    items = items
+//                )
+//                // Cut the paper
+////                bluetoothPrinterHelper.cutPaper()
+//
+//                withContext(Dispatchers.Main) {
+//                    Toast.makeText(
+//                        this@Window1,
+//                        "Receipt reprinted successfully",
+//                        Toast.LENGTH_SHORT
+//                    ).show()
+//                }
+//            } catch (e: Exception) {
+//                Log.e(TAG, "Error reprinting receipt", e)
+//                withContext(Dispatchers.Main) {
+//                    Toast.makeText(
+//                        this@Window1,
+//                        "Error reprinting receipt: ${e.message}",
+//                        Toast.LENGTH_LONG
+//                    ).show()
+//                }
+//            }
+//        }
+//    }

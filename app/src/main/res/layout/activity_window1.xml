@@ -4,124 +4,141 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#eff6ff"
-    tools:context=".MainActivity">
+    tools:context=".Window1">
 
-    <androidx.constraintlayout.widget.Guideline
-        android:id="@+id/guideline_sidebar"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        app:layout_constraintGuide_percent="0.06" />
+    <!-- Add this inside your main layout -->
 
-    <androidx.constraintlayout.widget.Guideline
-        android:id="@+id/guideline_cart"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        app:layout_constraintGuide_percent="0.78" />
-
-    <ImageView
-        android:id="@+id/imageView"
-        android:layout_width="70dp"
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/sidebarLayout"
+        android:layout_width="56dp"
         android:layout_height="0dp"
         android:background="@drawable/oval"
+        android:elevation="4dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <!-- ECPOS Title -->
+        <TextView
+            android:id="@+id/ecposTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="50dp"
+            android:text="ECPOS"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold"
+
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <LinearLayout
+            android:id="@+id/buttonContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="80dp"
+            android:gravity="center"
+            android:orientation="vertical"
+            app:layout_constraintTop_toTopOf="parent">
+
+            <ImageButton
+                android:id="@+id/button2"
+                style="@style/SidebarButtonSmall"
+                android:contentDescription="Dashboard"
+                android:src="@drawable/baseline_dashboard_24" />
+
+            <ImageButton
+                android:id="@+id/button3"
+                style="@style/SidebarButtonSmall"
+                android:contentDescription="Cart"
+                android:src="@drawable/baseline_shopping_cart_24" />
+
+            <ImageButton
+                android:id="@+id/button4"
+                style="@style/SidebarButtonSmall"
+                android:contentDescription="Orders"
+                android:src="@drawable/order" />
+
+            <ImageButton
+                android:id="@+id/button5"
+                style="@style/SidebarButtonSmall"
+                android:contentDescription="Delivery"
+                android:src="@drawable/truck" />
+
+            <ImageButton
+                android:id="@+id/button6"
+                style="@style/SidebarButtonSmall"
+                android:contentDescription="Analytics"
+                android:src="@drawable/graph" />
+
+            <ImageButton
+                android:id="@+id/waste"
+                style="@style/SidebarButtonSmall"
+                android:contentDescription="Cashier"
+                android:src="@drawable/baseline_recycling_24" />
+            <ImageButton
+                android:id="@+id/customer"
+                style="@style/SidebarButtonSmall"
+                android:contentDescription="Cashier"
+                android:src="@drawable/baseline_people_24" />
+            <ImageButton
+                android:id="@+id/partycakes"
+                style="@style/SidebarButtonSmall"
+                android:contentDescription="Cashier"
+                android:src="@drawable/baseline_cake_24" />
+
+            <ImageButton
+                android:id="@+id/button7"
+                style="@style/SidebarButtonSmall"
+                android:contentDescription="Cashier"
+                android:src="@drawable/cashier" />
+
+            <ImageButton
+                android:id="@+id/button8"
+                style="@style/SidebarButtonSmall"
+                android:contentDescription="Logout"
+                android:src="@drawable/logout" />
+
+        </LinearLayout>
+
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <RelativeLayout
+        android:id="@+id/webViewContainer"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toEndOf="@id/sidebarLayout"
+        app:layout_constraintTop_toBottomOf="parent">
+
+        <WebView
+            android:id="@+id/webView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:overScrollMode="always" />
+
+        <include
+            android:id="@+id/webViewLoadingOverlay"
+            layout="@layout/webview_loading_overlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+    </RelativeLayout>
+    <ImageButton
+        android:id="@+id/toggleButton1"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:layout_marginStart="50dp"
+        android:layout_marginTop="10dp"
+        android:background="@drawable/arrow"
+        android:elevation="9dp"
+        android:src="@android:color/transparent"
+        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
-
-
-    <TextView
-        android:id="@+id/textView"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="90dp"
-        android:text="ADMIN"
-        android:textColor="#eff6ff"
-        android:textSize="18sp"
-        app:layout_constraintEnd_toEndOf="@+id/imageView"
-        app:layout_constraintStart_toStartOf="@+id/imageView"
-        app:layout_constraintTop_toTopOf="parent" />
-
-
-
-    <ImageButton
-        android:id="@+id/button2"
-        android:layout_width="0dp"
-        android:layout_height="32dp"
-        android:layout_marginTop="16dp"
-        android:background="@android:color/transparent"
-        android:scaleType="fitCenter"
-        android:src="@drawable/baseline_dashboard_24"
-        app:layout_constraintEnd_toEndOf="@+id/imageView"
-        app:layout_constraintStart_toStartOf="@+id/imageView"
-        app:layout_constraintTop_toBottomOf="@id/textView" />
-
-    <ImageButton
-        android:id="@+id/button3"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:background="@android:color/transparent"
-        android:src="@drawable/baseline_shopping_cart_24"
-        app:layout_constraintEnd_toEndOf="@+id/button2"
-        app:layout_constraintStart_toStartOf="@+id/button2"
-        app:layout_constraintTop_toBottomOf="@id/button2" />
-
-    <ImageButton
-        android:id="@+id/button4"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:background="@android:color/transparent"
-        android:src="@drawable/order"
-        app:layout_constraintEnd_toEndOf="@+id/button3"
-        app:layout_constraintStart_toStartOf="@+id/button3"
-        app:layout_constraintTop_toBottomOf="@id/button3" />
-
-    <ImageButton
-        android:id="@+id/button5"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:background="@android:color/transparent"
-        android:src="@drawable/truck"
-        app:layout_constraintEnd_toEndOf="@+id/button4"
-        app:layout_constraintStart_toStartOf="@+id/button4"
-        app:layout_constraintTop_toBottomOf="@id/button4" />
-
-    <ImageButton
-        android:id="@+id/button6"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:background="@android:color/transparent"
-        android:src="@drawable/graph"
-        app:layout_constraintEnd_toEndOf="@+id/button5"
-        app:layout_constraintStart_toStartOf="@+id/button5"
-        app:layout_constraintTop_toBottomOf="@id/button5" />
-
-    <ImageButton
-        android:id="@+id/button7"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:background="@android:color/transparent"
-        android:src="@drawable/cashier"
-        app:layout_constraintEnd_toEndOf="@+id/button6"
-        app:layout_constraintStart_toStartOf="@+id/button6"
-        app:layout_constraintTop_toBottomOf="@id/button6" />
-
-    <ImageButton
-        android:id="@+id/button8"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:background="@android:color/transparent"
-        android:src="@drawable/logout"
-        app:layout_constraintEnd_toEndOf="@+id/button7"
-        app:layout_constraintStart_toStartOf="@+id/button7"
-        app:layout_constraintTop_toBottomOf="@id/button7" />
-
 
     <ImageView
         android:id="@+id/imageView2"
@@ -132,7 +149,7 @@
         app:layout_constraintBottom_toTopOf="@+id/categoryRecyclerView"
         app:layout_constraintEnd_toStartOf="@+id/searchCardView"
         app:layout_constraintHorizontal_bias="0.379"
-        app:layout_constraintStart_toStartOf="@+id/guideline_sidebar"
+        app:layout_constraintStart_toEndOf="@+id/sidebarLayout"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintVertical_bias="0.533" />
 
@@ -185,13 +202,12 @@
         android:id="@+id/scrollView2"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:layout_marginStart="8dp"
+        android:layout_marginTop="10dp"
         android:layout_marginEnd="8dp"
         android:layout_marginBottom="8dp"
-        android:layout_marginTop="10dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toStartOf="@+id/constraintLayout"
-        app:layout_constraintStart_toEndOf="@+id/imageView"
+        app:layout_constraintStart_toEndOf="@+id/sidebarLayout"
         app:layout_constraintTop_toBottomOf="@+id/categoryRecyclerView">
 
         <androidx.recyclerview.widget.RecyclerView
@@ -469,11 +485,10 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginTop="20dp"
-        android:layout_marginBottom="40dp"
         android:scrollbars="horizontal"
         app:layout_constraintEnd_toStartOf="@+id/constraintLayout"
         app:layout_constraintHorizontal_bias="1.0"
-        app:layout_constraintStart_toEndOf="@+id/imageView"
+        app:layout_constraintStart_toEndOf="@+id/sidebarLayout"
         app:layout_constraintTop_toBottomOf="@+id/searchCardView" />
 
     <ProgressBar
@@ -494,7 +509,7 @@
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toStartOf="@+id/constraintLayout"
-        app:layout_constraintStart_toEndOf="@+id/imageView"
+        app:layout_constraintStart_toEndOf="@+id/sidebarLayout"
         app:layout_constraintTop_toTopOf="parent">
 
         <ScrollView
@@ -512,175 +527,174 @@
                     android:id="@+id/discountButton"
                     android:layout_width="0dp"
                     android:layout_height="160dp"
-                    android:layout_marginEnd="10dp"
                     android:layout_marginTop="10dp"
+                    android:layout_marginEnd="10dp"
                     android:background="@drawable/button_shadow_background"
-                    android:text="Discount"
                     android:elevation="4dp"
+                    android:text="Discount"
+                    app:layout_constraintEnd_toStartOf="@id/priceOverrideButton"
                     app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toTopOf="parent"
-                    app:layout_constraintEnd_toStartOf="@id/priceOverrideButton" />
+                    app:layout_constraintTop_toTopOf="parent" />
 
                 <Button
                     android:id="@+id/priceOverrideButton"
                     android:layout_width="0dp"
                     android:layout_height="160dp"
-                    android:layout_marginEnd="10dp"
                     android:layout_marginTop="10dp"
+                    android:layout_marginEnd="10dp"
                     android:background="@drawable/button_shadow_background"
-                    android:text="Price Override"
                     android:elevation="4dp"
+                    android:text="Price Override"
+                    app:layout_constraintEnd_toStartOf="@id/partialPaymentButton"
                     app:layout_constraintStart_toEndOf="@id/discountButton"
-                    app:layout_constraintTop_toTopOf="parent"
-                    app:layout_constraintEnd_toStartOf="@id/partialPaymentButton" />
+                    app:layout_constraintTop_toTopOf="parent" />
 
                 <Button
                     android:id="@+id/partialPaymentButton"
                     android:layout_width="0dp"
                     android:layout_height="160dp"
-                    android:layout_marginEnd="10dp"
                     android:layout_marginTop="10dp"
+                    android:layout_marginEnd="10dp"
                     android:background="@drawable/button_shadow_background"
-                    android:text="Partial Payment"
                     android:elevation="4dp"
+                    android:text="Partial Payment"
+                    app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toEndOf="@id/priceOverrideButton"
-                    app:layout_constraintTop_toTopOf="parent"
-                    app:layout_constraintEnd_toEndOf="parent" />
+                    app:layout_constraintTop_toTopOf="parent" />
 
                 <!-- Second Row -->
                 <Button
                     android:id="@+id/voidPartialPaymentButton"
                     android:layout_width="0dp"
                     android:layout_height="160dp"
-                    android:layout_marginEnd="10dp"
                     android:layout_marginTop="10dp"
+                    android:layout_marginEnd="10dp"
                     android:background="@drawable/button_shadow_background"
-                    android:text="Void Partial Payment"
                     android:elevation="4dp"
+                    android:text="Void Partial Payment"
+                    app:layout_constraintEnd_toStartOf="@id/addCommentButton"
                     app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/discountButton"
-                    app:layout_constraintEnd_toStartOf="@id/addCommentButton" />
+                    app:layout_constraintTop_toBottomOf="@id/discountButton" />
 
                 <Button
                     android:id="@+id/addCommentButton"
                     android:layout_width="0dp"
                     android:layout_height="160dp"
-                    android:layout_marginEnd="10dp"
                     android:layout_marginTop="10dp"
+                    android:layout_marginEnd="10dp"
                     android:background="@drawable/button_shadow_background"
-                    android:text="Add Comment"
                     android:elevation="4dp"
+                    android:text="Add Comment"
+                    app:layout_constraintEnd_toStartOf="@id/deleteCommentButton"
                     app:layout_constraintStart_toEndOf="@id/voidPartialPaymentButton"
-                    app:layout_constraintTop_toBottomOf="@id/priceOverrideButton"
-                    app:layout_constraintEnd_toStartOf="@id/deleteCommentButton" />
+                    app:layout_constraintTop_toBottomOf="@id/priceOverrideButton" />
 
                 <Button
                     android:id="@+id/deleteCommentButton"
                     android:layout_width="0dp"
                     android:layout_height="160dp"
-                    android:layout_marginEnd="10dp"
                     android:layout_marginTop="10dp"
+                    android:layout_marginEnd="10dp"
                     android:background="@drawable/button_shadow_background"
-                    android:text="Delete Comment"
                     android:elevation="4dp"
+                    android:text="Delete Comment"
+                    app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toEndOf="@id/addCommentButton"
-                    app:layout_constraintTop_toBottomOf="@id/partialPaymentButton"
-                    app:layout_constraintEnd_toEndOf="parent" />
+                    app:layout_constraintTop_toBottomOf="@id/partialPaymentButton" />
 
                 <!-- Third Row -->
                 <Button
                     android:id="@+id/viewTransactionButton"
                     android:layout_width="0dp"
                     android:layout_height="160dp"
-                    android:layout_marginEnd="10dp"
                     android:layout_marginTop="10dp"
+                    android:layout_marginEnd="10dp"
                     android:background="@drawable/button_shadow_background"
-                    android:text="Daily Journal"
                     android:elevation="4dp"
+                    android:text="Daily Journal"
+                    app:layout_constraintEnd_toStartOf="@id/zReadButton"
                     app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/voidPartialPaymentButton"
-                    app:layout_constraintEnd_toStartOf="@id/zReadButton" />
+                    app:layout_constraintTop_toBottomOf="@id/voidPartialPaymentButton" />
 
                 <Button
                     android:id="@+id/zReadButton"
                     android:layout_width="0dp"
                     android:layout_height="160dp"
-                    android:layout_marginEnd="10dp"
                     android:layout_marginTop="10dp"
+                    android:layout_marginEnd="10dp"
                     android:background="@drawable/button_shadow_background"
-                    android:text="Z-Read"
                     android:elevation="4dp"
+                    android:text="Z-Read"
+                    app:layout_constraintEnd_toStartOf="@id/xReadButton"
                     app:layout_constraintStart_toEndOf="@id/viewTransactionButton"
-                    app:layout_constraintTop_toBottomOf="@id/addCommentButton"
-                    app:layout_constraintEnd_toStartOf="@id/xReadButton" />
+                    app:layout_constraintTop_toBottomOf="@id/addCommentButton" />
 
                 <Button
                     android:id="@+id/xReadButton"
                     android:layout_width="0dp"
                     android:layout_height="160dp"
-                    android:layout_marginEnd="10dp"
                     android:layout_marginTop="10dp"
+                    android:layout_marginEnd="10dp"
                     android:background="@drawable/button_shadow_background"
-                    android:text="X-Read"
                     android:elevation="4dp"
+                    android:text="X-Read"
+                    app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toEndOf="@id/zReadButton"
-                    app:layout_constraintTop_toBottomOf="@id/deleteCommentButton"
-                    app:layout_constraintEnd_toEndOf="parent" />
+                    app:layout_constraintTop_toBottomOf="@id/deleteCommentButton" />
 
                 <!-- Fourth Row -->
                 <Button
                     android:id="@+id/cashFundButton"
                     android:layout_width="0dp"
                     android:layout_height="160dp"
-                    android:layout_marginEnd="10dp"
                     android:layout_marginTop="10dp"
+                    android:layout_marginEnd="10dp"
                     android:background="@drawable/button_shadow_background"
-                    android:text="Change Fund"
                     android:elevation="4dp"
+                    android:text="Change Fund"
+                    app:layout_constraintEnd_toStartOf="@id/pulloutCashFundButton"
                     app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/viewTransactionButton"
-                    app:layout_constraintEnd_toStartOf="@id/pulloutCashFundButton" />
+                    app:layout_constraintTop_toBottomOf="@id/viewTransactionButton" />
 
                 <Button
                     android:id="@+id/pulloutCashFundButton"
                     android:layout_width="0dp"
                     android:layout_height="160dp"
-                    android:layout_marginEnd="10dp"
                     android:layout_marginTop="10dp"
+                    android:layout_marginEnd="10dp"
                     android:background="@drawable/button_shadow_background"
-                    android:text="Pullout Change Fund"
                     android:elevation="4dp"
+                    android:text="Pullout Change Fund"
+                    app:layout_constraintEnd_toStartOf="@id/tenderDeclarationButton"
                     app:layout_constraintStart_toEndOf="@id/cashFundButton"
-                    app:layout_constraintTop_toBottomOf="@id/zReadButton"
-                    app:layout_constraintEnd_toStartOf="@id/tenderDeclarationButton" />
+                    app:layout_constraintTop_toBottomOf="@id/zReadButton" />
 
                 <Button
                     android:id="@+id/tenderDeclarationButton"
                     android:layout_width="0dp"
                     android:layout_height="160dp"
-                    android:layout_marginEnd="10dp"
                     android:layout_marginTop="10dp"
+                    android:layout_marginEnd="10dp"
                     android:background="@drawable/button_shadow_background"
-                    android:text="Tender Declaration"
                     android:elevation="4dp"
+                    android:text="Tender Declaration"
+                    app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toEndOf="@id/pulloutCashFundButton"
-                    app:layout_constraintTop_toBottomOf="@id/xReadButton"
-                    app:layout_constraintEnd_toEndOf="parent" />
+                    app:layout_constraintTop_toBottomOf="@id/xReadButton" />
 
 
                 <Button
                     android:id="@+id/btnSetSequence"
                     android:layout_width="0dp"
                     android:layout_height="160dp"
-                    android:layout_marginEnd="10dp"
                     android:layout_marginTop="10dp"
-                    android:text="Sequence Number"
+                    android:layout_marginEnd="10dp"
                     android:background="@drawable/button_shadow_background"
                     android:elevation="4dp"
-                    app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/cashFundButton"
+                    android:text="Sequence Number"
                     app:layout_constraintEnd_toStartOf="@id/pulloutCashFundButton"
-                    />
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/cashFundButton" />
 
             </androidx.constraintlayout.widget.ConstraintLayout>
         </ScrollView>

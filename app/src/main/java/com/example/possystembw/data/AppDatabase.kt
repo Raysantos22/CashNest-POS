@@ -48,6 +48,7 @@ import com.example.possystembw.DAO.WindowTableDao
 import com.example.possystembw.DAO.RboTransactionDiscountTransDao
 import com.example.possystembw.DAO.ZReadDao
 import com.example.possystembw.DAO.NumberSequenceDao
+import com.example.possystembw.DAO.NumberSequenceRemoteDao
 import com.example.possystembw.database.AR
 import com.example.possystembw.database.Announcements
 import com.example.possystembw.database.Barcodes
@@ -92,35 +93,33 @@ import com.example.possystembw.database.MixMatchDiscountLine
 import com.example.possystembw.database.ZRead
 import com.example.possystembw.database.NumberSequenceEntity
 import com.example.possystembw.database.NumberSequence
-
-
-
+import com.example.possystembw.database.NumberSequenceRemoteEntity
 
 
 import com.example.possystembw.ui.ViewModel.Converters
 
 @Database(entities = [Product::class,
-                      CartItem::class,
-                      TransactionRecord::class,TransactionSummary::class,
-                      Rboinventables::class,
-                      Inventtables::class,
-                      Inventtablemodules::class,
-                      Announcements::class, Barcodes::class, Controls::class,
-                      Details::class, Importproducts::class,
-                      Inventitembarcodes::class, Inventjournaltables::class,
-                      Inventjournaltrans::class, Inventjournaltransrepos::class,
-                      Items::class, Numbersequencetables::class,
-                      Numbersequencevalues::class, Partycakes::class,
-                      Rboinventitemretailgroups::class, Rbospecialgroups::class,
-                      Rbostoretables::class, Sptables::class,
-                       Sptrans::class, Sptransrepos::class,
-                       Txtfile::class,User::class, Cashfund::class,
-                        Category::class,Window::class,WindowTable::class,Discount::class,
-                        Customer::class, AR::class,TenderDeclaration::class,
-                    RboTransactionDiscountTrans::class,ProductBundle::class, MixMatch::class,
-    MixMatchLineGroup::class,
-    MixMatchDiscountLine::class,ZRead::class,NumberSequenceEntity::class,NumberSequence::class],
-    version = 121)
+    CartItem::class,
+    TransactionRecord::class,TransactionSummary::class,
+    Rboinventables::class,
+    Inventtables::class,
+    Inventtablemodules::class,
+    Announcements::class, Barcodes::class, Controls::class,
+    Details::class, Importproducts::class,
+    Inventitembarcodes::class, Inventjournaltables::class,
+    Inventjournaltrans::class, Inventjournaltransrepos::class,
+    Items::class, Numbersequencetables::class,
+    Numbersequencevalues::class, Partycakes::class,
+    Rboinventitemretailgroups::class, Rbospecialgroups::class,
+    Rbostoretables::class, Sptables::class,
+    Sptrans::class, Sptransrepos::class,
+    Txtfile::class,User::class, Cashfund::class,
+    Category::class,Window::class,WindowTable::class,Discount::class,
+    Customer::class, AR::class,TenderDeclaration::class,
+    RboTransactionDiscountTrans::class,ProductBundle::class, MixMatch::class,
+    MixMatchLineGroup::class, NumberSequenceRemoteEntity::class,
+            MixMatchDiscountLine::class,ZRead::class,NumberSequenceEntity::class,NumberSequence::class,],
+    version = 137)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun productDao(): ProductDao
@@ -163,14 +162,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun mixMatchDao(): MixMatchDao
     abstract fun zReadDao(): ZReadDao
     abstract fun numberSequenceDao(): NumberSequenceDao
-
-
-
-
-
-
-
-
+    abstract fun numberSequenceRemoteDao(): NumberSequenceRemoteDao
 
 
 
@@ -187,7 +179,7 @@ abstract class AppDatabase : RoomDatabase() {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "POSBWbakeshop92" // Keep this new name if you want to start fresh
+                    "POSBWbakeshop116" // Keep this new name if you want to start fresh
                 )
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,
@@ -269,8 +261,6 @@ abstract class AppDatabase : RoomDatabase() {
                 // Add migration steps if necessary
             }
         }
-
-
 
         private val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(database: SupportSQLiteDatabase) {
@@ -856,12 +846,14 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_36_37 = object : Migration(36, 37) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 // Create the new category table
-                database.execSQL("""
+                database.execSQL(
+                    """
             CREATE TABLE `category` (
                 `groupId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
                 `name` TEXT NOT NULL
             )
-        """)
+        """
+                )
             }
         }
         val MIGRATION_37_38 = object : Migration(37, 38) {
@@ -882,17 +874,26 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_39_40 = object : Migration(39, 40) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 // Create the windowtable with 'description' instead of 'name'
-                database.execSQL("""
+                database.execSQL(
+                    """
             CREATE TABLE IF NOT EXISTS `windowtable` (
                 `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
                 `description` TEXT NOT NULL
                 
             )
-        """.trimIndent())
+        """.trimIndent()
+                )
             }
         }
-
-
-
+        val MIGRATION_40_41 = object : Migration(40, 41) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                try {
+                    database.execSQL("ALTER TABLE `transactions` ADD COLUMN `syncstatusrecord` INTEGER NOT NULL DEFAULT 0")
+                } catch (e: Exception) {
+                    Log.e("DatabaseMigration", "Error adding syncstatusrecord column", e)
+                }
+            }
+        }
     }
+
 }

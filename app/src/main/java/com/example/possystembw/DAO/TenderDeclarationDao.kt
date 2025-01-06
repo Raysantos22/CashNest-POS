@@ -18,9 +18,8 @@ interface TenderDeclarationDao {
     suspend fun getLatestTenderDeclaration(): TenderDeclaration?
 
 
-    @Query("DELETE FROM tenderDeclaration")
+    @Query("DELETE FROM tenderdeclaration")
     suspend fun deleteAll()
-
     // Optional: Delete by date if you want more specific control
     @Query("DELETE FROM tenderDeclaration WHERE date = :date")
     suspend fun deleteByDate(date: String)

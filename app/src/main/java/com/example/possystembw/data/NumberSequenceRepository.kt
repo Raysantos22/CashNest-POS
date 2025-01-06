@@ -1,55 +1,64 @@
 package com.example.possystembw.data
 
-import android.util.Log
 import com.example.possystembw.DAO.NumberSequenceDao
-import com.example.possystembw.DAO.NumberSequenceRequest
-import com.example.possystembw.DAO.NumberSequenceService
-import com.example.possystembw.DAO.NumberSequenceValue
 import com.example.possystembw.database.NumberSequence
-
-import com.example.possystembw.database.NumberSequenceEntity
 import java.util.Date
 
 class NumberSequenceRepository(private val numberSequenceDao: NumberSequenceDao) {
     suspend fun initializeSequence(
         type: String,
+        storeId: String,
         startValue: Long = 1,
-        prefix: String = "",
-        suffix: String = "",
-        paddingLength: Int = 9,
-        increment: Int = 1
+        paddingLength: Int = 9
     ) {
-        val sequence = NumberSequence(
-            sequenceType = type,
-            currentValue = startValue,
-            prefix = prefix,
-            suffix = suffix,
-            paddingLength = paddingLength,
-            increment = increment
-        )
-        numberSequenceDao.insert(sequence)
-    }
-
-    suspend fun getNextNumber(type: String): String {
-        val sequence = numberSequenceDao.getSequence(type) ?: run {
-            initializeSequence(type)
-            numberSequenceDao.getSequence(type)
-        } ?: throw IllegalStateException("Could not initialize sequence: $type")
-
-        numberSequenceDao.incrementSequence(type, sequence.increment)
-
-        return buildString {
-            append(sequence.prefix)
-            append(sequence.currentValue.toString().padStart(sequence.paddingLength, '0'))
-            append(sequence.suffix)
+        val existingSequence = numberSequenceDao.getSequence(type, storeId)
+        if (existingSequence == null) {
+            val sequence = NumberSequence(
+                sequenceType = type,
+                storeId = storeId,
+                currentValue = startValue,
+                paddingLength = paddingLength,
+                storeKey = generateStoreKey(storeId, startValue.toString().padStart(paddingLength, '0'))
+            )
+            numberSequenceDao.insert(sequence)
         }
     }
 
-    suspend fun resetSequence(type: String, newValue: Long = 1) {
-        numberSequenceDao.resetSequence(type, newValue, Date())
+    private fun generateStoreKey(storeId: String, transactionId: String): String {
+        return "$transactionId-$storeId"
     }
 
-    suspend fun getCurrentValue(type: String): Long? {
-        return numberSequenceDao.getSequence(type)?.currentValue
+    suspend fun getNextNumber(type: String, storeId: String): String {
+        val sequence = numberSequenceDao.getSequence(type, storeId) ?: run {
+            initializeSequence(type, storeId)
+            numberSequenceDao.getSequence(type, storeId)
+        } ?: throw IllegalStateException("Could not initialize sequence: $type for store: $storeId")
+
+        val currentValue = sequence.currentValue
+        val formattedNumber = currentValue.toString().padStart(sequence.paddingLength, '0')
+
+        // Update store key before incrementing
+        val newStoreKey = generateStoreKey(storeId, formattedNumber)
+        numberSequenceDao.updateStoreKey(type, storeId, newStoreKey)
+
+        // Increment the sequence
+        numberSequenceDao.incrementSequence(type, storeId, sequence.increment)
+
+        return formattedNumber
+    }
+
+    suspend fun getCurrentStoreKey(type: String, storeId: String): String {
+        val sequence = numberSequenceDao.getSequence(type, storeId)
+            ?: throw IllegalStateException("No sequence found for type: $type and store: $storeId")
+        return sequence.storeKey
+    }
+
+
+    suspend fun resetSequence(type: String, storeId: String, newValue: Long = 1) {
+        numberSequenceDao.resetSequence(type, storeId, newValue, Date())
+    }
+
+    suspend fun getCurrentValue(type: String, storeId: String): Long? {
+        return numberSequenceDao.getCurrentValue(type, storeId)
     }
 }

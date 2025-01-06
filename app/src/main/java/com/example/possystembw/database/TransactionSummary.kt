@@ -18,7 +18,7 @@ data class TransactionSummary(
     @ColumnInfo(name = "grossamount") val grossAmount: Double,
     @ColumnInfo(name = "partial_payment") val partialPayment: Double,
     @ColumnInfo(name = "transactionstatus") val transactionStatus: Int,
-    @ColumnInfo(name = "discamount") val discountAmount: Double,
+    @ColumnInfo(name = "discamount")  val discountAmount: Double,
     @ColumnInfo(name = "custdiscamount") val customerDiscountAmount: Double,
     @ColumnInfo(name = "totaldiscamount") val totalDiscountAmount: Double,
     @ColumnInfo(name = "numberofitems") val numberOfItems: Double,
@@ -33,11 +33,6 @@ data class TransactionSummary(
     @ColumnInfo(name = "markupdescription") val markupDescription: String?,
     @ColumnInfo(name = "taxinclinprice") val taxIncludedInPrice: Double,
     @ColumnInfo(name = "window_number") val windowNumber: Int,
-    @ColumnInfo(name = "gcash") val gCash: Double,
-    @ColumnInfo(name = "paymaya") val payMaya: Double,
-    @ColumnInfo(name = "cash") val cash: Double,
-    @ColumnInfo(name = "card") val card: Double,
-    @ColumnInfo(name = "loyaltycard") val loyaltyCard: Double,
     @ColumnInfo(name = "total_amount_paid") val totalAmountPaid: Double,
     @ColumnInfo(name = "change_given") val changeGiven: Double,
     @ColumnInfo(name = "paymentMethod")val paymentMethod: String,
@@ -46,8 +41,16 @@ data class TransactionSummary(
     @ColumnInfo(name = "vatExemptAmount") val vatExemptAmount: Double,  // Added parameter
     @ColumnInfo(name = "vatableSales") val vatableSales: Double,  // Added
     @ColumnInfo(name = "discountType") val discountType: String = "",
+    @ColumnInfo(name = "gcash") val gCash: Double,
+    @ColumnInfo(name = "paymaya") val payMaya: Double,
+    @ColumnInfo(name = "cash") val cash: Double,
+    @ColumnInfo(name = "card") val card: Double,
+    @ColumnInfo(name = "loyaltycard") val loyaltyCard: Double,
+    @ColumnInfo(name = "charge") val charge: Double,
+    @ColumnInfo(name = "foodpanda") val foodpanda: Double,
+    @ColumnInfo(name = "grabfood") val grabfood: Double,
+    @ColumnInfo(name = "representation") val representation: Double,
+    @ColumnInfo(name = "store_key") var storeKey: String, // Added for unique store identification
+    @ColumnInfo(name = "store_sequence") var storeSequence: String,
     @ColumnInfo(name = "syncStatus")var syncStatus: Boolean = false
-
-
-// Or nullable String?
 )

@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.possystembw.data.CartRepository
 import com.example.possystembw.data.ProductRepository
 import com.example.possystembw.database.CartItem
+import com.example.possystembw.database.Window
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -158,6 +159,28 @@ class CartViewModel(private val repository: CartRepository) : ViewModel() {
         viewModelScope.launch {
             repository.updateItemComment(cartItemId, comment)
         }
+    }
+    fun addToCartWithWindowPrice(product: Product, window: Window) = viewModelScope.launch {
+        val price = when {
+            window.description.contains("GRABFOOD", ignoreCase = true) -> product.grabfood
+            window.description.contains("FOODPANDA", ignoreCase = true) -> product.foodpanda
+            window.description.contains("MANILARATE", ignoreCase = true) -> product.manilaprice
+            else -> product.price
+        }
+
+        val cartItem = CartItem(
+            productId = product.id,
+            quantity = 1,
+            windowId = window.id,
+            productName = product.itemName,
+            price = price,
+            itemGroup = product.itemGroup,
+            itemId = product.itemid,
+            vatAmount = 0.0,
+            vatExemptAmount = 0.0
+       )
+
+        repository.insert(cartItem)
     }
 
 

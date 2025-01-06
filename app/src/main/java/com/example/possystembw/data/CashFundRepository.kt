@@ -4,7 +4,9 @@ import com.example.possystembw.DAO.CashfundDao
 import com.example.possystembw.database.Cashfund
 
 class CashFundRepository(private val cashFundDao: CashfundDao) {
-    suspend fun insert(cashFund: Cashfund) {
+    suspend fun getCashFundForDate(date: String): Cashfund? {
+        return cashFundDao.getCashFundByDate(date)
+    }    suspend fun insert(cashFund: Cashfund) {
         cashFundDao.insert(cashFund) // Use the instance variable
     }
 

@@ -7,16 +7,19 @@ import com.example.possystembw.database.User
 import retrofit2.Response
 import retrofit2.http.*
 
+//interface ProductApi {
+//    @GET("api/products/get-all-products")
+//    suspend fun getAllProducts(): Response<List<Product>>
 interface ProductApi {
     @GET("api/products/get-all-products")
-    suspend fun getAllProducts(): Response<List<Product>>
-
+    suspend fun getAllProducts(@Query("storeId") storeId: String): Response<List<Product>>
 
    /* @GET("api/products/get-random-product")
     suspend fun getRandomProduct(): Response<Product>
     */
 /*   @GET("products")
     suspend fun getAllProducts(): List<Product>*/
+
 
     @POST("api/products/insert-from-api")
     suspend fun insertProductFromApi(): Response<ApiResponse>
@@ -67,7 +70,6 @@ interface ProductApi {
     @GET("api/categories/get-all-categories")
     suspend fun getAllCategories(): Response<List<Category>>
 
-
 }
 
 data class ApiResponse(
@@ -78,4 +80,6 @@ data class ApiResponse(
     val price: Double,
     val imageUrl: String
 )
+
+
 

@@ -22,4 +22,38 @@
     <color name="text_secondary">#666666</color>
     <color name="gray">#666666</color>
 
+    <color name="window_with_cart_items">#782121</color> <!-- Light blue background -->
+    <color name="window_default">#002DFF</color>
+    <color name="green">#4CAF50</color>
+
+    <color name="light_yellow">#FFFFF0</color>
+    <color name="red">#FF0000</color>
+<!--    <color name="gray">#808080</color>-->
+    <color name="faded_button_background">#B0D4F2</color>
+    <!-- Faded text color for disabled button -->
+    <color name="faded_text_color">#7094B5</color>
+
+    <color name="smart_pay_enabled">#673AB7</color>
+    <color name="smart_pay_disabled">#9E9E9E</color>
+
+    <color name="hint_gray">#757575</color>
+
+    <color name="light_gray">#BDBDBD</color>
+
+    <color name="list_item_even">#FFFFFF</color>
+    <color name="list_item_odd">#F5F5F5</color>
+
+    <color name="attendance_green">#4CAF50</color>
+
+    <color name="attendance_gray">#EEEEEE</color>
+
+    <color name="attendance_complete">#4CAF50</color>
+    <color name="attendance_break_out">#FF9800</color>
+    <color name="attendance_break_in">#FFC107</color>
+    <color name="attendance_time_in">#2196F3</color>
+
+    <color name="header_blue">#0000FF</color>
+    <color name="button_blue">#000080</color>
+    <color name="orange">#FF5722</color>
+
 </resources>

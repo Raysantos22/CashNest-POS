@@ -36,6 +36,12 @@ class BluetoothPrinterHelper(private val context: Context) {
     var outputStream: OutputStream? = null
     private var printerAddress: String? = null
 
+    private var isConnecting = false
+    private var connectionError: String? = null
+    private val prefs =
+        context.applicationContext.getSharedPreferences("BluetoothPrinter", Context.MODE_PRIVATE)
+    private var disconnectRequested = false
+
     enum class ReceiptType {
         ORIGINAL,
         REPRINT,
@@ -43,34 +49,151 @@ class BluetoothPrinterHelper(private val context: Context) {
         AR  // New AR type
     }
 
-    fun connect(address: String): Boolean {
-        if (!checkBluetoothPermissions()) {
-            Log.e("BluetoothPrinterHelper", "Bluetooth permission not granted")
-            return false
+    companion object {
+        private const val TAG = "BluetoothPrinterHelper"
+        private const val PREF_LAST_PRINTER = "last_printer_address"
+
+        @Volatile
+        private var instance: BluetoothPrinterHelper? = null
+        private lateinit var applicationContext: Context
+
+        fun initialize(context: Context) {
+            applicationContext = context.applicationContext
         }
-        if (isConnected() && address == printerAddress) {
-            return true
-        }
-        if (isConnected()) {
-            disconnect()
-        }
-        try {
-            val device: BluetoothDevice = bluetoothAdapter?.getRemoteDevice(address)
-                ?: throw IOException("Device not found")
-            bluetoothSocket =
-                device.createRfcommSocketToServiceRecord(UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"))
-            bluetoothSocket?.connect()
-            outputStream = bluetoothSocket?.outputStream
-            printerAddress = address
-            return true
-        } catch (e: IOException) {
-            Log.e("BluetoothPrinterHelper", "Error connecting to printer: ${e.message}")
-            return false
-        } catch (se: SecurityException) {
-            Log.e("BluetoothPrinterHelper", "SecurityException: ${se.message}")
-            return false
+
+        fun getInstance(): BluetoothPrinterHelper {
+            return instance ?: synchronized(this) {
+                instance ?: BluetoothPrinterHelper(applicationContext).also { instance = it }
+            }
         }
     }
+
+    fun connect(address: String): Boolean {
+        Log.d(TAG, "Attempting to connect to printer: $address")
+
+        disconnectRequested = false  // Reset the flag on new connection attempt
+
+        if (!checkBluetoothPermissions()) {
+            Log.e(TAG, "Bluetooth permission not granted")
+            return false
+        }
+
+        if (isConnected() && address == printerAddress) {
+            Log.d(TAG, "Already connected to this printer")
+            return true
+        }
+
+
+        if (isConnecting) {
+            Log.d(TAG, "Connection already in progress")
+            return false
+        }
+
+        try {
+            isConnecting = true
+
+            if (isConnected()) {
+                Log.d(TAG, "Disconnecting from previous printer")
+                disconnect()
+            }
+
+            val device = bluetoothAdapter?.getRemoteDevice(address)
+                ?: throw IOException("Device not found")
+
+            Log.d(TAG, "Creating socket for device: ${device.name ?: "Unknown"} ($address)")
+
+            bluetoothSocket = device.createRfcommSocketToServiceRecord(
+                UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+            )
+
+            Log.d(TAG, "Attempting socket connection")
+            bluetoothSocket?.connect()
+
+            outputStream = bluetoothSocket?.outputStream
+            printerAddress = address
+
+            Log.d(TAG, "Successfully connected to printer: $address")
+            connectionError = null
+            return true
+        } catch (e: IOException) {
+            connectionError = e.message
+            Log.e(TAG, "Error connecting to printer: ${e.message}")
+            disconnect()
+            return false
+        } catch (se: SecurityException) {
+            connectionError = se.message
+            Log.e(TAG, "SecurityException: ${se.message}")
+            disconnect()
+            return false
+        } finally {
+            isConnecting = false
+        }
+    }
+
+
+    fun isConnected(): Boolean {
+        val connected = bluetoothSocket?.isConnected == true && outputStream != null
+        Log.d(TAG, "Checking connection status: $connected, address: $printerAddress")
+        return connected
+    }
+
+    fun disconnect() {
+        Log.d(TAG, "Disconnecting printer: $printerAddress")
+        disconnectRequested = true  // Set the flag
+        try {
+            outputStream?.close()
+            bluetoothSocket?.close()
+        } catch (e: IOException) {
+            Log.e(TAG, "Error disconnecting: ${e.message}")
+        } finally {
+            outputStream = null
+            bluetoothSocket = null
+            printerAddress = null
+            connectionError = null
+        }
+    }
+
+
+    fun checkBluetoothPermissions(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.BLUETOOTH_CONNECT
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.BLUETOOTH
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun getCurrentDate(): String {
+        return SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+    }
+
+    private fun getCurrentTime(): String {
+        return SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+    }
+
+    private fun addFooterSpacingAndCut(sb: StringBuilder) {
+        // Add consistent spacing before cut
+        repeat(1) {
+            sb.appendLine()
+        }
+    }
+
+    fun getCurrentPrinterAddress(): String? {
+        return if (isConnected()) {
+            Log.d(TAG, "Current printer address: $printerAddress")
+            printerAddress
+        } else {
+            Log.d(TAG, "No printer connected")
+            null
+        }
+    }
+
+    fun getLastError(): String? = connectionError
 
     fun printReceipt(
         transaction: TransactionSummary,
@@ -120,52 +243,6 @@ class BluetoothPrinterHelper(private val context: Context) {
         }
     }
 
-
-    fun isConnected(): Boolean {
-        return bluetoothSocket?.isConnected == true
-    }
-
-    fun disconnect() {
-        try {
-            outputStream?.close()
-            bluetoothSocket?.close()
-        } catch (e: IOException) {
-            Log.e("BluetoothPrinterHelper", "Error disconnecting: ${e.message}")
-        } finally {
-            outputStream = null
-            bluetoothSocket = null
-            printerAddress = null
-        }
-    }
-
-     fun checkBluetoothPermissions(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            ActivityCompat.checkSelfPermission(
-                context,
-                Manifest.permission.BLUETOOTH_CONNECT
-            ) == PackageManager.PERMISSION_GRANTED
-        } else {
-            ActivityCompat.checkSelfPermission(
-                context,
-                Manifest.permission.BLUETOOTH
-            ) == PackageManager.PERMISSION_GRANTED
-        }
-    }
-
-    private fun getCurrentDate(): String {
-        return SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-    }
-
-    private fun getCurrentTime(): String {
-        return SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-    }
-
-    private fun addFooterSpacingAndCut(sb: StringBuilder) {
-        // Add consistent spacing before cut
-        repeat(2) {
-            sb.appendLine()
-        }
-    }
     fun printGenericReceipt(receiptContent: String): Boolean {
         if (!checkBluetoothPermissions() || !isConnected()) {
             return false
@@ -200,13 +277,25 @@ class BluetoothPrinterHelper(private val context: Context) {
         }
 
         val receiptContent = buildString {
+            append(0x1B.toChar()) // ESC
+            append('!'.toChar())  // Select print mode
+            append(0x01.toChar()) // Smallest text size
 
+            // Set minimum line spacing
+            append(0x1B.toChar()) // ESC
+            append('3'.toChar())  // Select line spacing
+            append(50.toChar())
             appendLine("CASH FUND RECEIPT")
             appendLine("Date: ${getCurrentDate()}")
             appendLine("Time: ${getCurrentTime()}")
             appendLine("Amount: ${"%.2f".format(cashFund)}")
             appendLine("Status: $status")
+            append(0x1B.toChar()) // ESC
+            append('!'.toChar())  // Select print mode
+            append(0x00.toChar()) // Reset to normal size
 
+            append(0x1B.toChar()) // ESC
+            append('2'.toChar())
         }
 
         return printGenericReceipt(receiptContent)
@@ -219,12 +308,24 @@ class BluetoothPrinterHelper(private val context: Context) {
         }
 
         val receiptContent = buildString {
+            append(0x1B.toChar()) // ESC
+            append('!'.toChar())  // Select print mode
+            append(0x01.toChar()) // Smallest text size
 
+            // Set minimum line spacing
+            append(0x1B.toChar()) // ESC
+            append('3'.toChar())  // Select line spacing
+            append(50.toChar())
             appendLine("PULL-OUT CASH FUND RECEIPT")
             appendLine("Date: ${getCurrentDate()}")
             appendLine("Time: ${getCurrentTime()}")
             appendLine("Amount: ${"%.2f".format(pulloutAmount)}")
+            append(0x1B.toChar()) // ESC
+            append('!'.toChar())  // Select print mode
+            append(0x00.toChar()) // Reset to normal size
 
+            append(0x1B.toChar()) // ESC
+            append('2'.toChar())
         }
 
         return printGenericReceipt(receiptContent)
@@ -237,7 +338,14 @@ class BluetoothPrinterHelper(private val context: Context) {
         }
 
         val receiptContent = buildString {
+            append(0x1B.toChar()) // ESC
+            append('!'.toChar())  // Select print mode
+            append(0x01.toChar()) // Smallest text size
 
+            // Set minimum line spacing
+            append(0x1B.toChar()) // ESC
+            append('3'.toChar())  // Select line spacing
+            append(50.toChar())
             appendLine("TENDER DECLARATION RECEIPT")
             appendLine("Date: ${getCurrentDate()}")
             appendLine("Time: ${getCurrentTime()}")
@@ -253,7 +361,12 @@ class BluetoothPrinterHelper(private val context: Context) {
             appendLine("-".repeat(46))
             val totalAmount = cashAmount + arAmounts.filterKeys { it != "Cash" }.values.sum()
             appendLine("Total Amount: ${String.format("%.2f", totalAmount)}")
+            append(0x1B.toChar()) // ESC
+            append('!'.toChar())  // Select print mode
+            append(0x00.toChar()) // Reset to normal size
 
+            append(0x1B.toChar()) // ESC
+            append('2'.toChar())
         }
 
         return printGenericReceipt(receiptContent)
@@ -265,36 +378,45 @@ class BluetoothPrinterHelper(private val context: Context) {
         zReportId: String = "",
         tenderDeclaration: TenderDeclaration? = null
     ): String {
+
         // Calculate all totals from TransactionSummary records
         val totalSales = transactions.sumOf { it.netAmount }
         val totalGross = transactions.sumOf { it.grossAmount }
         val totalVat = transactions.sumOf { it.taxIncludedInPrice }
-        val totalDiscount = transactions.sumOf { it.totalDiscountAmount } // Total discount
+        val totalDiscount = transactions.sumOf { it.totalDiscountAmount }
         val vatableSales = transactions.sumOf { it.vatableSales }
         val vatExemptSales = transactions.sumOf { it.vatExemptAmount }
 
-        // Payment method totals
-        val cashSales = transactions.sumOf { it.cash }
-        val cardSales = transactions.sumOf { it.card }
-        val gCashSales = transactions.sumOf { it.gCash }
-        val payMayaSales = transactions.sumOf { it.payMaya }
+        // Payment method totals using specific fields
+        val cashTotal = transactions.sumOf { it.cash }
+        val cardTotal = transactions.sumOf { it.card }
+        val gCashTotal = transactions.sumOf { it.gCash }
+        val payMayaTotal = transactions.sumOf { it.payMaya }
+        val loyaltyCardTotal = transactions.sumOf { it.loyaltyCard }
+        val chargeTotal = transactions.sumOf { it.charge }
+        val foodPandaTotal = transactions.sumOf { it.foodpanda }
+        val grabFoodTotal = transactions.sumOf { it.grabfood }
+        val representationTotal = transactions.sumOf { it.representation }
         val arSales = transactions.filter { it.type == 3 }.sumOf { it.netAmount }
 
         // Transaction statistics
         val totalReturns = transactions.filter { it.type == 2 }.sumOf { it.netAmount }
         val totalItemsSold = transactions.filter { it.type != 2 }.sumOf { it.numberOfItems.toInt() }
-        val totalItemsReturned = transactions.filter { it.type == 2 }.sumOf { it.numberOfItems.toInt() }
+        val totalItemsReturned =
+            transactions.filter { it.type == 2 }.sumOf { it.numberOfItems.toInt() }
         val voidedTransactions = transactions.count { it.transactionStatus == 0 }
         val returnTransactions = transactions.count { it.type == 2 }
         val customerTransactions = transactions.count { it.customerAccount.isNotBlank() }
 
-        // Group payments by method for the tender report
-        val paymentMethodTotals = transactions
-            .groupBy { it.paymentMethod }
-            .mapValues { (_, transactions) -> transactions.sumOf { it.netAmount } }
-
         return buildString {
+            append(0x1B.toChar()) // ESC
+            append('!'.toChar())  // Select print mode
+            append(0x01.toChar()) // Smallest text size
 
+            // Set minimum line spacing
+            append(0x1B.toChar()) // ESC
+            append('3'.toChar())  // Select line spacing
+            append(50.toChar())
             appendLine("BRANCH: ${getBranchName()}")
             appendLine("TARLAC CITY")
             appendLine("REG TIN: ${getRegTin()}")
@@ -318,7 +440,7 @@ class BluetoothPrinterHelper(private val context: Context) {
             appendLine("SALES REPORT AMT INC                  AMOUNT")
             appendLine("Gross sales                           ${"%.2f".format(totalGross)}")
             appendLine("Purchase                              ${"%.2f".format(totalSales)}")
-/*
+            /*
             appendLine("Returns/refund                        ${"%.2f".format(totalReturns)}")
 */
             appendLine("Total Discount                        ${"%.2f".format(totalDiscount)}") // Total discount
@@ -343,9 +465,24 @@ class BluetoothPrinterHelper(private val context: Context) {
             appendLine("Tender name                          amount")
             appendLine("_".repeat(35))
 
-            paymentMethodTotals.forEach { (method, amount) ->
-                appendLine("${method.padEnd(35)}${"%.2f".format(amount)}")
-            }
+            if (cashTotal > 0) appendLine("CASH".padEnd(38) + "%.2f".format(cashTotal))
+            if (cardTotal > 0) appendLine("CARD".padEnd(38) + "%.2f".format(cardTotal))
+            if (gCashTotal > 0) appendLine("GCASH".padEnd(38) + "%.2f".format(gCashTotal))
+            if (payMayaTotal > 0) appendLine("PAYMAYA".padEnd(38) + "%.2f".format(payMayaTotal))
+            if (loyaltyCardTotal > 0) appendLine(
+                "LOYALTY CARD".padEnd(38) + "%.2f".format(
+                    loyaltyCardTotal
+                )
+            )
+            if (chargeTotal > 0) appendLine("CHARGE".padEnd(38) + "%.2f".format(chargeTotal))
+            if (foodPandaTotal > 0) appendLine("FOODPANDA".padEnd(38) + "%.2f".format(foodPandaTotal))
+            if (grabFoodTotal > 0) appendLine("GRABFOOD".padEnd(38) + "%.2f".format(grabFoodTotal))
+            if (representationTotal > 0) appendLine(
+                "REPRESENTATION".padEnd(38) + "%.2f".format(
+                    representationTotal
+                )
+            )
+            if (arSales > 0) appendLine("AR".padEnd(38) + "%.2f".format(arSales))
 
             appendLine()
             appendLine("total amount                          ${"%.2f".format(totalSales)}")
@@ -361,25 +498,52 @@ class BluetoothPrinterHelper(private val context: Context) {
             if (tenderDeclaration != null) {
                 appendLine("-".repeat(46))
                 appendLine("Tender Declaration")
-                appendLine("Cash Amount:                          ${"%.2f".format(tenderDeclaration.cashAmount)}")
 
+                // Function to format amount entries with proper spacing
+                fun formatAmountEntry(label: String, amount: Double): String {
+                    val maxLabelLength = 25  // Maximum length for the label portion
+                    val truncatedLabel = if (label.length > maxLabelLength) {
+                        label.substring(0, maxLabelLength - 3) + "..."
+                    } else {
+                        label
+                    }
+
+                    return buildString {
+                        append(truncatedLabel)
+                        // Calculate remaining spaces needed to align amount
+                        val spacesNeeded =
+                            45 - truncatedLabel.length - String.format("%.2f", amount).length
+                        append(" ".repeat(spacesNeeded))
+                        append(String.format("%.2f", amount))
+                    }
+                }
+
+                // Print cash amount
+                appendLine(formatAmountEntry("Cash Amount", tenderDeclaration.cashAmount))
+
+                // Process AR amounts
                 val gson = Gson()
                 val arAmounts = gson.fromJson<Map<String, Double>>(
                     tenderDeclaration.arAmounts,
                     object : TypeToken<Map<String, Double>>() {}.type
                 )
                 var totalAr = 0.0
+
+                // Print AR entries
                 arAmounts.forEach { (arType, amount) ->
                     if (arType != "Cash") {
-                        appendLine("$arType:                              ${"%.2f".format(amount)}")
+                        appendLine(formatAmountEntry(arType, amount))
                         totalAr += amount
                     }
                 }
 
-                appendLine("Total AR:                             ${"%.2f".format(totalAr)}")
+                // Print totals with consistent alignment
+                appendLine("-".repeat(46))
+                appendLine(formatAmountEntry("Total AR", totalAr))
+
                 val totalDeclared = tenderDeclaration.cashAmount + totalAr
-                appendLine("Total Declared:                       ${"%.2f".format(totalDeclared)}")
-                appendLine("Short/Over:                           ${"%.2f".format(totalDeclared - totalSales)}")
+                appendLine(formatAmountEntry("Total Declared", totalDeclared))
+                appendLine(formatAmountEntry("Short/Over", totalDeclared - totalSales))
             }
 
             appendLine("-".repeat(45))
@@ -396,7 +560,12 @@ class BluetoothPrinterHelper(private val context: Context) {
                 appendLine()
                 appendLine("-".repeat(32))
                 appendLine("End of Z-Read Report")
+                append(0x1B.toChar()) // ESC
+                append('!'.toChar())  // Select print mode
+                append(0x00.toChar()) // Reset to normal size
 
+                append(0x1B.toChar()) // ESC
+                append('2'.toChar())
 
             }
         }
@@ -541,6 +710,299 @@ class BluetoothPrinterHelper(private val context: Context) {
         ).format(Date(System.currentTimeMillis() + 365 * 24 * 60 * 60 * 1000L))
     }
 
+//
+//    fun generateReceiptContent(
+//        transaction: TransactionSummary,
+//        items: List<TransactionRecord>,
+//        receiptType: BluetoothPrinterHelper.ReceiptType,
+//        isAR: Boolean = false,
+//        copyType: String? = null
+//    ): String {
+//        val sb = StringBuilder()
+//        val isReturn = receiptType == BluetoothPrinterHelper.ReceiptType.RETURN
+//
+//        // For return receipts, only show returned items
+//        // For regular receipts, show all items but handle returned items differently
+//        val filteredItems = if (isReturn) {
+//            items.filter { it.isReturned }
+//        } else {
+//            // Show all items, but calculate net quantities after returns
+//            items.groupBy { it.itemId }.map { (_, groupedItems) ->
+//                val originalItem = groupedItems.first { !it.isReturned }
+//                val returnedQuantity = groupedItems
+//                    .filter { it.isReturned }
+//                    .sumOf { it.quantity }
+//
+//                // Create a new item with adjusted quantity
+//                originalItem.copy(
+//                    quantity = originalItem.quantity + returnedQuantity, // returnedQuantity is negative
+//                    isReturned = false
+//                )
+//            }
+//        }
+//        // Store Header
+//        sb.appendLine("ELJIN CORP")
+//        sb.appendLine("Address Line 1")
+//        sb.appendLine("Address Line 2")
+//        sb.appendLine("TIN: Your TIN Number")
+//        sb.appendLine("ACC: Your ACC Number")
+//        sb.appendLine("Contact #: Your Contact Number")
+//        sb.appendLine("-".repeat(32))
+//
+//        // Receipt Type Header (unchanged)
+//        when (receiptType) {
+//            BluetoothPrinterHelper.ReceiptType.AR -> {
+//                sb.appendLine("       ACCOUNTS RECEIVABLE        ")
+//                sb.appendLine("         $copyType          ")
+//            }
+//
+//            BluetoothPrinterHelper.ReceiptType.REPRINT -> sb.appendLine("*** REPRINT ***")
+//            BluetoothPrinterHelper.ReceiptType.RETURN -> {
+//                sb.appendLine("*** RETURN TRANSACTION ***")
+//                sb.appendLine("Original Receipt #: ${transaction.receiptId}")
+//            }
+//
+//            else -> {} // No special header for ORIGINAL
+//        }
+//        sb.appendLine("-".repeat(32))
+//
+//        // Transaction Details
+//        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+//        sb.appendLine("Date Issued: ${dateFormat.format(transaction.createdDate)}")
+//        sb.appendLine("Receipt ID: ${transaction.receiptId}")
+//        sb.appendLine("Transaction ID: ${transaction.transactionId}")
+//        sb.appendLine("Store: ${transaction.store}")
+//        sb.appendLine("Cashier: ${transaction.staff}")
+//        sb.appendLine("Window Number: ${transaction.windowNumber}")
+//
+//
+//        // AR Customer Details if applicable
+//        if (isAR) {
+//            sb.appendLine("-".repeat(32))
+//            sb.appendLine("Customer Account: ${transaction.customerAccount}")
+//            sb.appendLine("Customer Name: ${transaction.customerName ?: "N/A"}")
+//            sb.appendLine("AR Type: ${transaction.paymentMethod}")
+//        }
+//        sb.appendLine("-".repeat(32))
+//
+//        // Items Section
+//        sb.appendLine("Item Name              Price    Qty    Total")
+//
+//        // Display items and calculate totals
+//        items.forEach { item ->
+//            val effectivePrice = if (item.priceOverride!! > 0.0) item.priceOverride else item.price
+//            val itemTotal = effectivePrice * item.quantity
+//
+//            // Display item line
+//            sb.appendLine(
+//                "${item.name.take(20).padEnd(20)} ${
+//                    String.format(
+//                        "%10.2f",
+//                        effectivePrice
+//                    )
+//                } ${String.format("%5d", item.quantity)} ${String.format("%8.2f", itemTotal)}"
+//            )
+//
+//            // Show original price if overridden
+//            if (item.priceOverride > 0.0 && item.priceOverride != item.price) {
+//                sb.appendLine("  Original Price: ${String.format("%.2f", item.price)}")
+//                sb.appendLine("  Price Override: ${String.format("%.2f", item.priceOverride)}")
+//            }
+//
+//            // Modified discount display logic
+//            when (item.discountType.uppercase()) {
+//                "PERCENTAGE", "PWD", "SC" -> {
+//                    val discountAmount = itemTotal * (item.discountRate)
+//                    if (discountAmount > 0) {
+//                        sb.appendLine(
+//                            "  Discount (${item.discountType}): ${
+//                                String.format(
+//                                    "%.2f",
+//                                    discountAmount
+//                                )
+//                            }"
+//                        )
+//                        sb.appendLine(
+//                            "  Discount Rate: ${
+//                                String.format(
+//                                    "%.1f",
+//                                    item.discountRate * 100
+//                                )
+//                            }%"
+//                        )
+//                    }
+//                }
+//                "FIXED" -> {
+//                    val perItemDiscount = item.discountAmount
+//                    val totalDiscount = perItemDiscount * item.quantity
+//                    if (perItemDiscount > 0) {
+//                        sb.appendLine(
+//                            "  Discount Per Item: ${
+//                                String.format(
+//                                    "%.2f",
+//                                    perItemDiscount
+//                                )
+//                            }"
+//                        )
+//                    }
+//                }
+//                "FIXEDTOTAL" -> {
+//                    // Always show FIXEDTOTAL discount for items that have it
+//                    if (item.discountAmount > 0 || item.lineDiscountAmount!! > 0) {
+//                        val discountToShow = if (item.discountAmount > 0) item.discountAmount else item.lineDiscountAmount
+//                        sb.appendLine(
+//                            "  Discount (Fixed Total): ${
+//                                String.format(
+//                                    "%.2f",
+//                                    discountToShow
+//                                )
+//                            }"
+//                        )
+//                    }
+//                }
+//            }
+//        }
+//
+//        sb.appendLine("-".repeat(32))
+//
+//        // Display totals section
+//        sb.appendLine("Gross Amount:        ${String.format("%12.2f", transaction.grossAmount)}")
+//        sb.appendLine(
+//            "Total Discounts:     ${
+//                String.format(
+//                    "%12.2f",
+//                    transaction.totalDiscountAmount
+//                )
+//            }"
+//        )
+//
+//        /* if (transaction.partialPayment > 0) {
+//             sb.appendLine(
+//                 "Partial Payment:     ${
+//                     String.format(
+//                         "%12.2f",
+//                         transaction.partialPayment
+//                     )
+//                 }"
+//             )
+//         }*/
+//
+//        sb.appendLine("Net Amount:          ${String.format("%12.2f", transaction.netAmount)}")
+//
+//        // Only show amount paid and change for non-AR transactions
+//        if (!isAR) {
+//            sb.appendLine(
+//                "Amount Paid:         ${
+//                    String.format(
+//                        "%12.2f",
+//                        transaction.totalAmountPaid
+//                    )
+//                }"
+//            )
+//            sb.appendLine(
+//                "Change:              ${
+//                    String.format(
+//                        "%12.2f",
+//                        transaction.changeGiven
+//                    )
+//                }"
+//            )
+//        }
+//
+//        // Payment Method Section
+//        sb.appendLine("-".repeat(32))
+//        sb.appendLine("Payment Method")
+//
+//        // Show payment method amounts
+//        if (transaction.cash > 0) {
+//            sb.appendLine("Cash Payment:         ${String.format("%12.2f", transaction.cash)}")
+//        }
+//        if (transaction.card > 0) {
+//            sb.appendLine("Card Payment:         ${String.format("%12.2f", transaction.card)}")
+//        }
+//        if (transaction.gCash > 0) {
+//            sb.appendLine("GCash Payment:        ${String.format("%12.2f", transaction.gCash)}")
+//        }
+//        if (transaction.payMaya > 0) {
+//            sb.appendLine("PayMaya Payment:      ${String.format("%12.2f", transaction.payMaya)}")
+//        }
+//        if (transaction.charge > 0) {
+//            sb.appendLine("charge Payment:      ${String.format("%12.2f", transaction.charge)}")
+//        }
+//        if (transaction.foodpanda > 0) {
+//            sb.appendLine("foodpanda Payment:      ${String.format("%12.2f", transaction.foodpanda)}")
+//        }
+//        if (transaction.grabfood > 0) {
+//            sb.appendLine("grabfood Payment:      ${String.format("%12.2f", transaction.grabfood)}")
+//        }
+//        if (transaction.representation > 0) {
+//            sb.appendLine("representation Payment:      ${String.format("%12.2f", transaction.representation)}")
+//        }
+//
+//        // Payment Summary Section
+//        sb.appendLine("-".repeat(32))
+//        sb.appendLine("Payment Summary")
+//        sb.appendLine("-".repeat(32))
+//
+//        if (transaction.partialPayment > 0) {
+//            sb.appendLine("Total Bill Amount:    ${String.format("%12.2f", transaction.netAmount)}")
+//            sb.appendLine("Previous Payment:     ${String.format("%12.2f", transaction.partialPayment)}")
+//            sb.appendLine("Current Payment:      ${String.format("%12.2f", transaction.totalAmountPaid)}")
+//            sb.appendLine("Total Paid:           ${String.format("%12.2f", (transaction.partialPayment + transaction.totalAmountPaid) - transaction.changeGiven)}")
+//        } else {
+//            sb.appendLine("Total Amount:         ${String.format("%12.2f", transaction.netAmount)}")
+//            sb.appendLine("Amount Paid:          ${String.format("%12.2f", transaction.totalAmountPaid)}")
+//            sb.appendLine("Change:               ${String.format("%12.2f", transaction.changeGiven)}")
+//        }
+//
+//        // VAT Information
+//        sb.appendLine("-".repeat(32))
+//        sb.appendLine("Vatable Sales:       ${String.format("%12.2f", transaction.vatableSales)}")
+//        sb.appendLine("VAT Amount (12%):    ${String.format("%12.2f", transaction.vatAmount)}")
+//        sb.appendLine("Vat Exempt           ${String.format("%12.2f", 0.0)}")
+//        sb.appendLine("Zero Rated Sales:    ${String.format("%12.2f", 0.0)}")
+//
+//        // Transaction Details
+//        sb.appendLine("-".repeat(32))
+//
+//
+//        // Transaction Comment
+//        if (!transaction.comment.isNullOrBlank()) {
+//            sb.appendLine("-".repeat(32))
+//            sb.appendLine("Comment: ${transaction.comment}")
+//        }
+//
+//        // Footer
+//        sb.appendLine("-".repeat(32))
+//        if (!isReturn) {
+//            sb.appendLine("ID/OSCA/PWD: ")
+//            sb.appendLine("NAME: ")
+//            sb.appendLine("Signature: ")
+//        }
+//        sb.appendLine("-".repeat(32))
+//        sb.appendLine("This serves as your official receipt")
+//        sb.appendLine("This invoice/receipt shall be valid for")
+//        sb.appendLine("five (5) years from the date of the")
+//        sb.appendLine("permit to use")
+//        sb.appendLine("-".repeat(32))
+//        sb.appendLine("POS Provider: IT WARRIORS")
+//        sb.appendLine("ELJIN CORP")
+//        sb.appendLine("ADDRESS")
+//        sb.appendLine("-".repeat(32))
+//        sb.appendLine("Thank you for your business!")
+//
+//        // AR Copy Type
+//        if (isAR) {
+//            sb.appendLine("-".repeat(32))
+//            sb.appendLine(copyType)
+//        }
+//
+//        // Add extra spacing at the bottom
+//
+//
+//        return sb.toString()
+//    }
+//}
 
     fun generateReceiptContent(
         transaction: TransactionSummary,
@@ -550,142 +1012,102 @@ class BluetoothPrinterHelper(private val context: Context) {
         copyType: String? = null
     ): String {
         val sb = StringBuilder()
+        sb.append(0x1B.toChar()) // ESC
+        sb.append('!'.toChar())  // Select print mode
+        sb.append(0x01.toChar()) // Smallest text size
+
+        // Set minimum line spacing
+        sb.append(0x1B.toChar()) // ESC
+        sb.append('3'.toChar())  // Select line spacing
+        sb.append(50.toChar())
+        sb.append("ELJIN CORP")
         val isReturn = receiptType == BluetoothPrinterHelper.ReceiptType.RETURN
 
-        // For return receipts, only show returned items
-        // For regular receipts, show all items but handle returned items differently
+        // Filter items
         val filteredItems = if (isReturn) {
             items.filter { it.isReturned }
         } else {
-            // Show all items, but calculate net quantities after returns
             items.groupBy { it.itemId }.map { (_, groupedItems) ->
                 val originalItem = groupedItems.first { !it.isReturned }
                 val returnedQuantity = groupedItems
                     .filter { it.isReturned }
                     .sumOf { it.quantity }
-
-                // Create a new item with adjusted quantity
                 originalItem.copy(
-                    quantity = originalItem.quantity + returnedQuantity, // returnedQuantity is negative
+                    quantity = originalItem.quantity + returnedQuantity,
                     isReturned = false
                 )
             }
         }
-        // Store Header
-        sb.appendLine("ELJIN CORP")
-        sb.appendLine("Address Line 1")
-        sb.appendLine("Address Line 2")
-        sb.appendLine("TIN: Your TIN Number")
-        sb.appendLine("ACC: Your ACC Number")
-        sb.appendLine("Contact #: Your Contact Number")
-        sb.appendLine("-".repeat(32))
 
-        // Receipt Type Header (unchanged)
+        // Required BIR Header
+        sb.appendLine()
+        sb.appendLine("TIN: Your TIN Number")
+        sb.appendLine("MIN: Your MIN")
+        sb.appendLine("Store: ${transaction.store}")
+        sb.appendLine("-".repeat(45))
+
+        // Receipt Type
         when (receiptType) {
             BluetoothPrinterHelper.ReceiptType.AR -> {
-                sb.appendLine("       ACCOUNTS RECEIVABLE        ")
-                sb.appendLine("         $copyType          ")
+                sb.appendLine("AR RECEIPT - $copyType")
             }
 
-            BluetoothPrinterHelper.ReceiptType.REPRINT -> sb.appendLine("*** REPRINT ***")
+            BluetoothPrinterHelper.ReceiptType.REPRINT -> sb.appendLine("REPRINT RECEIPT")
             BluetoothPrinterHelper.ReceiptType.RETURN -> {
-                sb.appendLine("*** RETURN TRANSACTION ***")
-                sb.appendLine("Original Receipt #: ${transaction.receiptId}")
+                sb.appendLine("RETURN RECEIPT")
             }
 
-            else -> {} // No special header for ORIGINAL
+            else -> sb.appendLine("OFFICIAL RECEIPT")
         }
-        sb.appendLine("-".repeat(32))
 
-        // Transaction Details
+        // Transaction Info
         val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-        sb.appendLine("Date Issued: ${dateFormat.format(transaction.createdDate)}")
-        sb.appendLine("Receipt ID: ${transaction.receiptId}")
-        sb.appendLine("Transaction ID: ${transaction.transactionId}")
-        sb.appendLine("Store: ${transaction.store}")
         sb.appendLine("Cashier: ${transaction.staff}")
-        sb.appendLine("Window Number: ${transaction.windowNumber}")
-
-
-        // AR Customer Details if applicable
-        if (isAR) {
-            sb.appendLine("-".repeat(32))
-            sb.appendLine("Customer Account: ${transaction.customerAccount}")
-            sb.appendLine("Customer Name: ${transaction.customerName ?: "N/A"}")
-            sb.appendLine("AR Type: ${transaction.paymentMethod}")
-        }
-        sb.appendLine("-".repeat(32))
+        sb.appendLine("Date: ${dateFormat.format(transaction.createdDate)}")
+        sb.appendLine("SI#: ${transaction.receiptId}")
+        sb.appendLine("-".repeat(45))
 
         // Items Section
-        sb.appendLine("Item Name              Price    Qty    Total")
+        sb.appendLine("Item                    Price   Qty    Total")
+        sb.appendLine("-".repeat(45))
 
-        // Display items and calculate totals
         items.forEach { item ->
             val effectivePrice = if (item.priceOverride!! > 0.0) item.priceOverride else item.price
             val itemTotal = effectivePrice * item.quantity
 
-            // Display item line
+            // Item format for 45 character width
             sb.appendLine(
-                "${item.name.take(20).padEnd(20)} ${
+                "${item.name.take(22).padEnd(22)} ${
                     String.format(
-                        "%10.2f",
+                        "%7.2f",
                         effectivePrice
                     )
-                } ${String.format("%5d", item.quantity)} ${String.format("%8.2f", itemTotal)}"
+                } ${String.format("%3d", item.quantity)} ${String.format("%9.2f", itemTotal)}"
             )
 
-            // Show original price if overridden
-            if (item.priceOverride > 0.0 && item.priceOverride != item.price) {
-                sb.appendLine("  Original Price: ${String.format("%.2f", item.price)}")
-                sb.appendLine("  Price Override: ${String.format("%.2f", item.priceOverride)}")
-            }
-
-            // Modified discount display logic
+            // Discounts
             when (item.discountType.uppercase()) {
                 "PERCENTAGE", "PWD", "SC" -> {
                     val discountAmount = itemTotal * (item.discountRate)
                     if (discountAmount > 0) {
                         sb.appendLine(
-                            "  Discount (${item.discountType}): ${
+                            " Disc(${item.discountType}):${
                                 String.format(
-                                    "%.2f",
+                                    "%22.2f",
                                     discountAmount
                                 )
                             }"
                         )
-                        sb.appendLine(
-                            "  Discount Rate: ${
-                                String.format(
-                                    "%.1f",
-                                    item.discountRate * 100
-                                )
-                            }%"
-                        )
                     }
                 }
-                "FIXED" -> {
-                    val perItemDiscount = item.discountAmount
-                    val totalDiscount = perItemDiscount * item.quantity
-                    if (perItemDiscount > 0) {
+
+                "FIXED", "FIXEDTOTAL" -> {
+                    if (item.discountAmount > 0) {
                         sb.appendLine(
-                            "  Discount Per Item: ${
+                            " Disc(Fixed):${
                                 String.format(
-                                    "%.2f",
-                                    perItemDiscount
-                                )
-                            }"
-                        )
-                    }
-                }
-                "FIXEDTOTAL" -> {
-                    // Always show FIXEDTOTAL discount for items that have it
-                    if (item.discountAmount > 0 || item.lineDiscountAmount!! > 0) {
-                        val discountToShow = if (item.discountAmount > 0) item.discountAmount else item.lineDiscountAmount
-                        sb.appendLine(
-                            "  Discount (Fixed Total): ${
-                                String.format(
-                                    "%.2f",
-                                    discountToShow
+                                    "%25.2f",
+                                    item.discountAmount
                                 )
                             }"
                         )
@@ -694,131 +1116,127 @@ class BluetoothPrinterHelper(private val context: Context) {
             }
         }
 
-        sb.appendLine("-".repeat(32))
+        sb.appendLine("-".repeat(45))
 
-        // Display totals section
-        sb.appendLine("Gross Amount:        ${String.format("%12.2f", transaction.grossAmount)}")
-        sb.appendLine(
-            "Total Discounts:     ${
-                String.format(
-                    "%12.2f",
-                    transaction.totalDiscountAmount
-                )
-            }"
-        )
-
-       /* if (transaction.partialPayment > 0) {
+        // Totals
+        sb.appendLine("Gross Amount:${String.format("%27.2f", transaction.grossAmount)}")
+        if (transaction.totalDiscountAmount > 0) {
             sb.appendLine(
-                "Partial Payment:     ${
+                "Less Discount:${
                     String.format(
-                        "%12.2f",
-                        transaction.partialPayment
+                        "%26.2f",
+                        transaction.totalDiscountAmount
                     )
                 }"
             )
-        }*/
+        }
+        sb.appendLine("Net Amount:${String.format("%29.2f", transaction.netAmount)}")
 
-        sb.appendLine("Net Amount:          ${String.format("%12.2f", transaction.netAmount)}")
+        sb.appendLine("Amount Paid:${String.format("%28.2f", transaction.totalAmountPaid)}")
 
-        // Only show amount paid and change for non-AR transactions
+        // Payment Details
         if (!isAR) {
-            sb.appendLine(
-                "Amount Paid:         ${
-                    String.format(
-                        "%12.2f",
-                        transaction.totalAmountPaid
-                    )
-                }"
-            )
-            sb.appendLine(
-                "Change:              ${
-                    String.format(
-                        "%12.2f",
-                        transaction.changeGiven
-                    )
-                }"
-            )
-        }
+            sb.appendLine("Change:${String.format("%33.2f", transaction.changeGiven)}")
 
-        // Payment Method Section
-        sb.appendLine("-".repeat(32))
-        sb.appendLine("Payment Method: ${transaction.paymentMethod}")
-
-        // Show payment method amounts
-        if (transaction.cash > 0) {
-            sb.appendLine("Cash Payment:         ${String.format("%12.2f", transaction.cash)}")
-        }
-        if (transaction.card > 0) {
-            sb.appendLine("Card Payment:         ${String.format("%12.2f", transaction.card)}")
-        }
-        if (transaction.gCash > 0) {
-            sb.appendLine("GCash Payment:        ${String.format("%12.2f", transaction.gCash)}")
-        }
-        if (transaction.payMaya > 0) {
-            sb.appendLine("PayMaya Payment:      ${String.format("%12.2f", transaction.payMaya)}")
-        }
-
-        // Payment Summary Section
-        sb.appendLine("-".repeat(32))
-        sb.appendLine("Payment Summary")
-        sb.appendLine("-".repeat(32))
-
-        if (transaction.partialPayment > 0) {
-            sb.appendLine("Total Bill Amount:    ${String.format("%12.2f", transaction.netAmount)}")
-            sb.appendLine("Previous Payment:     ${String.format("%12.2f", transaction.partialPayment)}")
-            sb.appendLine("Current Payment:      ${String.format("%12.2f", transaction.totalAmountPaid)}")
-            sb.appendLine("Total Paid:           ${String.format("%12.2f", (transaction.partialPayment + transaction.totalAmountPaid) - transaction.changeGiven)}")
-        } else {
-            sb.appendLine("Total Amount:         ${String.format("%12.2f", transaction.netAmount)}")
-            sb.appendLine("Amount Paid:          ${String.format("%12.2f", transaction.totalAmountPaid)}")
-            sb.appendLine("Change:               ${String.format("%12.2f", transaction.changeGiven)}")
+            // Add Total Paid for partial payments
+            if (transaction.partialPayment > 0) {
+                sb.appendLine(
+                    "Total Paid:${
+                        String.format(
+                            "%30.2f",
+                            (transaction.partialPayment + transaction.totalAmountPaid) - transaction.changeGiven
+                        )
+                    }"
+                )
+            }
         }
 
         // VAT Information
-        sb.appendLine("-".repeat(32))
-        sb.appendLine("Vatable Sales:       ${String.format("%12.2f", transaction.vatableSales)}")
-        sb.appendLine("VAT Amount (12%):    ${String.format("%12.2f", transaction.vatAmount)}")
-        sb.appendLine("Vat Exempt           ${String.format("%12.2f", 0.0)}")
-        sb.appendLine("Zero Rated Sales:    ${String.format("%12.2f", 0.0)}")
-
-        // Transaction Details
-        sb.appendLine("-".repeat(32))
-
-
-        // Transaction Comment
-        if (!transaction.comment.isNullOrBlank()) {
-            sb.appendLine("-".repeat(32))
-            sb.appendLine("Comment: ${transaction.comment}")
-        }
+        sb.appendLine("-".repeat(45))
+        sb.appendLine("VATable Sales:${String.format("%26.2f", transaction.vatableSales)}")
+        sb.appendLine("VAT Amount:${String.format("%29.2f", transaction.vatAmount)}")
+        sb.appendLine("VAT Exempt:${String.format("%29.2f", 0.0)}")
 
         // Footer
-        sb.appendLine("-".repeat(32))
+        sb.appendLine("-".repeat(45))
         if (!isReturn) {
-            sb.appendLine("ID/OSCA/PWD: ")
-            sb.appendLine("NAME: ")
-            sb.appendLine("Signature: ")
+            sb.appendLine("ID/PWD/OSCA#:")
+            sb.appendLine("Name:")
+            sb.appendLine("Signature:")
         }
-        sb.appendLine("-".repeat(32))
-        sb.appendLine("This serves as your official receipt")
-        sb.appendLine("This invoice/receipt shall be valid for")
-        sb.appendLine("five (5) years from the date of the")
-        sb.appendLine("permit to use")
-        sb.appendLine("-".repeat(32))
-        sb.appendLine("POS Provider: IT WARRIORS")
-        sb.appendLine("ELJIN CORP")
-        sb.appendLine("ADDRESS")
-        sb.appendLine("-".repeat(32))
-        sb.appendLine("Thank you for your business!")
-
-        // AR Copy Type
-        if (isAR) {
-            sb.appendLine("-".repeat(32))
-            sb.appendLine(copyType)
+        if ((!transaction.customerAccount.isNullOrBlank() && transaction.customerAccount != "Walk-in Customer") ||
+            (!transaction.customerName.isNullOrBlank() && transaction.customerName != "Walk-in Customer")
+        ) {
+            sb.appendLine("-".repeat(45))
+            sb.appendLine("Customer Account: ${transaction.customerAccount}")
+            sb.appendLine("Customer Name: ${transaction.customerName ?: "N/A"}")
+            sb.appendLine("-".repeat(45))
         }
 
-        // Add extra spacing at the bottom
+        sb.appendLine("Valid for 5 years from PTU date")
+        sb.appendLine("POS Provider: Ray and Mark")
+        sb.appendLine("-".repeat(45))
 
+        // Thank you message and rating request
+//        sb.appendLine()
+        sb.appendLine("Thank you for shopping at BW Superbakeshop!")
+        sb.appendLine("Please rate your experience:")
+        sb.appendLine()
 
-        return sb.toString()
+        // Generate QR Code
+        // ESC/POS commands for QR Code
+        sb.append(0x1D.toChar())  // GS
+        sb.append('('.toChar())   // (
+        sb.append('k'.toChar())   // k
+        sb.append(4.toChar())     // pl
+        sb.append(0.toChar())     // ph
+        sb.append(49.toChar())    // cn
+        sb.append(65.toChar())    // fn
+        sb.append(50.toChar())    // Error correction level [1-4] (2 = 15%)
+
+        // Set QR Code module size
+        sb.append(0x1D.toChar())
+        sb.append('('.toChar())
+        sb.append('k'.toChar())
+        sb.append(3.toChar())
+        sb.append(0.toChar())
+        sb.append(49.toChar())
+        sb.append(67.toChar())
+        sb.append(4.toChar())     // Size (1-16) - using 4 for medium size
+
+        // Store QR Code data
+        val qrData = "https://feedback.eljincorp.com/${transaction.receiptId}"
+        sb.append(0x1D.toChar())
+        sb.append('('.toChar())
+        sb.append('k'.toChar())
+        sb.append((qrData.length + 3).toChar())
+        sb.append(0.toChar())
+        sb.append(49.toChar())
+        sb.append(80.toChar())
+        sb.append(48.toChar())
+        sb.append(qrData)
+
+        // Print QR Code
+        sb.append(0x1D.toChar())
+        sb.append('('.toChar())
+        sb.append('k'.toChar())
+        sb.append(3.toChar())
+        sb.append(0.toChar())
+        sb.append(49.toChar())
+        sb.append(81.toChar())
+        sb.append(48.toChar())
+
+        sb.appendLine()
+        sb.appendLine("Scan to rate us!")
+
+        // Reset to normal text size
+        sb.append(0x1B.toChar()) // ESC
+        sb.append('!'.toChar())  // Select print mode
+        sb.append(0x00.toChar()) // Reset to normal size
+
+        sb.append(0x1B.toChar()) // ESC
+//        sb.append('2'.toChar())  // Default line spacing
+
+        return sb.toString().trimEnd()
     }
 }

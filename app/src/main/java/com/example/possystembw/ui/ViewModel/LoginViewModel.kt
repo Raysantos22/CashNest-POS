@@ -15,7 +15,9 @@ import at.favre.lib.crypto.bcrypt.BCrypt
 import com.example.possystembw.DAO.TransactionApi
 import com.example.possystembw.DAO.TransactionDao
 import com.example.possystembw.DAO.TransactionSyncApi
+import com.example.possystembw.Repository.StaffRepository
 import com.example.possystembw.data.NumberSequenceRemoteRepository
+import com.example.possystembw.database.StaffEntity
 import com.example.possystembw.database.TransactionRecord
 import com.example.possystembw.database.TransactionSummary
 import com.example.possystembw.ui.SessionManager
@@ -44,7 +46,15 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     private val numberSequenceRemoteRepository: NumberSequenceRemoteRepository
     private val numberSequenceRemoteViewModel: NumberSequenceRemoteViewModel
 
+    private val staffRepository: StaffRepository
+    private val _staffData = MutableLiveData<Result<List<StaffEntity>>>()
+    val staffData: LiveData<Result<List<StaffEntity>>> = _staffData
+
     init {
+
+        val staffDao = AppDatabase.getDatabase(application).staffDao()
+        staffRepository = StaffRepository(RetrofitClient.staffApi, staffDao)
+
         val userDao = AppDatabase.getDatabase(application).userDao()
         val userApi = RetrofitClient.userApi
         val numberSequenceApi = RetrofitClient.numberSequenceApi
@@ -56,6 +66,28 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         numberSequenceRemoteViewModel =
             NumberSequenceRemoteViewModel(numberSequenceRemoteRepository)
     }
+    private suspend fun fetchStaffData(storeId: String) {
+        try {
+            _loginDataState.value = LoginDataState.Loading
+            val result = staffRepository.fetchAndStoreStaff(storeId)
+            result.onSuccess { staffList ->
+                Log.d("LoginViewModel", "Successfully fetched ${staffList.size} staff members")
+            }.onFailure { error ->
+                Log.e("LoginViewModel", "Error fetching staff data", error)
+                // Don't fail the entire login process if staff data fetch fails
+                if (error.message?.contains("503") == true) {
+                    _loginDataState.value = LoginDataState.Warning(
+                        "Staff data sync delayed - will retry automatically"
+                    )
+                }
+            }
+            _staffData.postValue(result)
+        } catch (e: Exception) {
+            Log.e("LoginViewModel", "Exception in fetchStaffData", e)
+            _staffData.postValue(Result.failure(e))
+        }
+    }
+
 
     fun fetchUsers() {
         viewModelScope.launch {
@@ -195,28 +227,27 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                     val result = BCrypt.verifyer().verify(password.toCharArray(), user.password)
                     if (result.verified) {
                         if (user.storeid.isNullOrEmpty()) {
-                            _loginResult.value =
-                                Result.failure(Exception("User has no associated store ID"))
+                            _loginResult.value = Result.failure(Exception("User has no associated store ID"))
                             return@launch
                         }
 
-                        // Start loading data
                         _loginDataState.value = LoginDataState.Loading
 
                         try {
-                            // Load all required data
+                            // Start fetching staff data but don't wait for it
+                            launch { fetchStaffData(user.storeid) }
+
+                            // Continue with other data loading
                             val dataLoadSuccess = loadAllRequiredData(user.storeid)
 
                             if (dataLoadSuccess) {
                                 SessionManager.setCurrentUser(user)
                                 _loginResult.value = Result.success(user)
                             } else {
-                                _loginResult.value =
-                                    Result.failure(Exception("Failed to load all required data"))
+                                _loginResult.value = Result.failure(Exception("Failed to load all required data"))
                             }
                         } catch (e: Exception) {
-                            _loginDataState.value =
-                                LoginDataState.Error("Error loading data: ${e.message}")
+                            _loginDataState.value = LoginDataState.Error("Error loading data: ${e.message}")
                             _loginResult.value = Result.failure(e)
                         }
                     } else {
@@ -231,7 +262,8 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun loadAllRequiredData(storeId: String): Boolean = withContext(Dispatchers.IO) {
+
+private suspend fun loadAllRequiredData(storeId: String): Boolean = withContext(Dispatchers.IO) {
         try {
             var success = true
             var summaryCount = 0
@@ -258,7 +290,8 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
                             grossAmount = summary.grossAmount,
                             netAmount = summary.netAmount,
                             costAmount = summary.costAmount,
-                            changeGiven = 0.0
+                            changeGiven = 0.0,
+                            zReportId = summary.zReportId
 
                         )
                         transactionDao.insertTransactionSummary(processedSummary)
@@ -378,10 +411,11 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
 sealed class LoginDataState {
     object Loading : LoginDataState()
     data class Error(val message: String) : LoginDataState()
+    data class Warning(val message: String) : LoginDataState()
     data class Success(
         val transactionSummaryCount: Int,
         val transactionRecordCount: Int,
-        val hasNumberSequence: Boolean
+        val hasNumberSequence: Boolean = false
     ) : LoginDataState()
 }
 // Extension functions to convert response objects to database entities

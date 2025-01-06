@@ -46,8 +46,18 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _currentQuery = MutableStateFlow<String?>(null)
+    val currentQuery: StateFlow<String?> = _currentQuery.asStateFlow()
 
     private val _isInitialized = MutableStateFlow(false)
+    private val _isSearchActive = MutableStateFlow(false)
+    val isSearchActive: StateFlow<Boolean> = _isSearchActive.asStateFlow()
+
+    private val _currentSearchResults = MutableStateFlow<List<Product>>(emptyList())
+    val currentSearchResults: StateFlow<List<Product>> = _currentSearchResults.asStateFlow()
+
+    private val _persistentSearchQuery = MutableStateFlow<String?>(null)
+    val persistentSearchQuery: StateFlow<String?> = _persistentSearchQuery.asStateFlow()
 
     init {
         val database = AppDatabase.getDatabase(application)
@@ -55,7 +65,7 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
         val categoryDao = database.categoryDao()
         val productApi = RetrofitClient.productApi
         val categoryApi = RetrofitClient.categoryApi
-        repository = ProductRepository(productDao, categoryDao, productApi, categoryApi)
+        repository = ProductRepository(productDao, categoryDao, productApi, categoryApi, application)
         allProducts = repository.allProducts.asLiveData()
         loadAlignedProducts()
 
@@ -91,9 +101,7 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
 
 
 
-    fun filterProducts(query: String?) {
-        _searchQuery.value = query
-    }
+
     fun refreshProducts() {
         viewModelScope.launch {
             repository.refreshProducts()
@@ -113,7 +121,6 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
             }
         }
     }
-
 
     fun updateProduct(product: Product) = viewModelScope.launch {
         repository.updateProduct(product)
@@ -193,36 +200,43 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
     fun getProductById(id: Int): Product? {
         return allProducts.value?.find { it.id == id }
     }
+//    fun selectCategory(category: Category?) {
+//        viewModelScope.launch {
+//            try {
+//                _selectedCategory.value = category
+//                val currentProducts = repository.allProducts.first()
+//
+//                // Show all products if category is null or "All"
+//                val filteredProducts = when {
+//                    category == null || category.name == "All" -> currentProducts
+//                    category.name == "Uncategorized" -> {
+//                        // Show products that don't match any category
+//                        currentProducts.filter { product ->
+//                            alignedProducts.value.keys
+//                                .filter { it.name != "All" && it.name != "Uncategorized" }
+//                                .none { cat -> product.itemGroup.equals(cat.name, ignoreCase = true) }
+//                        }
+//                    }
+//                    else -> {
+//                        // Filter by selected category
+//                        currentProducts.filter { it.itemGroup.equals(category.name, ignoreCase = true) }
+//                    }
+//                }
+//                _filteredProducts.value = filteredProducts
+//            } catch (e: Exception) {
+//                Log.e("ProductViewModel", "Error selecting category", e)
+//            }
+//        }
+//    }
     fun selectCategory(category: Category?) {
         viewModelScope.launch {
-            try {
-                _selectedCategory.value = category
-                val currentProducts = repository.allProducts.first()
+            _selectedCategory.value = category
 
-                // Show all products if category is null or "All"
-                val filteredProducts = when {
-                    category == null || category.name == "All" -> currentProducts
-                    category.name == "Uncategorized" -> {
-                        // Show products that don't match any category
-                        currentProducts.filter { product ->
-                            alignedProducts.value.keys
-                                .filter { it.name != "All" && it.name != "Uncategorized" }
-                                .none { cat -> product.itemGroup.equals(cat.name, ignoreCase = true) }
-                        }
-                    }
-                    else -> {
-                        // Filter by selected category
-                        currentProducts.filter { it.itemGroup.equals(category.name, ignoreCase = true) }
-                    }
-                }
-                _filteredProducts.value = filteredProducts
-            } catch (e: Exception) {
-                Log.e("ProductViewModel", "Error selecting category", e)
-            }
+            // Reapply current search with new category
+            filterProducts(_persistentSearchQuery.value)
         }
     }
-
-    private fun filterProducts(products: List<Product>, category: Category?) {
+     fun filterProducts(products: List<Product>, category: Category?) {
         _filteredProducts.value = when {
             category == null || category.name == "All" -> products
             else -> products.filter { it.itemGroup.equals(category.name, ignoreCase = true) }
@@ -255,7 +269,44 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
             normalizedItemId.equals(normalizedIdentifier, ignoreCase = true)
         }
     }
+    fun filterProducts(query: String?) {
+        viewModelScope.launch {
+            _persistentSearchQuery.value = query
+            _isSearchActive.value = !query.isNullOrBlank()
 
+            val filtered = allProducts.value?.filter { product ->
+                val matchesSearch = query.isNullOrBlank() ||
+                        product.itemName.contains(query, ignoreCase = true) ||
+                        product.itemGroup.contains(query, ignoreCase = true)
+
+                // Also check category if one is selected
+                val matchesCategory = _selectedCategory.value?.let { category ->
+                    when {
+                        category.name == "All" -> true
+                        else -> product.itemGroup.equals(category.name, ignoreCase = true)
+                    }
+                } ?: true
+
+                matchesSearch && matchesCategory
+            } ?: emptyList()
+
+            _currentSearchResults.value = filtered
+            _filteredProducts.value = filtered
+        }
+    }
+
+    fun clearSearch() {
+        viewModelScope.launch {
+            _persistentSearchQuery.value = null
+            _isSearchActive.value = false
+            _currentSearchResults.value = emptyList()
+
+            // Only reset to all products if no category is selected
+            if (_selectedCategory.value == null) {
+                _filteredProducts.value = allProducts.value ?: emptyList()
+            }
+        }
+    }
 
     class ProductViewModelFactory(private val application: Application) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {

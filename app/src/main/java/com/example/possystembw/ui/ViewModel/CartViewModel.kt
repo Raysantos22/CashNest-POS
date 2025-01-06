@@ -155,6 +155,9 @@ class CartViewModel(private val repository: CartRepository) : ViewModel() {
         }
     }
 
+    fun getAllWindows(): Flow<List<CartItem>> {
+        return repository.getAllCartItems() // You'll need to modify this to return all cart items
+    }
     fun updateItemComment(cartItemId: Int, comment: String?) {
         viewModelScope.launch {
             repository.updateItemComment(cartItemId, comment)

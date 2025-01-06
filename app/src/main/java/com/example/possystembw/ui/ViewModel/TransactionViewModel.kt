@@ -15,6 +15,7 @@ import com.example.possystembw.DAO.TransactionRecordRequest
 import com.example.possystembw.DAO.TransactionSummaryRequest
 import com.example.possystembw.DAO.TransactionSyncRequest
 import com.example.possystembw.DAO.TransactionSyncResponse
+import com.example.possystembw.DAO.ZReportUpdateResponse
 import com.example.possystembw.RetrofitClient
 import com.example.possystembw.data.NumberSequenceRemoteRepository
 import com.example.possystembw.data.NumberSequenceRepository
@@ -47,18 +48,87 @@ class TransactionViewModel(
     private val _transactionItems = MutableLiveData<List<TransactionRecord>>()
     val transactionItems: LiveData<List<TransactionRecord>> = _transactionItems
 
+    private val _zReportUpdateStatus = MutableLiveData<Result<ZReportUpdateResponse>>()
+    val zReportUpdateStatus: LiveData<Result<ZReportUpdateResponse>> = _zReportUpdateStatus
 
-
+    suspend fun updateTransactionsZReport(storeId: String, zReportId: String): Result<ZReportUpdateResponse> {
+        return try {
+            val result = repository.updateTransactionsZReport(storeId, zReportId)
+            _zReportUpdateStatus.postValue(result)
+            result
+        } catch (e: Exception) {
+            val failure = Result.failure<ZReportUpdateResponse>(e)
+            _zReportUpdateStatus.postValue(failure)
+            failure
+        }
+    }
     suspend fun generateTransactionId(storeId: String): String {
         return repository.generateTransactionId(storeId)
     }
 
-    fun loadTransactions() {
-        viewModelScope.launch {
-            _transactions.value = repository.getTransactions()
+//    fun loadTransactions() {
+//        viewModelScope.launch {
+//            _transactions.value = repository.getTransactions()
+//        }
+//    }
+//    fun loadTransactions() {
+//        viewModelScope.launch {
+//            // Fetch transactions and sort them in descending order based on transaction ID
+//            _transactions.value = repository.getTransactions().sortedByDescending { it.transactionId }
+//        }
+//    }
+// Add this to your TransactionViewModel.kt
+fun syncSingleTransaction(transactionId: String) {
+    viewModelScope.launch {
+        try {
+            Log.d("SYNC_DEBUG", "Starting single transaction sync for $transactionId")
+
+            val summary = repository.getTransactionSummary(transactionId)
+            if (summary == null) {
+                Log.e("SYNC_DEBUG", "Transaction summary not found for ID: $transactionId")
+                _syncStatus.value = Result.failure(Exception("Transaction not found"))
+                return@launch
+            }
+
+            val records = repository.getTransactionRecords(transactionId)
+            if (records.isEmpty()) {
+                Log.e("SYNC_DEBUG", "No records found for transaction ID: $transactionId")
+                _syncStatus.value = Result.failure(Exception("No records found"))
+                return@launch
+            }
+
+            // Log details for debugging
+            Log.d("SYNC_DEBUG", "Syncing transaction $transactionId with ${records.size} records")
+            Log.d("SYNC_DEBUG", "Summary: ${Gson().toJson(summary)}")
+            Log.d("SYNC_DEBUG", "First record: ${Gson().toJson(records.firstOrNull())}")
+
+            val result = repository.syncTransaction(summary, records)
+            _syncStatus.value = result
+
+            result.onSuccess {
+                Log.d("SYNC_DEBUG", "Successfully synced transaction $transactionId")
+            }.onFailure { error ->
+                Log.e("SYNC_DEBUG", "Failed to sync transaction $transactionId: ${error.message}")
+            }
+        } catch (e: Exception) {
+            Log.e("SYNC_DEBUG", "Exception during single transaction sync: ${e.message}", e)
+            _syncStatus.value = Result.failure(e)
         }
     }
-
+}
+    fun loadTransactions() {
+        viewModelScope.launch {
+            try {
+                val currentStoreId = SessionManager.getCurrentUser()?.storeid
+                if (currentStoreId != null) {
+                    val result = repository.getTransactionsByStore(currentStoreId)
+                    _transactions.value = result
+                }
+            } catch (e: Exception) {
+                // Handle error
+            }
+        }
+    }
     fun loadTransactionItems(transactionId: String) {
         viewModelScope.launch {
             try {
@@ -80,7 +150,11 @@ class TransactionViewModel(
             repository.getTransactionItems(transactionId)
         }
     }
-
+    suspend fun getTransactionsByDateRange(startDate: Date, endDate: Date): List<TransactionSummary> {
+        return withContext(Dispatchers.IO) {
+            repository.getTransactionsByDateRange(startDate, endDate)
+        }
+    }
     fun clearTransactionItems() {
         _transactionItems.value = emptyList()
     }

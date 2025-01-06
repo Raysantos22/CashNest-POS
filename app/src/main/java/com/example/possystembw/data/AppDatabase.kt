@@ -10,6 +10,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.possystembw.DAO.ARDao
 import com.example.possystembw.DAO.AnnouncementsDao
+import com.example.possystembw.DAO.AttendanceDao
 import com.example.possystembw.DAO.BarcodesDao
 import com.example.possystembw.DAO.CartDao
 import com.example.possystembw.DAO.CashfundDao
@@ -26,6 +27,8 @@ import com.example.possystembw.DAO.InventjournaltransreposDao
 import com.example.possystembw.DAO.InventtablemodulesDao
 import com.example.possystembw.DAO.InventtablesDao
 import com.example.possystembw.DAO.ItemsDao
+import com.example.possystembw.DAO.LineTransactionDao
+import com.example.possystembw.DAO.LoyaltyCardDao
 import com.example.possystembw.DAO.MixMatchDao
 import com.example.possystembw.DAO.NumbersequencetablesDao
 import com.example.possystembw.DAO.NumbersequencevaluesDao
@@ -49,6 +52,10 @@ import com.example.possystembw.DAO.RboTransactionDiscountTransDao
 import com.example.possystembw.DAO.ZReadDao
 import com.example.possystembw.DAO.NumberSequenceDao
 import com.example.possystembw.DAO.NumberSequenceRemoteDao
+import com.example.possystembw.DAO.PrinterSettingsDao
+import com.example.possystembw.DAO.StaffDao
+import com.example.possystembw.DAO.StockCountingDao
+import com.example.possystembw.DAO.StoreExpenseDao
 import com.example.possystembw.database.AR
 import com.example.possystembw.database.Announcements
 import com.example.possystembw.database.Barcodes
@@ -94,8 +101,13 @@ import com.example.possystembw.database.ZRead
 import com.example.possystembw.database.NumberSequenceEntity
 import com.example.possystembw.database.NumberSequence
 import com.example.possystembw.database.NumberSequenceRemoteEntity
-
-
+import com.example.possystembw.database.PrinterSettings
+import com.example.possystembw.database.StaffEntity
+import com.example.possystembw.database.StoreExpense
+import com.example.possystembw.database.LoyaltyCard
+import com.example.possystembw.database.AttendanceRecord
+import com.example.possystembw.database.StockCountingEntity
+import com.example.possystembw.database.LineTransactionEntity
 import com.example.possystembw.ui.ViewModel.Converters
 
 @Database(entities = [Product::class,
@@ -118,8 +130,10 @@ import com.example.possystembw.ui.ViewModel.Converters
     Customer::class, AR::class,TenderDeclaration::class,
     RboTransactionDiscountTrans::class,ProductBundle::class, MixMatch::class,
     MixMatchLineGroup::class, NumberSequenceRemoteEntity::class,
-            MixMatchDiscountLine::class,ZRead::class,NumberSequenceEntity::class,NumberSequence::class,],
-    version = 137)
+            MixMatchDiscountLine::class,ZRead::class,NumberSequenceEntity::class,NumberSequence::class,PrinterSettings::class,StaffEntity::class,
+    StoreExpense::class,LoyaltyCard::class,AttendanceRecord::class, StockCountingEntity::class,LineTransactionEntity::class
+],
+    version = 168   )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun productDao(): ProductDao
@@ -163,6 +177,13 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun zReadDao(): ZReadDao
     abstract fun numberSequenceDao(): NumberSequenceDao
     abstract fun numberSequenceRemoteDao(): NumberSequenceRemoteDao
+    abstract fun printerSettingsDao(): PrinterSettingsDao
+    abstract fun staffDao(): StaffDao
+    abstract fun storeExpenseDao(): StoreExpenseDao
+    abstract fun loyaltyCardDao(): LoyaltyCardDao
+    abstract fun attendanceDao(): AttendanceDao
+    abstract fun stockCountingDao(): StockCountingDao
+    abstract fun lineTransactionDao(): LineTransactionDao
 
 
 
@@ -179,7 +200,7 @@ abstract class AppDatabase : RoomDatabase() {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "POSBWbakeshop116" // Keep this new name if you want to start fresh
+                    "POSBWbakeshop151" // Keep this new name if you want to start fresh
                 )
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,

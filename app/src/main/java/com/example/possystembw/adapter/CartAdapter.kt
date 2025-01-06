@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Paint
 import android.os.Handler
 import android.os.Looper
+import android.view.GestureDetector
 import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -16,6 +17,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
+import androidx.core.view.GestureDetectorCompat
 import androidx.core.view.isVisible
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -30,7 +32,7 @@ class CartAdapter(
     private val onItemClick: (CartItem) -> Unit,
     private val onDeleteClick: (CartItem) -> Unit,
     private val onQuantityChange: (CartItem, Int) -> Unit,
-    private val onDiscountLongPress: (CartItem) -> Unit
+    private val onDiscountDoubleTap: (CartItem) -> Unit
 ) : ListAdapter<CartItem, CartAdapter.CartViewHolder>(CartDiffCallback()) {
 
     private var deletionEnabled: Boolean = true
@@ -65,6 +67,16 @@ class CartAdapter(
         private val discountInfoView: TextView = itemView.findViewById(R.id.discountInfoTextView)
         private val bundleInfoView: TextView = itemView.findViewById(R.id.bundleInfoTextView)
         val deleteButton: ImageView = itemView.findViewById(R.id.imageViewDelete)
+
+        private val gestureDetector = GestureDetectorCompat(itemView.context,
+            object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDoubleTap(e: MotionEvent): Boolean {
+                    val cartItem = getItem(adapterPosition)
+                    onDiscountDoubleTap(cartItem)
+                    return true
+                }
+            }
+        )
 
         fun bind(cartItem: CartItem, deletionEnabled: Boolean) {
             productNameView.text = cartItem.productName
@@ -106,12 +118,12 @@ class CartAdapter(
             }
 
             // Display current price
-            priceView.text = "P${String.format("%.2f", finalPrice)}"
+            priceView.text = "₱${String.format("%.2f", finalPrice)}"
 
             // Show original price if there's a price override, bundle, or discount
             if (overriddenPrice != null || cartItem.bundleId != null || cartItem.discount > 0) {
                 originalPriceView.visibility = View.VISIBLE
-                originalPriceView.text = "P${String.format("%.2f", baseTotal)}"
+                originalPriceView.text = "₱${String.format("%.2f", baseTotal)}"
                 originalPriceView.paintFlags = originalPriceView.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
             } else {
                 originalPriceView.visibility = View.GONE
@@ -130,18 +142,18 @@ class CartAdapter(
                 cartItem.bundleId != null -> {
                     discountInfoView.visibility = View.VISIBLE
                     discountInfoView.text = when (cartItem.discountType.uppercase()) {
-                        "FIXED" -> "Bundle Price: P${String.format("%.2f", cartItem.discount)}"
-                        "PERCENTAGE" -> "Bundle Discount: ${cartItem.discount}%"
-                        "FIXEDTOTAL" -> "Bundle Discount: P${String.format("%.2f", cartItem.discount)}"
+                        "FIXED" -> "Bundle Price: ₱${String.format("%.2f", cartItem.discount)}"
+                        "PERCENTAGE" -> "Bundle Discount: ₱${cartItem.discount}%"
+                        "FIXEDTOTAL" -> "Bundle Discount: ₱${String.format("%.2f", cartItem.discount)}"
                         else -> "Bundle Applied"
                     }
                 }
                 cartItem.discount > 0 -> {
                     discountInfoView.visibility = View.VISIBLE
                     discountInfoView.text = when (cartItem.discountType.uppercase()) {
-                        "PERCENTAGE" -> "Discount: ${cartItem.discount}%"
-                        "FIXED" -> "Discount: P${String.format("%.2f", cartItem.discount)}"
-                        "FIXEDTOTAL" -> "Discount: P${String.format("%.2f", cartItem.discount)}"
+                        "PERCENTAGE" -> "Discount: ₱${cartItem.discount}%"
+                        "FIXED" -> "Discount: ₱${String.format("%.2f", cartItem.discount)}"
+                        "FIXEDTOTAL" -> "Discount: ₱${String.format("%.2f", cartItem.discount)}"
                         else -> "Discount Applied"
                     }
                 }
@@ -160,8 +172,8 @@ class CartAdapter(
             }
 
             // Simple long click listener for discount dialog
-            itemView.setOnLongClickListener {
-                onDiscountLongPress(cartItem)
+            itemView.setOnTouchListener { v, event ->
+                gestureDetector.onTouchEvent(event)
                 true
             }
         }

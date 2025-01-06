@@ -2,6 +2,8 @@ package com.example.possystembw
 
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
+import android.animation.AnimatorSet
+import android.animation.ObjectAnimator
 import android.animation.ValueAnimator
 import android.content.Intent
 import android.content.res.Configuration
@@ -23,6 +25,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebViewDatabase
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageButton
@@ -52,17 +55,29 @@ import com.example.possystembw.DAO.NumberSequenceRemoteDao
 import com.example.possystembw.DAO.TransactionRecordRequest
 import com.example.possystembw.DAO.TransactionSummaryRequest
 import com.example.possystembw.DAO.TransactionSyncRequest
+import com.example.possystembw.Repository.StaffRepository
 import com.example.possystembw.adapter.WindowTableAdapter
 import com.example.possystembw.data.AppDatabase
+import com.example.possystembw.data.CartRepository
+import com.example.possystembw.data.LoyaltyCardRepository
 import com.example.possystembw.data.NumberSequenceRemoteRepository
 import com.example.possystembw.data.TransactionRepository
 import com.example.possystembw.data.WindowTableRepository
 import com.example.possystembw.database.TransactionRecord
 import com.example.possystembw.database.TransactionSummary
 import com.example.possystembw.database.WindowTable
+import com.example.possystembw.ui.AttendanceActivity
 import com.example.possystembw.ui.LoginActivity
+import com.example.possystembw.ui.PrinterSettingsActivity
 import com.example.possystembw.ui.SessionManager
+import com.example.possystembw.ui.StaffManager
+import com.example.possystembw.ui.StockCountingActivity
+import com.example.possystembw.ui.ViewModel.CartViewModel
+import com.example.possystembw.ui.ViewModel.CartViewModelFactory
+import com.example.possystembw.ui.ViewModel.LoyaltyCardViewModel
+import com.example.possystembw.ui.ViewModel.LoyaltyCardViewModelFactory
 import com.example.possystembw.ui.ViewModel.OrderWebViewActivity
+import com.example.possystembw.ui.ViewModel.StaffViewModel
 import com.example.possystembw.ui.ViewModel.TransactionSyncService
 import com.example.possystembw.ui.ViewModel.TransactionViewModel
 import com.example.possystembw.ui.ViewModel.WindowTableViewModel
@@ -109,9 +124,37 @@ class MainActivity : AppCompatActivity() {
     private lateinit var webViewLoadingOverlay: FrameLayout
     private lateinit var webViewLoadingText: TextView
 
+    private var isAnimating = false
+
+    private lateinit var cartViewModel: CartViewModel
+
+
+    private lateinit var staffViewModel: StaffViewModel
+
+    // Add to your existing properties
+    private var staffRefreshJob: Job? = null
+
+    private lateinit var loyaltyCardViewModel: LoyaltyCardViewModel
+    private var loyaltyCardRefreshJob: Job? = null
+
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        val loyaltyCardDao = AppDatabase.getDatabase(application).loyaltyCardDao()
+        val loyaltyCardApi = RetrofitClient.loyaltyCardApi
+        val loyaltyCardRepository = LoyaltyCardRepository(loyaltyCardDao, loyaltyCardApi)
+        val loyaltyCardFactory = LoyaltyCardViewModelFactory(loyaltyCardRepository)
+        loyaltyCardViewModel = ViewModelProvider(this, loyaltyCardFactory)[LoyaltyCardViewModel::class.java]
+
+        val staffDao = AppDatabase.getDatabase(application).staffDao()
+        val staffApi = RetrofitClient.staffApi
+        val staffRepository = StaffRepository(staffApi, staffDao)
+        staffViewModel = ViewModelProvider(
+            this,
+            StaffViewModel.StaffViewModelFactory(staffRepository)
+        )[StaffViewModel::class.java]
 
         // Initialize ViewModels and Adapters
         val windowFactory = WindowViewModelFactory(application)
@@ -124,7 +167,14 @@ class MainActivity : AppCompatActivity() {
         windowTableViewModel =
             ViewModelProvider(this, windowTableFactory).get(WindowTableViewModel::class.java)
 
-        windowAdapter = WindowAdapter { window -> openWindow(window) }
+        val cartRepository = CartRepository(AppDatabase.getDatabase(application).cartDao())
+        val cartViewModelFactory = CartViewModelFactory(cartRepository)  // Use the separate factory class
+        cartViewModel = ViewModelProvider(this, cartViewModelFactory)[CartViewModel::class.java]
+
+        windowAdapter = WindowAdapter(
+            onClick = { window -> openWindow(window) },
+            cartViewModel = cartViewModel
+        )
         windowTableAdapter = WindowTableAdapter { windowTable -> showAlignedWindows(windowTable) }
 
         val database = AppDatabase.getDatabase(application)
@@ -181,6 +231,14 @@ class MainActivity : AppCompatActivity() {
 
         handleIncomingIntent(intent)
 
+        updateStoreInfo()
+        observeCartChanges()
+
+        startStaffRefresh()
+
+        startLoyaltyCardRefresh()
+
+
     }
     private fun initializeWebViewComponents() {
         webViewLoadingOverlay = findViewById(R.id.webViewLoadingOverlay)
@@ -232,6 +290,23 @@ class MainActivity : AppCompatActivity() {
             toggleView()
         }
     }
+    private fun startStaffRefresh() {
+        val currentUser = SessionManager.getCurrentUser()
+        if (currentUser?.storeid == null) return
+
+        staffRefreshJob = lifecycleScope.launch {
+            while (isActive) {
+                try {
+                    staffViewModel.refreshStaffData(currentUser.storeid)
+//                    delay(10000) // Refresh every 60 seconds
+                    delay(24 * 60 * 60 * 1000) // Refresh every 24 hours
+
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "Error refreshing staff data", e)
+                }
+            }
+        }
+    }
 
     private fun toggleView() {
         if (webView.visibility == View.VISIBLE) {
@@ -273,57 +348,92 @@ class MainActivity : AppCompatActivity() {
     private fun setupSidebarButtons() {
         findViewById<ImageButton>(R.id.button2).setOnClickListener {
             showToast("DASHBOARD")
-            // Load Dashboard
             loadWebContent("https://eljin.org/dashboard")
         }
 
         findViewById<ImageButton>(R.id.button3).setOnClickListener {
             showToast("ORDERING")
-            // Load Shopping Cart
             loadWebContent("https://eljin.org/order")
         }
 
-        findViewById<ImageButton>(R.id.button4).setOnClickListener {
-            showToast("STOCK COUNTING")
+//        findViewById<ImageButton>(R.id.button4).setOnClickListener {
+//            showToast("Batch Counting")
+//            loadDirectContent("https://eljin.org/StockCounting")
+//        }
+        findViewById<ImageButton>(R.id.stockcounting).setOnClickListener {
+            val intent = Intent (this, StockCountingActivity::class.java)
+            startActivity(intent)
+            showToast("Stock Counting")
 
-            loadWebContent("https://eljin.org/StockCounting")
         }
         findViewById<ImageButton>(R.id.button5).setOnClickListener {
-            showToast("RECEIVING")
-
-            loadWebContent("https://eljin.org/Received")
+            showToast("Stock Transfer")
+            loadDirectContent("https://eljin.org/StockTransfer")
         }
+
         findViewById<ImageButton>(R.id.button6).setOnClickListener {
             showToast("REPORTS")
-
             loadWebContent("https://eljin.org/reports")
         }
 
         findViewById<ImageButton>(R.id.waste).setOnClickListener {
             showToast("WASTE")
-            loadWebContent("https://eljin.org/waste")
+            loadDirectContent("https://eljin.org/waste")
         }
+
         findViewById<ImageButton>(R.id.partycakes).setOnClickListener {
-            showToast("PARTYCAKES")
-            loadWebContent("https://eljin.org/partycakes")
+            showToast("Loyalty Card")
+            loadDirectContent("https://eljin.org/loyalty-cards")
         }
 
         findViewById<ImageButton>(R.id.customer).setOnClickListener {
             showToast("CUSTOMER")
-            loadWebContent("https://eljin.org/customers")
+            loadDirectContent("https://eljin.org/customers")
+        }
+
+        findViewById<ImageButton>(R.id.printerSettingsButton).setOnClickListener {
+            val intent = Intent(this, PrinterSettingsActivity::class.java)
+            startActivity(intent)
+            showToast("PRINTER SETTINGS")
+        }
+
+        findViewById<ImageButton>(R.id.attendanceButton).setOnClickListener {
+            val intent = Intent(this, AttendanceActivity::class.java)
+            startActivity(intent)
+            showToast("ATTENDANCE")
         }
 
         findViewById<ImageButton>(R.id.button7).setOnClickListener {
             showToast("POS SYSTEM")
-            // Start MainActivity when Cashier button is clicked
             val intent = Intent(this, MainActivity::class.java)
             startActivity(intent)
         }
 
-
         findViewById<ImageButton>(R.id.button8).setOnClickListener {
             logout()
         }
+    }
+    private fun loadDirectContent(url: String) {
+        webView.visibility = View.VISIBLE
+        webViewContainer.visibility = View.VISIBLE
+
+        // Hide main activity content
+        refreshLayout.visibility = View.GONE
+        windowRecyclerView.visibility = View.GONE
+        windowTableRecyclerView.visibility = View.GONE
+        imageView1.visibility = View.GONE
+
+        // Restore cookies
+        val cookies = SessionManager.getWebSessionCookies()
+        if (cookies != null) {
+            CookieManager.getInstance().apply {
+                setCookie("https://eljin.org", cookies)
+                flush()
+            }
+        }
+
+        // Load the URL directly without showing loading indicator
+        webView.loadUrl(url)
     }
 
     private fun showWebContent(url: String) {
@@ -344,68 +454,159 @@ class MainActivity : AppCompatActivity() {
         // Load the URL
         webView.loadUrl(url)
     }
+    private fun updateStoreInfo() {
+        val storeNameTextView = findViewById<TextView>(R.id.storeNameTextView)
+        val currentStore = SessionManager.getCurrentUser()?.storeid ?: "Unknown Store"
+
+        // Set initial alpha to 0 for fade-in animation
+        storeNameTextView.alpha = 0f
+
+        // Update text with store name
+        storeNameTextView.text = "Store: $currentStore"
+
+        // Animate the store name appearance
+        storeNameTextView.animate()
+            .alpha(1f)
+            .setDuration(500)
+            .setStartDelay(300)
+            .start()
+    }
+
 
     private fun collapseSidebar() {
-        val collapse = ValueAnimator.ofInt(sidebarLayout.width, dpToPx(24))
-        collapse.duration = 200
-        collapse.interpolator = AccelerateDecelerateInterpolator()
-        collapse.addUpdateListener { animator ->
-            val value = animator.animatedValue as Int
-            val params = sidebarLayout.layoutParams
-            params.width = value
-            sidebarLayout.layoutParams = params
-            updateContentMargins(value)
+        // Prevent multiple animations from running simultaneously
+        if (!isSidebarExpanded || isAnimating) return
+        isAnimating = true
+
+        // Create animations set
+        val animatorSet = AnimatorSet()
+
+        // Sidebar width animation
+        val collapseWidth = ValueAnimator.ofInt(sidebarLayout.width, dpToPx(24)).apply {
+            duration = 300
+            interpolator = AccelerateDecelerateInterpolator()
+            addUpdateListener { animator ->
+                val value = animator.animatedValue as Int
+                sidebarLayout.layoutParams = sidebarLayout.layoutParams.apply {
+                    width = value
+                }
+                updateContentMargins(value)
+            }
         }
-        collapse.addListener(object : AnimatorListenerAdapter() {
-            override fun onAnimationStart(animation: Animator) {
-                buttonContainer.animate().alpha(0f).duration = 100
-                toggleButton.animate().rotation(180f).duration = 200
-                findViewById<TextView>(R.id.ecposTitle).animate().alpha(0f).duration = 100
+
+        // Toggle button position animation
+        val toggleButtonMargin = ValueAnimator.ofInt(dpToPx(90), dpToPx(8)).apply {
+            duration = 300
+            interpolator = AccelerateDecelerateInterpolator()
+            addUpdateListener { animator ->
+                val value = animator.animatedValue as Int
                 toggleButton.layoutParams =
                     (toggleButton.layoutParams as ConstraintLayout.LayoutParams).apply {
-                        marginStart = dpToPx(8)
+                        marginStart = value
                     }
+            }
+        }
+
+        // Setup animation sequence
+        animatorSet.playTogether(
+            collapseWidth,
+            toggleButtonMargin,
+            ObjectAnimator.ofFloat(toggleButton, View.ROTATION, 0f, 180f).apply {
+                duration = 300
+            },
+            ObjectAnimator.ofFloat(buttonContainer, View.ALPHA, 1f, 0f).apply {
+                duration = 150
+            },
+            ObjectAnimator.ofFloat(findViewById(R.id.ecposTitle), View.ALPHA, 1f, 0f).apply {
+                duration = 150
+            }
+        )
+
+        animatorSet.addListener(object : AnimatorListenerAdapter() {
+            override fun onAnimationStart(animation: Animator) {
+                super.onAnimationStart(animation)
+                // Initial state setup
             }
 
             override fun onAnimationEnd(animation: Animator) {
-                isSidebarExpanded = false
+                super.onAnimationEnd(animation)
                 buttonContainer.visibility = View.GONE
+                isSidebarExpanded = false
+                isAnimating = false
             }
         })
-        collapse.start()
+
+        animatorSet.start()
     }
 
     private fun expandSidebar() {
-        val expand = ValueAnimator.ofInt(sidebarLayout.width, dpToPx(56))
-        expand.duration = 200
-        expand.interpolator = AccelerateDecelerateInterpolator()
-        expand.addUpdateListener { animator ->
-            val value = animator.animatedValue as Int
-            val params = sidebarLayout.layoutParams
-            params.width = value
-            sidebarLayout.layoutParams = params
-            updateContentMargins(value)
+        // Prevent multiple animations from running simultaneously
+        if (isSidebarExpanded || isAnimating) return
+        isAnimating = true
+
+        // Create animations set
+        val animatorSet = AnimatorSet()
+
+        // Sidebar width animation
+        val expandWidth = ValueAnimator.ofInt(sidebarLayout.width, dpToPx(100)).apply {
+            duration = 300
+            interpolator = AccelerateDecelerateInterpolator()
+            addUpdateListener { animator ->
+                val value = animator.animatedValue as Int
+                sidebarLayout.layoutParams = sidebarLayout.layoutParams.apply {
+                    width = value
+                }
+                updateContentMargins(value)
+            }
         }
-        expand.addListener(object : AnimatorListenerAdapter() {
-            override fun onAnimationStart(animation: Animator) {
-                buttonContainer.visibility = View.VISIBLE
-                buttonContainer.alpha = 0f
-                toggleButton.animate().rotation(0f).duration = 200
-                findViewById<TextView>(R.id.ecposTitle).animate().alpha(1f).duration = 200
+
+        // Toggle button position animation
+        val toggleButtonMargin = ValueAnimator.ofInt(dpToPx(8), dpToPx(90)).apply {
+            duration = 300
+            interpolator = AccelerateDecelerateInterpolator()
+            addUpdateListener { animator ->
+                val value = animator.animatedValue as Int
                 toggleButton.layoutParams =
                     (toggleButton.layoutParams as ConstraintLayout.LayoutParams).apply {
-                        marginStart = dpToPx(40)
+                        marginStart = value
                     }
+            }
+        }
+
+        // Setup animation sequence
+        animatorSet.playTogether(
+            expandWidth,
+            toggleButtonMargin,
+            ObjectAnimator.ofFloat(toggleButton, View.ROTATION, 180f, 0f).apply {
+                duration = 300
+            }
+        )
+
+        animatorSet.addListener(object : AnimatorListenerAdapter() {
+            override fun onAnimationStart(animation: Animator) {
+                super.onAnimationStart(animation)
+                buttonContainer.visibility = View.VISIBLE
+                buttonContainer.alpha = 0f
             }
 
             override fun onAnimationEnd(animation: Animator) {
-                buttonContainer.animate().alpha(1f).duration = 100
+                super.onAnimationEnd(animation)
+                // Fade in content after expansion
+                buttonContainer.animate()
+                    .alpha(1f)
+                    .setDuration(150)
+                    .start()
+                findViewById<TextView>(R.id.ecposTitle).animate()
+                    .alpha(1f)
+                    .setDuration(150)
+                    .start()
                 isSidebarExpanded = true
+                isAnimating = false
             }
         })
-        expand.start()
-    }
 
+        animatorSet.start()
+    }
     private fun updateContentMargins(sidebarWidth: Int) {
         findViewById<TextView>(R.id.textView3).updateLayoutParams<ConstraintLayout.LayoutParams> {
             marginStart = sidebarWidth + dpToPx(10)
@@ -458,7 +659,19 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-
+    private fun startLoyaltyCardRefresh() {
+        loyaltyCardRefreshJob = lifecycleScope.launch {
+            while (isActive) {
+                try {
+                    Log.d("MainActivity", "Refreshing loyalty cards")
+                    loyaltyCardViewModel.refreshLoyaltyCards()
+                    delay(30000) // Refresh every 30 seconds
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "Error during loyalty card refresh", e)
+                }
+            }
+        }
+    }
     private fun setupObservers() {
         lifecycleScope.launch {
             windowViewModel.allWindows.collect { windows ->
@@ -491,6 +704,43 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+        lifecycleScope.launch {
+            loyaltyCardViewModel.allLoyaltyCards.collect { cards ->
+                Log.d("MainActivity", "Received loyalty cards: ${cards.size}")
+                // Handle the loyalty cards here
+            }
+        }
+
+        // Add these new observers
+        lifecycleScope.launch {
+            loyaltyCardViewModel.isLoading.collect { isLoading ->
+                // Update UI loading state if needed
+                // For example, show/hide a loading indicator
+                loadingDialog.apply {
+                    if (isLoading) show() else dismiss()
+                }
+            }
+        }
+
+        lifecycleScope.launch {
+            loyaltyCardViewModel.error.collect { error ->
+                error?.let {
+                    Toast.makeText(this@MainActivity, it, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        // Add staff observers here
+        lifecycleScope.launch {
+            staffViewModel.staffData.collect { staffList ->
+                Log.d("MainActivity", "Staff updated: ${staffList.size} members")
+                // You can add additional handling here if needed
+            }
+        }
+
+        // Add staff error observer
+        staffViewModel.error.observe(this) { error ->
+            Toast.makeText(this, error, Toast.LENGTH_SHORT).show()
+        }
 
         windowViewModel.errorState.observe(this) { error ->
             error?.let {
@@ -502,7 +752,17 @@ class MainActivity : AppCompatActivity() {
     private fun showToast(message: String) {
         Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
     }
-
+    private fun observeCartChanges() {
+        lifecycleScope.launch {
+            // Collect all windows that have items in cart
+            cartViewModel.getAllWindows().collect { cartItems ->
+                val windowsWithItems = cartItems
+                    .map { it.windowId }
+                    .toSet()
+                windowAdapter.updateWindowsWithCartItems(windowsWithItems)
+            }
+        }
+    }
     private fun setupWindowRecyclerView() {
         val windowRecyclerView: RecyclerView = findViewById(R.id.windowRecyclerView)
         windowRecyclerView.adapter = windowAdapter
@@ -510,7 +770,7 @@ class MainActivity : AppCompatActivity() {
         // Calculate span count based on screen width
         val displayMetrics = resources.displayMetrics
         val screenWidthDp = displayMetrics.widthPixels / displayMetrics.density
-        val spanCount = (screenWidthDp / 400).toInt().coerceAtLeast(2) // minimum 2 columns
+        val spanCount = (screenWidthDp / 400).toInt().coerceAtLeast(2)
 
         windowRecyclerView.layoutManager = GridLayoutManager(this, spanCount)
     }
@@ -526,14 +786,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun startPeriodicRefresh() {
         Log.d("MainActivity", "Starting periodic refresh")
+
         refreshJob = lifecycleScope.launch {
             while (isActive) {
                 try {
                     Log.d("MainActivity", "Refreshing windows and window tables")
                     windowViewModel.refreshWindows()
                     windowTableViewModel.refreshWindowTables()
+//                    loyaltyCardViewModel.refreshLoyaltyCards()
                     Log.d("MainActivity", "Windows and window tables refreshed successfully")
-                    delay(60000) // Refresh every 60 seconds
+//                    delay(24 * 60 * 60 * 1000) // Refresh every 24 hours
+                    delay(60000) // Refresh every 24 hours
                 } catch (e: Exception) {
                     Log.e("MainActivity", "Error during periodic refresh", e)
                     Toast.makeText(
@@ -546,70 +809,30 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-//    private fun loadWebContent(url: String) {
-//        webViewContainer.visibility = View.VISIBLE
-//        refreshLayout.visibility = View.GONE
-//        windowRecyclerView.visibility = View.GONE
-//        windowTableRecyclerView.visibility = View.GONE
-//        imageView1.visibility = View.GONE
-//
-//        // Restore cookies
-//        val cookies = SessionManager.getWebSessionCookies()
-//        if (cookies != null) {
-//            CookieManager.getInstance().apply {
-//                setCookie("https://eljin.org", cookies)
-//                flush()
-//            }
-//        }
-//
-//        webView.loadUrl(url)
-//    }
-//private fun loadWebContent(url: String) {
-//    // Show WebView and its container
-//    webView.visibility = View.VISIBLE
-//    webViewContainer.visibility = View.VISIBLE
-//
-//    // Hide main activity content
-//    refreshLayout.visibility = View.GONE
-//    windowRecyclerView.visibility = View.GONE
-//    windowTableRecyclerView.visibility = View.GONE
-//    imageView1.visibility = View.GONE
-//
-//    // Restore cookies
-//    val cookies = SessionManager.getWebSessionCookies()
-//    if (cookies != null) {
-//        CookieManager.getInstance().apply {
-//            setCookie("https://eljin.org", cookies)
-//            flush()
-//        }
-//    }
-//
-//    // Load the URL
-//    webView.loadUrl(url)
-//}
-private fun loadWebContent(url: String) {
-    webView.visibility = View.VISIBLE
-    webViewContainer.visibility = View.VISIBLE
-    showWebViewLoading("Loading page...")
 
-    // Hide main activity content
-    refreshLayout.visibility = View.GONE
-    windowRecyclerView.visibility = View.GONE
-    windowTableRecyclerView.visibility = View.GONE
-    imageView1.visibility = View.GONE
+    private fun loadWebContent(url: String) {
+        webView.visibility = View.VISIBLE
+        webViewContainer.visibility = View.VISIBLE
+        showWebViewLoading("Loading page...")
 
-    // Restore cookies
-    val cookies = SessionManager.getWebSessionCookies()
-    if (cookies != null) {
-        CookieManager.getInstance().apply {
-            setCookie("https://eljin.org", cookies)
-            flush()
+        // Hide main activity content
+        refreshLayout.visibility = View.GONE
+        windowRecyclerView.visibility = View.GONE
+        windowTableRecyclerView.visibility = View.GONE
+        imageView1.visibility = View.GONE
+
+        // Restore cookies
+        val cookies = SessionManager.getWebSessionCookies()
+        if (cookies != null) {
+            CookieManager.getInstance().apply {
+                setCookie("https://eljin.org", cookies)
+                flush()
+            }
         }
-    }
 
-    // Load the URL
-    webView.loadUrl(url)
-}
+        // Load the URL
+        webView.loadUrl(url)
+    }
 
     // Update your onBackPressed to handle loading state
 
@@ -636,8 +859,10 @@ private fun loadWebContent(url: String) {
     }
 
     override fun onDestroy() {
+        loyaltyCardRefreshJob?.cancel()
         transactionSyncService?.stopSyncService()
         webView.destroy()
+        staffRefreshJob?.cancel()
         super.onDestroy()
     }
 
@@ -698,50 +923,55 @@ private fun loadWebContent(url: String) {
             allowContentAccess = true
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             layoutAlgorithm = WebSettings.LayoutAlgorithm.NORMAL
-
-            // Enable viewport meta tag
             useWideViewPort = true
             loadWithOverviewMode = true
-
-            // Enable better content handling
             setRenderPriority(WebSettings.RenderPriority.HIGH)
             setEnableSmoothTransition(true)
-
-            // Cache settings for better performance
             cacheMode = WebSettings.LOAD_DEFAULT
             databaseEnabled = true
-
-            // Additional features
             setGeolocationEnabled(true)
             javaScriptCanOpenWindowsAutomatically = true
         }
 
-        // Enable hardware acceleration
         webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+
+        // List of URLs that should skip loading indicator
+        val skipLoadingUrls = listOf(
+            "StockCounting",
+//            "StockTransfer",
+//            "waste",
+//            "loyalty-cards",
+//            "customers"
+        )
 
         webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
-                showWebViewLoading("Loading page...")
+                // Only show loading for URLs not in skipLoadingUrls
+                if (url != null && !skipLoadingUrls.any { url.contains(it, ignoreCase = true) }) {
+                    showWebViewLoading("Loading page...")
+                }
                 injectScrollFix()
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
-                hideWebViewLoading()
+                // Hide loading only if it was shown (for non-skip URLs)
+                if (url != null && !skipLoadingUrls.any { url.contains(it, ignoreCase = true) }) {
+                    hideWebViewLoading()
+                }
                 if (url?.contains("/login") == true) {
                     handleLoginPage()
                 }
                 injectScrollFix()
             }
 
-            override fun onReceivedError(
-                view: WebView?,
-                request: WebResourceRequest?,
-                error: WebResourceError?
-            ) {
+            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                 super.onReceivedError(view, request, error)
-                hideWebViewLoading()
+                val url = request?.url?.toString()
+                if (url != null && !skipLoadingUrls.any { url.contains(it, ignoreCase = true) }) {
+                    hideWebViewLoading()
+                }
                 runOnUiThread {
                     Toast.makeText(
                         this@MainActivity,
@@ -751,12 +981,7 @@ private fun loadWebContent(url: String) {
                 }
             }
 
-            // Add this to handle SSL errors if needed
-            override fun onReceivedSslError(
-                view: WebView?,
-                handler: SslErrorHandler?,
-                error: SslError?
-            ) {
+            override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
                 hideWebViewLoading()
                 super.onReceivedSslError(view, handler, error)
             }
@@ -765,10 +990,13 @@ private fun loadWebContent(url: String) {
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 super.onProgressChanged(view, newProgress)
-                if (newProgress < 100) {
-                    showWebViewLoading("Loading... $newProgress%")
-                } else {
-                    hideWebViewLoading()
+                val url = view?.url
+                if (url != null && !skipLoadingUrls.any { url.contains(it, ignoreCase = true) }) {
+                    if (newProgress < 100) {
+                        showWebViewLoading("Loading... $newProgress%")
+                    } else {
+                        hideWebViewLoading()
+                    }
                 }
             }
 
@@ -890,61 +1118,29 @@ private fun loadWebContent(url: String) {
         startActivity(intent)
     }
 
-//    override fun onBackPressed() {
-//        when {
-//            webViewScrollContainer.visibility == View.VISIBLE && webView.canGoBack() -> webView.goBack()
-//            webViewScrollContainer.visibility == View.VISIBLE -> toggleView()
-//            else -> super.onBackPressed()
-//        }
-//    }
-//override fun onBackPressed() {
-//    when {
-//        // First check if WebView is visible and can go back
-//        webView.visibility == View.VISIBLE && webView.canGoBack() -> {
-//            webView.goBack()
-//        }
-//        // If WebView is visible but can't go back, return to main activity view
-//        webView.visibility == View.VISIBLE -> {
-//            // Hide WebView container
-//            webViewContainer.visibility = View.GONE
-//
-//            // Show main activity content
-//            refreshLayout.visibility = View.VISIBLE
-//            windowRecyclerView.visibility = View.VISIBLE
-//            windowTableRecyclerView.visibility = View.VISIBLE
-//            imageView1.visibility = View.VISIBLE
-//
-//            // Update FAB icon if needed
-//            toggleViewFab.setImageResource(R.drawable.ic_web)
-//        }
-//        // If WebView is not visible, handle normal back button behavior
-//        else -> {
-//            super.onBackPressed()
-//        }
-//    }
-//}
-override fun onBackPressed() {
-    when {
-        webViewLoadingOverlay.visibility == View.VISIBLE -> {
-            // Do nothing while loading
-            return
-        }
-        webView.visibility == View.VISIBLE && webView.canGoBack() -> {
-            webView.goBack()
-        }
-        webView.visibility == View.VISIBLE -> {
-            webViewContainer.visibility = View.GONE
-            refreshLayout.visibility = View.VISIBLE
-            windowRecyclerView.visibility = View.VISIBLE
-            windowTableRecyclerView.visibility = View.VISIBLE
-            imageView1.visibility = View.VISIBLE
-            toggleViewFab.setImageResource(R.drawable.ic_web)
-        }
-        else -> {
-            super.onBackPressed()
+
+    override fun onBackPressed() {
+        when {
+            webViewLoadingOverlay.visibility == View.VISIBLE -> {
+                // Do nothing while loading
+                return
+            }
+            webView.visibility == View.VISIBLE && webView.canGoBack() -> {
+                webView.goBack()
+            }
+            webView.visibility == View.VISIBLE -> {
+                webViewContainer.visibility = View.GONE
+                refreshLayout.visibility = View.VISIBLE
+                windowRecyclerView.visibility = View.VISIBLE
+                windowTableRecyclerView.visibility = View.VISIBLE
+                imageView1.visibility = View.VISIBLE
+                toggleViewFab.setImageResource(R.drawable.ic_web)
+            }
+            else -> {
+                super.onBackPressed()
+            }
         }
     }
-}
 
 
     // Add this method to handle screen rotation or configuration changes
@@ -1003,60 +1199,115 @@ override fun onBackPressed() {
     private suspend fun clearAllTransactions() {
         withContext(Dispatchers.IO) {
             try {
-                val transactionDao = AppDatabase.getDatabase(application).transactionDao()
+                val database = AppDatabase.getDatabase(application)
 
-                // Delete transaction records first
-                transactionDao.deleteAllTransactions()
+                // Delete staff data first
+                database.staffDao().deleteAll()
+                Log.d("Logout", "Successfully deleted all staff data")
+
+                // Delete transaction records
+                database.transactionDao().deleteAllTransactions()
                 Log.d("Logout", "Successfully deleted all transaction records")
 
-                // Then delete transaction summaries
-                transactionDao.deleteAllTransactionSummaries()
+                // Delete transaction summaries
+                database.transactionDao().deleteAllTransactionSummaries()
                 Log.d("Logout", "Successfully deleted all transaction summaries")
 
             } catch (e: Exception) {
-                Log.e("Logout", "Error clearing transactions", e)
+                Log.e("Logout", "Error clearing data", e)
                 throw e
             }
         }
     }
-
-
-
-
     private fun logout() {
-        lifecycleScope.launch {
-            try {
-                withContext(Dispatchers.Main) {
-                    loadingDialog.show()
-                }
+        // Show confirmation dialog first with custom style
+        val dialogView = layoutInflater.inflate(R.layout.custom_dialog_layout, null)
+        val titleTextView = dialogView.findViewById<TextView>(R.id.dialogTitle)
+        val messageTextView = dialogView.findViewById<TextView>(R.id.dialogMessage)
 
-                val currentUser = SessionManager.getCurrentUser()
-                if (currentUser != null) {
-                    val transactionDao = AppDatabase.getDatabase(application).transactionDao()
-                    // First sync any unsynced transactions
-                    val syncSuccess = syncAllTransactions()
+        titleTextView.text = "Confirm Logout"
+        titleTextView.textSize = 20f // Bigger text size for title
 
-                    if (syncSuccess) {
-                        // Handle number sequence
-                        val numberSequence = numberSequenceRemoteDao.getNumberSequenceByStoreId(currentUser.storeid)
-                        if (numberSequence != null) {
-                            val updateResult = numberSequenceRemoteRepository.updateRemoteNextRec(
-                                currentUser.storeid,
-                                numberSequence.nextRec
-                            )
+        messageTextView.text = "Are you sure you want to logout?\n\n" +
+                "Please don't logout if there's no problem.\n\n" +
+                "Please contact the IT developer for assistance if needed."
+        messageTextView.textSize = 18f // Bigger text size for message
 
-                            if (updateResult.isSuccess) {
-                                // Delete number sequence first
-                                numberSequenceRemoteDao.deleteNumberSequenceByStoreId(currentUser.storeid)
+        AlertDialog.Builder(this, R.style.CustomDialogStyle)
+            .setView(dialogView)
+            .setPositiveButton("Yes") { dialog, _ ->
+                dialog.dismiss()
+                lifecycleScope.launch {
+                    try {
+                        withContext(Dispatchers.Main) {
+                            loadingDialog.show()
+                        }
 
-                                // Then clear all transactions
-                                withContext(Dispatchers.IO) {
-                                    clearAllTransactions()
-                                }
+                        val currentUser = SessionManager.getCurrentUser()
+                        if (currentUser != null) {
+                            // Rest of the logout logic remains the same
+                            withContext(Dispatchers.Main) {
+                                endWebSession()
+                                StaffManager.clearCurrentStaff()
+                            }
 
-                                withContext(Dispatchers.Main) {
-                                    loadingDialog.dismiss()
-                                    proceedWithLogout()
+
+                            // Wait briefly to ensure web session cleanup is complete
+                            delay(500)
+
+                            val transactionDao = AppDatabase.getDatabase(application).transactionDao()
+                            // First sync any unsynced transactions
+                            val syncSuccess = syncAllTransactions()
+
+                            if (syncSuccess) {
+                                // Handle number sequence
+                                val numberSequence = numberSequenceRemoteDao.getNumberSequenceByStoreId(currentUser.storeid)
+                                if (numberSequence != null) {
+                                    val updateResult = numberSequenceRemoteRepository.updateRemoteNextRec(
+                                        currentUser.storeid,
+                                        numberSequence.nextRec
+                                    )
+
+                                    if (updateResult.isSuccess) {
+                                        // Delete number sequence first
+                                        numberSequenceRemoteDao.deleteNumberSequenceByStoreId(currentUser.storeid)
+
+                                        // Then clear all transactions
+                                        withContext(Dispatchers.IO) {
+                                            clearAllTransactions()
+                                        }
+
+                                        // Clear web-related data
+                                        withContext(Dispatchers.Main) {
+                                            // Clear WebView data
+                                            clearWebViewData()
+
+                                            // Clear cookies from SessionManager
+                                            SessionManager.setWebSessionCookies(null)
+
+                                            loadingDialog.dismiss()
+                                            proceedWithLogout()
+                                        }
+                                    } else {
+                                        withContext(Dispatchers.Main) {
+                                            loadingDialog.dismiss()
+                                            showRetryDialog()
+                                        }
+                                    }
+                                } else {
+                                    // No number sequence to handle, proceed with clearing transactions
+                                    withContext(Dispatchers.IO) {
+                                        clearAllTransactions()
+                                    }
+
+                                    withContext(Dispatchers.Main) {
+                                        // Clear web-related data
+                                        clearWebViewData()
+                                        SessionManager.setWebSessionCookies(null)
+
+                                        loadingDialog.dismiss()
+                                        proceedWithLogout()
+                                    }
                                 }
                             } else {
                                 withContext(Dispatchers.Main) {
@@ -1065,35 +1316,34 @@ override fun onBackPressed() {
                                 }
                             }
                         } else {
+                            // No current user, just clear everything and proceed
                             withContext(Dispatchers.IO) {
                                 clearAllTransactions()
                             }
 
                             withContext(Dispatchers.Main) {
+                                // Clear web-related data
+                                clearWebViewData()
+                                SessionManager.setWebSessionCookies(null)
+
                                 loadingDialog.dismiss()
                                 proceedWithLogout()
                             }
                         }
-                    } else {
+                    } catch (e: Exception) {
+                        Log.e("Logout", "Error during logout", e)
                         withContext(Dispatchers.Main) {
                             loadingDialog.dismiss()
                             showRetryDialog()
                         }
                     }
-                } else {
-                    withContext(Dispatchers.Main) {
-                        loadingDialog.dismiss()
-                        proceedWithLogout()
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("Logout", "Error during logout", e)
-                withContext(Dispatchers.Main) {
-                    loadingDialog.dismiss()
-                    showRetryDialog()
                 }
             }
-        }
+            .setNegativeButton("No") { dialog, _ ->
+                dialog.dismiss()
+            }
+            .setCancelable(false)
+            .show()
     }
 
 
@@ -1101,41 +1351,76 @@ override fun onBackPressed() {
 
     private fun endWebSession() {
         try {
-            // Clear web session
+            // First attempt to properly logout from the web session
             webView.evaluateJavascript(
                 """
             (async function() {
                 try {
-                    // Attempt to logout from web session
-                    await fetch('/logout', {
+                    // Get CSRF token first
+                    const token = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+                    
+                    // Attempt to logout from web session with proper headers
+                    const response = await fetch('/logout', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'Accept': 'application/json'
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': token
                         },
                         credentials: 'include'
                     });
+                    
+                    // Clear any local storage or session storage
+                    localStorage.clear();
+                    sessionStorage.clear();
+                    
+                    // Clear any custom data attributes
+                    document.documentElement.innerHTML = '';
+                    
+                    return response.ok;
                 } catch(e) {
                     console.error('Logout failed:', e);
+                    return false;
                 }
             })();
-            """.trimIndent(),
-                null
-            )
+            """
+            ) { result ->
+                // After web logout attempt, clear all local web data
+                clearWebViewData()
 
-            // Clear cookies
-            val cookieManager = CookieManager.getInstance()
-            cookieManager.removeAllCookies(null)
-            cookieManager.flush()
-
-            // Clear WebView
-            webView.clearCache(true)
-            webView.clearHistory()
-            webView.clearFormData()
+                // Clear session cookies from SessionManager
+                SessionManager.setWebSessionCookies(null)
+            }
         } catch (e: Exception) {
             Log.e("Logout", "Error clearing web session", e)
+            // Even if the JavaScript execution fails, still clear local data
+            clearWebViewData()
+            SessionManager.setWebSessionCookies(null)
         }
     }
+
+    private fun clearWebViewData() {
+        // Clear cookies
+        val cookieManager = CookieManager.getInstance()
+        cookieManager.removeAllCookies { success ->
+            Log.d("Logout", "Cookies cleared: $success")
+        }
+        cookieManager.flush()
+
+        // Clear all WebView data
+        webView.clearCache(true)
+        webView.clearHistory()
+        webView.clearFormData()
+        webView.clearSslPreferences()
+
+        // Clear any saved passwords or form data
+        WebViewDatabase.getInstance(this)?.clearFormData()
+        WebViewDatabase.getInstance(this)?.clearHttpAuthUsernamePassword()
+
+        // Load about:blank to ensure clean state
+        webView.loadUrl("about:blank")
+    }
+
 
 
     private suspend fun syncAllTransactions(): Boolean {
@@ -1236,9 +1521,14 @@ override fun onBackPressed() {
         }
     }
 
+
+
     private fun proceedWithLogout() {
         SessionManager.clearCurrentUser()
         refreshJob.cancel()
+
+        // Stop any ongoing sync service
+        transactionSyncService?.stopSyncService()
 
         val intent = Intent(this@MainActivity, LoginActivity::class.java)
         intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -1303,7 +1593,24 @@ override fun onBackPressed() {
             false
         }
     }
+    private suspend fun clearAllData() {
+        withContext(Dispatchers.IO) {
+            try {
+                val database = AppDatabase.getDatabase(application)
 
+                // Clear staff data
+                database.staffDao().deleteAll()
+
+                // Clear transactions
+                clearAllTransactions()
+
+                Log.d("Logout", "Successfully cleared all data")
+            } catch (e: Exception) {
+                Log.e("Logout", "Error clearing data", e)
+                throw e
+            }
+        }
+    }
     private fun showLogoutErrorDialog(message: String) {
         AlertDialog.Builder(this)
             .setTitle("Logout Error")
@@ -1320,6 +1627,7 @@ override fun onBackPressed() {
     }
 
 
+
     private fun showRetryDialog() {
         lifecycleScope.launch {
             val transactionDao = AppDatabase.getDatabase(application).transactionDao()
@@ -1329,24 +1637,34 @@ override fun onBackPressed() {
             }
 
             withContext(Dispatchers.Main) {
+                val dialogView = layoutInflater.inflate(R.layout.custom_dialog_layout, null)
+                val titleTextView = dialogView.findViewById<TextView>(R.id.dialogTitle)
+                val messageTextView = dialogView.findViewById<TextView>(R.id.dialogMessage)
+
+                titleTextView.text = "Logout Failed"
+                titleTextView.textSize = 20f // Bigger text size for title
+
                 val message = buildString {
+                    append("Unable to complete logout process.\n\n")
                     if (unsyncedCount > 0) {
-                        append("You have $unsyncedCount unsynced transactions.\n")
+                        append("• $unsyncedCount unsynced transactions pending\n")
                     }
                     if (numberSequence != null) {
-                        append("Number sequence needs to be updated.\n")
+                        append("• Number sequence update pending\n")
                     }
-                    append("\nWould you like to retry?")
+                    append("\nPlease contact the IT developer for assistance.\n")
+                    append("\nWould you like to retry the logout process?")
                 }
+                messageTextView.text = message
+                messageTextView.textSize = 18f // Bigger text size for message
 
-                AlertDialog.Builder(this@MainActivity)
-                    .setTitle("Sync Required")
-                    .setMessage(message)
+                AlertDialog.Builder(this@MainActivity, R.style.CustomDialogStyle1)
+                    .setView(dialogView)
                     .setPositiveButton("Retry") { dialog, _ ->
                         dialog.dismiss()
                         logout()
                     }
-                    .setNegativeButton("Cancel") { dialog, _ ->
+                    .setNegativeButton("Back") { dialog, _ ->
                         dialog.dismiss()
                     }
                     .setCancelable(false)
@@ -1354,8 +1672,9 @@ override fun onBackPressed() {
             }
         }
     }
+
     private fun initLoadingDialog() {
-        val builder = AlertDialog.Builder(this)
+        val builder = AlertDialog.Builder(this, R.style.CustomDialogStyle3)
         val inflater = this.layoutInflater
         val dialogView = inflater.inflate(R.layout.dialog_loading, null)
         builder.setView(dialogView)
@@ -1479,371 +1798,3 @@ override fun onBackPressed() {
         }
     }
 }
-
-//    private fun showSyncDialog() {
-//        AlertDialog.Builder(this)
-//            .setTitle("Sync Required")
-//            .setMessage("Transactions need to be synchronized. Would you like to sync now?")
-//            .setPositiveButton("Sync") { dialog, _ ->
-//                dialog.dismiss()
-//                syncAllTransactions()
-//            }
-//            .setNegativeButton("Force Logout") { dialog, _ ->
-//                dialog.dismiss()
-//                proceedWithLogout()
-//            }
-//            .show()
-//    }
-//
-//    private fun showSyncFailedDialog() {
-//        AlertDialog.Builder(this)
-//            .setTitle("Sync Failed")
-//            .setMessage("Some transactions failed to sync. Would you like to retry?")
-//            .setPositiveButton("Retry") { dialog, _ ->
-//                dialog.dismiss()
-//                syncAllTransactions()
-//            }
-//            .setNegativeButton("Force Logout") { dialog, _ ->
-//                dialog.dismiss()
-//                proceedWithLogout()
-//            }
-//            .show()
-//    }
-//    override fun onDestroy() {
-//        super.onDestroy()
-//        Log.d("MainActivity", "onDestroy: Cancelling refresh job")
-//        refreshJob.cancel()
-//    }
-
-
-//    private fun loadWebContent(url: String) {
-//        // Show WebView container
-//        webViewScrollContainer.visibility = View.VISIBLE
-//        // Hide RecyclerViews
-//        imageView1.visibility = View.GONE
-//        windowRecyclerView.visibility = View.GONE
-//        windowTableRecyclerView.visibility = View.GONE
-//        refreshLayout.visibility = View.GONE
-//
-//        // Keep sidebar visible
-//        sidebarLayout.visibility = View.VISIBLE
-//
-//        // Restore cookies
-//        val cookies = SessionManager.getWebSessionCookies()
-//        if (cookies != null) {
-//            CookieManager.getInstance().apply {
-//                setCookie("https://eljin.org", cookies)
-//                flush()
-//            }
-//        }
-//
-//        // Configure WebView
-//        webView.apply {
-//            settings.apply {
-//                javaScriptEnabled = true
-//                domStorageEnabled = true
-//                loadWithOverviewMode = true
-//                useWideViewPort = true
-//                setSupportZoom(true)
-//                builtInZoomControls = true
-//                displayZoomControls = false
-//                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-//            }
-//
-//            webViewClient = object : WebViewClient() {
-//                override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-//                    super.onPageStarted(view, url, favicon)
-//                    // Show loading if needed
-//                }
-//
-//                override fun onPageFinished(view: WebView?, url: String?) {
-//                    super.onPageFinished(view, url)
-//                    if (url?.contains("/login") == true) {
-//                        handleLoginPage()
-//                    }
-//                }
-//
-//                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-//                    request?.url?.let { uri ->
-//                        if (uri.toString().contains("/login")) {
-//                            handleLoginPage()
-//                            return true
-//                        }
-//                    }
-//                    return false
-//                }
-//            }
-//        }
-//
-//        // Load the URL
-//        webView.loadUrl(url)
-//    }
-
-//        webView.webViewClient = object : WebViewClient() {
-//            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
-//                url?.let { view?.loadUrl(it) }
-//                return true
-//            }
-
-//            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-//                super.onPageStarted(view, url, favicon)
-//                // Show loading indicator if needed
-//            }
-//
-//            override fun onPageFinished(view: WebView?, url: String?) {
-//                super.onPageFinished(view, url)
-//                // Hide loading indicator if needed
-//            }
-//        }
-
-//        webView.setOnKeyListener { _, keyCode, event ->
-//            if (keyCode == KeyEvent.KEYCODE_BACK && event.action == MotionEvent.ACTION_UP && webView.canGoBack()) {
-//                webView.goBack()
-//                return@setOnKeyListener true
-//            }
-//            false
-//        }
-//    }
-
-
-//    private fun logout() {
-//        lifecycleScope.launch {
-//            try {
-//                withContext(Dispatchers.Main) {
-//                    loadingDialog.show()
-//                }
-//
-//                val currentUser = SessionManager.getCurrentUser()
-//                if (currentUser != null) {
-//                    val transactionDao = AppDatabase.getDatabase(application).transactionDao()
-//
-//                    // Only get unsynced transactions
-//                    val unsyncedTransactions = transactionDao.getUnsyncedTransactionSummaries()
-//
-//                    if (unsyncedTransactions.isNotEmpty()) {
-//                        // Attempt to sync only unsynced transactions
-//                        val syncSuccess = syncAllUnsyncedTransactions()
-//
-//                        if (syncSuccess) {
-//                            // Update number sequence before clearing transactions
-//                            val numberSequenceSuccess = updateAndDeleteNumberSequence()
-//
-//                            if (numberSequenceSuccess) {
-//                                // Clear transactions after successful sync
-//                                clearAllTransactions()
-//
-//                                // End web session
-//                                endWebSession()
-//
-//                                withContext(Dispatchers.Main) {
-//                                    loadingDialog.dismiss()
-//                                    proceedWithLogout()
-//                                }
-//                            } else {
-//                                withContext(Dispatchers.Main) {
-//                                    loadingDialog.dismiss()
-//                                    showRetryDialog()
-//                                }
-//                            }
-//                        } else {
-//                            withContext(Dispatchers.Main) {
-//                                loadingDialog.dismiss()
-//                                showRetryDialog()
-//                            }
-//                        }
-//                    } else {
-//                        // No unsynced transactions to sync
-//                        endWebSession()
-//                        clearAllTransactions()
-//                        withContext(Dispatchers.Main) {
-//                            loadingDialog.dismiss()
-//                            proceedWithLogout()
-//                        }
-//                    }
-//                } else {
-//                    // No user logged in, just proceed with logout
-//                    endWebSession()
-//                    withContext(Dispatchers.Main) {
-//                        loadingDialog.dismiss()
-//                        proceedWithLogout()
-//                    }
-//                }
-//            } catch (e: Exception) {
-//                Log.e("Logout", "Error during logout", e)
-//                withContext(Dispatchers.Main) {
-//                    loadingDialog.dismiss()
-//                    showRetryDialog()
-//                }
-//            }
-//        }
-//    }
-//    private fun loadWebContent(url: String) {
-//        webViewContainer.visibility = View.VISIBLE
-//        webViewScrollContainer.visibility = View.VISIBLE
-//        mainRecyclerViewContent.visibility = View.VISIBLE
-//        windowRecyclerView.visibility = View.GONE
-//        windowTableRecyclerView.visibility = View.GONE
-//        sidebarLayout.visibility = View.VISIBLE
-//        refreshLayout.visibility = View.GONE
-//        imageView1.visibility = View.GONE
-//        webView.visibility = View.VISIBLE
-//        refreshLayout.visibility = View.GONE
-//        if (webViewScrollContainer.visibility == View.VISIBLE) {
-//            // Switch to main content
-//            webViewScrollContainer.visibility = View.GONE
-//            refreshLayout.visibility = View.VISIBLE
-//            windowRecyclerView.visibility = View.VISIBLE
-//            windowTableRecyclerView.visibility = View.VISIBLE
-//            toggleViewFab.setImageResource(R.drawable.ic_web)
-//        } else {
-//            // Switch to WebView
-//            refreshLayout.visibility = View.GONE
-//            windowRecyclerView.visibility = View.GONE
-//            windowTableRecyclerView.visibility = View.GONE
-//            webViewScrollContainer.visibility = View.VISIBLE
-//            webView.loadUrl("https://eljin.org")
-//            toggleViewFab.setImageResource(R.drawable.ic_grid)
-//        }
-//    private fun logout() {
-//        lifecycleScope.launch {
-//            try {
-//                withContext(Dispatchers.Main) {
-//                    loadingDialog.show()
-//                }
-//
-//                val currentUser = SessionManager.getCurrentUser()
-//                if (currentUser != null) {
-//                    val transactionDao = AppDatabase.getDatabase(application).transactionDao()
-//                    val unsyncedTransactions = transactionDao.getUnsyncedTransactionSummaries()
-//
-//                    if (unsyncedTransactions.isNotEmpty()) {
-//                        // Attempt to sync all transactions
-//                        val syncSuccess = syncAllTransactions()
-//
-//                        if (syncSuccess) {
-//                            // Update number sequence before clearing transactions
-//                            val numberSequenceSuccess = updateAndDeleteNumberSequence()
-//
-//                            if (numberSequenceSuccess) {
-//                                // Clear transactions after successful sync
-//                                clearAllTransactions()
-//
-//                                // End web session
-//                                endWebSession()
-//
-//                                withContext(Dispatchers.Main) {
-//                                    loadingDialog.dismiss()
-//                                    proceedWithLogout()
-//                                }
-//                            } else {
-//                                withContext(Dispatchers.Main) {
-//                                    loadingDialog.dismiss()
-//                                    showRetryDialog()
-//                                }
-//                            }
-//                        } else {
-//                            withContext(Dispatchers.Main) {
-//                                loadingDialog.dismiss()
-//                                showRetryDialog()
-//                            }
-//                        }
-//                    } else {
-//                        // No transactions to sync
-//                        endWebSession()
-//                        clearAllTransactions()
-//                        withContext(Dispatchers.Main) {
-//                            loadingDialog.dismiss()
-//                            proceedWithLogout()
-//                        }
-//                    }
-//                } else {
-//                    // No user logged in, just proceed with logout
-//                    endWebSession()
-//                    withContext(Dispatchers.Main) {
-//                        loadingDialog.dismiss()
-//                        proceedWithLogout()
-//                    }
-//                }
-//            } catch (e: Exception) {
-//                Log.e("Logout", "Error during logout", e)
-//                withContext(Dispatchers.Main) {
-//                    loadingDialog.dismiss()
-//                    showRetryDialog()
-//                }
-//            }
-//        }
-//
-
-// And in your logout function, call clearAllTransactions() right after successful sync:
-//    private fun logout() {
-//        lifecycleScope.launch {
-//            try {
-//                withContext(Dispatchers.Main) {
-//                    loadingDialog.show()
-//                }
-//
-//                val currentUser = SessionManager.getCurrentUser()
-//                if (currentUser != null) {
-//                    val transactionDao = AppDatabase.getDatabase(application).transactionDao()
-//                    // First sync any unsynced transactions
-//                    val syncSuccess = syncAllTransactions()
-//
-//                    if (syncSuccess) {
-//                        // Handle number sequence
-//                        val numberSequence = numberSequenceRemoteDao.getNumberSequenceByStoreId(currentUser.storeid)
-//                        if (numberSequence != null) {
-//                            val updateResult = numberSequenceRemoteRepository.updateRemoteNextRec(
-//                                currentUser.storeid,
-//                                numberSequence.nextRec
-//                            )
-//
-//                            if (updateResult.isSuccess) {
-//                                // Delete number sequence first
-//                                numberSequenceRemoteDao.deleteNumberSequenceByStoreId(currentUser.storeid)
-//
-//                                // Then clear all transactions
-//                                withContext(Dispatchers.IO) {
-//                                    clearAllTransactions()
-//                                }
-//
-//                                withContext(Dispatchers.Main) {
-//                                    loadingDialog.dismiss()
-//                                    proceedWithLogout()
-//                                }
-//                            } else {
-//                                withContext(Dispatchers.Main) {
-//                                    loadingDialog.dismiss()
-//                                    showRetryDialog()
-//                                }
-//                            }
-//                        } else {
-//                            withContext(Dispatchers.IO) {
-//                                clearAllTransactions()
-//                            }
-//
-//                            withContext(Dispatchers.Main) {
-//                                loadingDialog.dismiss()
-//                                proceedWithLogout()
-//                            }
-//                        }
-//                    } else {
-//                        withContext(Dispatchers.Main) {
-//                            loadingDialog.dismiss()
-//                            showRetryDialog()
-//                        }
-//                    }
-//                } else {
-//                    withContext(Dispatchers.Main) {
-//                        loadingDialog.dismiss()
-//                        proceedWithLogout()
-//                    }
-//                }
-//            } catch (e: Exception) {
-//                Log.e("Logout", "Error during logout", e)
-//                withContext(Dispatchers.Main) {
-//                    loadingDialog.dismiss()
-//                    showRetryDialog()
-//                }
-//            }
-//        }
-//    }

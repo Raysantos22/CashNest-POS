@@ -36,6 +36,9 @@ class CartRepository(private val cartDao: CartDao) {
     suspend fun deleteAll(windowId: Int) {
         cartDao.deleteAll(windowId)
     }
+    fun getAllCartItems(): Flow<List<CartItem>> {
+        return cartDao.getAllCartItems()
+    }
     suspend fun deleteById(id: Int) {
         cartDao.deleteById(id)
     }

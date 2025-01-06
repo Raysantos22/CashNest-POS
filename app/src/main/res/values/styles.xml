@@ -2,19 +2,67 @@
 <resources>
     <style name="CustomDialogStyle" parent="Theme.MaterialComponents.Light.Dialog">
         <item name="android:windowBackground">@drawable/dialog_background</item>
-        <item name="android:windowMinWidthMajor">90%</item>
-        <item name="android:windowMinWidthMinor">90%</item>
+        <item name="android:windowMinWidthMajor">50%</item>
+        <item name="android:windowMinWidthMinor">50%</item>
     </style>
+    <style name="CustomDialogStyle1" parent="Theme.MaterialComponents.Light.Dialog">
+        <item name="android:windowBackground">@drawable/dialog_background</item>
+        <item name="android:windowMinWidthMajor">70%</item>
+        <item name="android:windowMinWidthMinor">70%</item>
+    </style>
+
+    <style name="CustomDialogStyle3" parent="Theme.MaterialComponents.Light.Dialog">
+        <item name="android:windowBackground">@drawable/dialog_background</item>
+        <item name="android:windowMinWidthMajor">50%</item>
+        <item name="android:windowMinWidthMinor">50%</item>
+    </style>
+    <style name="SearchViewDropdown" parent="Widget.AppCompat.ListView.DropDown">
+        <item name="android:background">@android:color/white</item>
+        <item name="android:divider">@android:color/darker_gray</item>
+        <item name="android:dividerHeight">0.5dp</item>
+    </style>
+    <style name="CalendarDateText">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@android:color/black</item>
+    </style>
+
+    <style name="CalendarWeekText">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@android:color/black</item>
+    </style>
+
+
+    <!-- Delete/remove this style -->
+    <style name="CalendarViewCustom" parent="ThemeOverlay.MaterialComponents.MaterialCalendar">
+        <item name="android:dateTextAppearance">@style/CalendarDateText</item>
+        <item name="android:weekDayTextAppearance">@style/CalendarWeekText</item>
+        <item name="android:headerMonthTextAppearance">@style/CalendarMonthText</item>
+<!--        <item name="android:calendarHeight">350dp</item>-->
+    </style>
+
+    <style name="CalendarMonthText">
+        <item name="android:textSize">20sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@android:color/black</item>
+    </style>
+    <!--    <style name="SidebarButtonSmall">-->
+<!--        <item name="android:layout_width">32dp</item>-->
+<!--        <item name="android:layout_height">32dp</item>-->
+<!--        <item name="android:layout_marginTop">16dp</item>-->
+<!--        <item name="android:background">?attr/selectableItemBackgroundBorderless</item>-->
+<!--        <item name="android:padding">4dp</item>-->
+<!--        <item name="android:scaleType">fitCenter</item>-->
+<!--    </style>-->
 
     <style name="SidebarButtonSmall">
-        <item name="android:layout_width">32dp</item>
-        <item name="android:layout_height">32dp</item>
-        <item name="android:layout_marginTop">16dp</item>
+        <item name="android:layout_width">42dp</item>
+        <item name="android:layout_height">42dp</item>
+        <item name="android:layout_marginTop">18dp</item>
         <item name="android:background">?attr/selectableItemBackgroundBorderless</item>
-        <item name="android:padding">4dp</item>
+        <item name="android:padding">5dp</item>
         <item name="android:scaleType">fitCenter</item>
     </style>
-
     <style name="SidebarBackground">
         <item name="android:background">#0A1E4C</item>
     </style>
@@ -27,4 +75,40 @@
         <item name="android:backgroundTint">#E0E0E0</item>
         <item name="android:textSize">18sp</item>
     </style>
+
+    <style name="SelectProductButton" parent="Widget.MaterialComponents.Button.OutlinedButton">
+        <item name="android:textAlignment">viewStart</item>
+        <item name="android:padding">16dp</item>
+        <item name="cornerRadius">8dp</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="android:backgroundTint">@color/white</item>
+    </style>
+    <style name="SmartPayCardStyle" parent="Widget.MaterialComponents.CardView">
+        <item name="cardElevation">8dp</item>
+        <item name="cardBackgroundColor">#673AB7</item>
+        <item name="rippleColor">#FFFFFF</item>
+<!--        <item name="android:outlineSpotShadowColor">#304FFE</item>  &lt;!&ndash; Blue shadow color &ndash;&gt;-->
+<!--        <item name="android:outlineAmbientShadowColor">#304FFE</item>  &lt;!&ndash; Blue shadow color &ndash;&gt;-->
+    </style>
+    <style name="CircularImageView">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+
+    <style name="CalendarTheme" parent="ThemeOverlay.MaterialComponents.Light">
+        <item name="colorAccent">@color/white</item>
+        <item name="android:textColorPrimary">@android:color/black</item>
+        <item name="android:textColorSecondary">@android:color/darker_gray</item>
+    </style>
+
+<!--    <style name="CalendarDateText">-->
+<!--        <item name="android:textSize">14sp</item>-->
+<!--        <item name="android:textColor">@android:color/black</item>-->
+<!--    </style>-->
+
+<!--    <style name="CalendarWeekText">-->
+<!--        <item name="android:textSize">12sp</item>-->
+<!--        <item name="android:textColor">@android:color/darker_gray</item>-->
+<!--        <item name="android:textStyle">bold</item>-->
+<!--    </style>-->
 </resources>

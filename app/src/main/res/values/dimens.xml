@@ -9,4 +9,16 @@
     <dimen name="text_size_large">30sp</dimen>
     <dimen name="chip_stroke_width">1dp</dimen>
 
+
+    <dimen name="grid_spacing">5dp</dimen>
+    <dimen name="max_text_size">22sp</dimen>
+    <dimen name="min_text_size">14sp</dimen>
+    <dimen name="day_button_margin">4dp</dimen>
+
+    <dimen name="card_corner_radius">4dp</dimen>
+    <dimen name="card_elevation">2dp</dimen>
+
+    <dimen name="button_margin">8dp</dimen>
+    <dimen name="button_stroke_width">1dp</dimen>
+    <dimen name="button_corner_radius">20dp</dimen>
 </resources>

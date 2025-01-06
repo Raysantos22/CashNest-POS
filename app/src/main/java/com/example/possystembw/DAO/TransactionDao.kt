@@ -9,6 +9,7 @@ import androidx.room.Update
 import com.example.possystembw.database.TransactionRecord
 import com.example.possystembw.database.TransactionSummary
 import kotlinx.coroutines.flow.Flow
+import java.util.Date
 
 @Dao
 interface TransactionDao {
@@ -87,7 +88,6 @@ interface TransactionDao {
 //    @Query("DELETE FROM transaction_summary")
 //    suspend fun deleteAllTransactionSummaries()
 
-
 //    @Query("SELECT * FROM transaction_summary WHERE syncStatus = 0")
 //    suspend fun getUnsyncedTransactionSummaries(): List<TransactionSummary>
 //
@@ -142,6 +142,23 @@ interface TransactionDao {
     @Query("SELECT * FROM transaction_summary WHERE zReportId = :zReportId")
     suspend fun getTransactionsByZReport(zReportId: String): List<TransactionSummary>
 
+    @Query("""
+        UPDATE Transaction_summary 
+        SET zReportId = :zReportId 
+        WHERE store = :storeId 
+        AND (zReportId IS NULL OR zReportId = '')
+    """)
+    suspend fun updateTransactionsZReportId(storeId: String, zReportId: String)
+
+    @Query("SELECT * FROM transaction_summary WHERE refundReceiptId = :originalTransactionId")
+    suspend fun findReturnTransactionsForOriginal(originalTransactionId: String): List<TransactionSummary>
+
+    @Query("SELECT * FROM transaction_summary WHERE createdDate BETWEEN :startDate AND :endDate ORDER BY createdDate DESC")
+    suspend fun getTransactionsByDateRange(startDate: Date, endDate: Date): List<TransactionSummary>
+
+
+    @Query("SELECT * FROM transactions WHERE createdDate >= :date")
+    suspend fun getTransactionRecordsSince(date: Date): List<TransactionRecord>
 }
 
 

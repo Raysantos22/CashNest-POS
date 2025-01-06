@@ -5,6 +5,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.View
 import android.webkit.ConsoleMessage
@@ -49,13 +51,16 @@ class LoginActivity : AppCompatActivity() {
     private lateinit var loadingProgressBar: ProgressBar
     private lateinit var loadingText: TextView
     private lateinit var hiddenWebView: WebView
+
     private var webLoginAttempted = false
     private var isWebLoginComplete = false
     private var isNativeLoginComplete = false
+    private var webLoginTimeout = false
+
+    private val webLoginTimeoutHandler = Handler(Looper.getMainLooper())
+    private val WEB_LOGIN_TIMEOUT = 10000L // 10 seconds timeout
+
     private var usersFetched = false
-
-
-
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -83,6 +88,7 @@ class LoginActivity : AppCompatActivity() {
         fun onWebLoginSuccess() {
             runOnUiThread {
                 Log.d("LoginActivity", "Web login successful")
+                webLoginTimeoutHandler.removeCallbacksAndMessages(null)
                 val cookies = CookieManager.getInstance().getCookie("https://eljin.org")
                 SessionManager.setWebSessionCookies(cookies)
                 isWebLoginComplete = true
@@ -94,8 +100,8 @@ class LoginActivity : AppCompatActivity() {
         fun onWebLoginError(error: String) {
             runOnUiThread {
                 Log.e("LoginActivity", "Web login error: $error")
-                Toast.makeText(this@LoginActivity, "Web login failed: $error", Toast.LENGTH_SHORT).show()
-                hideLoading()
+                // Don't block the login process, just log the error
+                proceedWithoutWebLogin("Web login failed: $error")
             }
         }
     }
@@ -120,11 +126,6 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun setupWebView() {
-        // Enable third party cookies
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            CookieManager.getInstance().setAcceptThirdPartyCookies(hiddenWebView, true)
-        }
-
         hiddenWebView.apply {
             settings.apply {
                 javaScriptEnabled = true
@@ -134,7 +135,6 @@ class LoginActivity : AppCompatActivity() {
                 mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             }
 
-            // Add JavaScript interface
             addJavascriptInterface(WebAppInterface(), "Android")
 
             webViewClient = object : WebViewClient() {
@@ -145,81 +145,76 @@ class LoginActivity : AppCompatActivity() {
                     if (!webLoginAttempted && url?.contains("/login") == true) {
                         webLoginAttempted = true
 
-                        // First get CSRF token
+                        // Set timeout for web login
+                        webLoginTimeoutHandler.postDelayed({
+                            if (!isWebLoginComplete) {
+                                webLoginTimeout = true
+                                proceedWithoutWebLogin("Web login timed out")
+                            }
+                        }, WEB_LOGIN_TIMEOUT)
+
                         view?.evaluateJavascript(
                             """
-                        (async function() {
-                            try {
-                                // Get CSRF token from meta tag
-                                const token = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-                                
-                                // Prepare credentials
-                                const email = '${emailInput.text}';
-                                const password = '${passwordInput.text}';
-                                
-                                // Get CSRF cookie first
-                                await fetch('/sanctum/csrf-cookie', {
-                                    method: 'GET',
-                                    credentials: 'include'
-                                });
-                                
-                                // Attempt login
-                                const response = await fetch('/login', {
-                                    method: 'POST',
-                                    headers: {
-                                        'Content-Type': 'application/json',
-                                        'Accept': 'application/json',
-                                        'X-CSRF-TOKEN': token,
-                                        'X-Requested-With': 'XMLHttpRequest'
-                                    },
-                                    credentials: 'include',
-                                    body: JSON.stringify({
-                                        email: email,
-                                        password: password,
-                                        _token: token
-                                    })
-                                });
-                                
-                                if (response.redirected || response.ok) {
-                                    window.location.href = '/dashboard';
-                                } else {
-                                    Android.onWebLoginError('Login failed');
+                            (async function() {
+                                try {
+                                    const token = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+                                    const email = '${emailInput.text}';
+                                    const password = '${passwordInput.text}';
+                                    
+                                    await fetch('/sanctum/csrf-cookie', {
+                                        method: 'GET',
+                                        credentials: 'include'
+                                    });
+                                    
+                                    const response = await fetch('/login', {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            'Accept': 'application/json',
+                                            'X-CSRF-TOKEN': token,
+                                            'X-Requested-With': 'XMLHttpRequest'
+                                        },
+                                        credentials: 'include',
+                                        body: JSON.stringify({
+                                            email: email,
+                                            password: password,
+                                            _token: token
+                                        })
+                                    });
+                                    
+                                    if (response.redirected || response.ok) {
+                                        window.location.href = '/dashboard';
+                                    } else {
+                                        Android.onWebLoginError('Login request failed');
+                                    }
+                                } catch(e) {
+                                    Android.onWebLoginError(e.toString());
                                 }
-                            } catch(e) {
-                                Android.onWebLoginError(e.toString());
-                            }
-                        })();
-                        """.trimIndent()
+                            })();
+                            """.trimIndent()
                         ) { result ->
                             Log.d("LoginActivity", "Login script result: $result")
                         }
-                    } else if (url?.contains("/dashboard") == true) {
-                        val cookies = CookieManager.getInstance().getCookie("https://eljin.org")
-                        Log.d("LoginActivity", "Cookies after login: $cookies")
-                        SessionManager.setWebSessionCookies(cookies)
-                        isWebLoginComplete = true
-                        checkLoginCompletion()
                     }
                 }
 
                 override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
                     super.onReceivedError(view, request, error)
                     Log.e("LoginActivity", "WebView error: ${error?.description}")
-                    runOnUiThread {
-                        hideLoading()
-                        Toast.makeText(this@LoginActivity, "Web login error: ${error?.description}", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-
-            webChromeClient = object : WebChromeClient() {
-                override fun onConsoleMessage(message: ConsoleMessage): Boolean {
-                    Log.d("WebView", "${message.message()} -- From line ${message.lineNumber()} of ${message.sourceId()}")
-                    return true
+                    proceedWithoutWebLogin("WebView error: ${error?.description}")
                 }
             }
         }
     }
+    private fun proceedWithoutWebLogin(reason: String) {
+        if (!isWebLoginComplete && !webLoginTimeout) {
+            Log.w("LoginActivity", "Proceeding without web login: $reason")
+            isWebLoginComplete = true // Mark as complete to allow login to proceed
+            webLoginTimeoutHandler.removeCallbacksAndMessages(null)
+            checkLoginCompletion()
+        }
+    }
+
 
     private fun setupLoginButton() {
         loginButton.setOnClickListener {
@@ -231,12 +226,18 @@ class LoginActivity : AppCompatActivity() {
                 webLoginAttempted = false
                 isWebLoginComplete = false
                 isNativeLoginComplete = false
+                webLoginTimeout = false
 
                 // Start native login
                 viewModel.login(email, password)
 
-                // Start web login
-                hiddenWebView.loadUrl("https://eljin.org/login")
+                // Attempt web login but don't block on it
+                try {
+                    hiddenWebView.loadUrl("https://eljin.org/login")
+                } catch (e: Exception) {
+                    Log.e("LoginActivity", "Failed to start web login", e)
+                    proceedWithoutWebLogin("Failed to start web login: ${e.message}")
+                }
             } else {
                 Toast.makeText(this, "Please enter email and password", Toast.LENGTH_SHORT).show()
             }
@@ -270,25 +271,6 @@ private fun setupObservers() {
         }
     }
 
-    // Existing observers
-    viewModel.loginDataState.observe(this) { state ->
-        when (state) {
-            is LoginDataState.Loading -> {
-                showLoading("Loading data...")
-            }
-            is LoginDataState.Success -> {
-                showLoading("Loaded: ${state.transactionSummaryCount} summaries, ${state.transactionRecordCount} records")
-                if (state.hasNumberSequence) {
-                    hiddenWebView.loadUrl("https://eljin.org/login")
-                }
-            }
-            is LoginDataState.Error -> {
-                hideLoading()
-                Toast.makeText(this, state.message, Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-
     viewModel.loginResult.observe(this) { result ->
         result.onSuccess { user ->
             isNativeLoginComplete = true
@@ -299,14 +281,47 @@ private fun setupObservers() {
             Toast.makeText(this, "Login failed: ${error.message}", Toast.LENGTH_SHORT).show()
         }
     }
+
+    viewModel.staffData.observe(this) { result ->
+        result.onSuccess { staffList ->
+            Log.d("LoginActivity", "Successfully fetched and stored ${staffList.size} staff members")
+        }.onFailure { error ->
+            Log.e("LoginActivity", "Failed to fetch staff data", error)
+        }
+    }
+
+    viewModel.loginDataState.observe(this) { state ->
+        when (state) {
+            is LoginDataState.Loading -> {
+                showLoading("Loading data...")
+            }
+            is LoginDataState.Success -> {
+                showLoading("Loaded: ${state.transactionSummaryCount} summaries, ${state.transactionRecordCount} records")
+            }
+            is LoginDataState.Error -> {
+                hideLoading()
+                Toast.makeText(this, state.message, Toast.LENGTH_LONG).show()
+            }
+
+            is LoginDataState.Warning -> TODO()
+        }
+    }
 }
+
     private fun checkLoginCompletion() {
-        if (isWebLoginComplete && isNativeLoginComplete) {
-            Log.d("LoginActivity", "Both web and native login completed successfully")
-            SessionManager.refreshSession() // Refresh session timestamp
+        val webStatus = if (isWebLoginComplete) "completed" else "pending"
+        Log.d("LoginActivity", "Login status - Native: $isNativeLoginComplete, Web: $webStatus")
+
+        if (isNativeLoginComplete) {
+            // If native login is successful, proceed regardless of web login state
+            if (!isWebLoginComplete) {
+                Log.w("LoginActivity", "Proceeding with login despite incomplete web login")
+                isWebLoginComplete = true
+            }
+
+            Log.d("LoginActivity", "Login completed successfully")
+            SessionManager.refreshSession()
             startMainActivity()
-        } else {
-            Log.d("LoginActivity", "Waiting for login completion - Web: $isWebLoginComplete, Native: $isNativeLoginComplete")
         }
     }
     private fun setupBackgroundVideo() {
@@ -314,7 +329,7 @@ private fun setupObservers() {
 
         try {
             // Set video path
-            val path = "android.resource://$packageName/drawable/" + R.raw.backgroundvideo
+            val path = "android.resource://$packageName/drawable/" + R.raw.ads
             videoView.setVideoPath(path)
 
             // Configure video playback with muted audio

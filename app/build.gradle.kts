@@ -68,6 +68,24 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.runner)
     implementation(libs.androidx.swiperefreshlayout)
+//    implementation(libs.play.services.mlkit.barcode.scanning)
+//    implementation(libs.androidx.camera.lifecycle)
+//    implementation(libs.androidx.camera.view)
+
+    implementation ("de.hdodenhof:circleimageview:3.1.0")
+    // ML Kit for barcode scanning
+    implementation("com.google.mlkit:barcode-scanning:17.2.0")
+
+// CameraX dependencies
+    val camerax_version = "1.3.0"
+    implementation("androidx.camera:camera-core:${camerax_version}")
+    implementation("androidx.camera:camera-camera2:${camerax_version}")
+    implementation("androidx.camera:camera-lifecycle:${camerax_version}")
+    implementation("androidx.camera:camera-view:${camerax_version}")
+
+// Additional required dependencies for CameraX
+    implementation("androidx.concurrent:concurrent-futures-ktx:1.1.0")
+    implementation("androidx.window:window:1.0.0")
     /*
         implementation(libs.androidx.ui.test.android)
     */

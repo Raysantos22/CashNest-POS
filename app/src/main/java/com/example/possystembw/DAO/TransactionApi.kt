@@ -38,9 +38,27 @@ interface TransactionApi {
                 "{}"
             )
         ): Response<TransactionMatchResponse>
-    }
 
 
+    @POST("api/rbotransactiontables/{storeId}/{zReportId}")
+    suspend fun updateTransactionsZReport(
+        @Path("storeId") storeId: String,
+        @Path("zReportId") zReportId: String
+    ): Response<ZReportUpdateResponse>
+}
+
+
+data class ZReportUpdateResponse(
+    val success: Boolean = false,
+    val message: String = "",
+    val data: ZReportData? = null
+)
+
+data class ZReportData(
+    val updatedTransactions: Int = 0,
+    val storeId: String = "",
+    val zReportId: String = ""
+)
 data class TransactionMatchResponse(
     val message: String
 )

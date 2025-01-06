@@ -10,14 +10,12 @@ interface NumberSequenceApi {
     @GET("api/getsequence/{storeId}")
     suspend fun getNumberSequence(@Path("storeId") storeId: String): Response<Map<String, List<NumberSequenceValue>>>
 
-    @POST("api/updatesequence/{storeId}/{nextRec}")
+    @POST("api/getsequence/{storeId}/{nextRec}")
     suspend fun updateNumberSequence(
     @Path("storeId") storeId: String,
     @Path("nextRec") nextRec: Int
 ): Response<UpdateSequenceResponse>
 }
-
-
 
 // Add response data class
 data class UpdateSequenceResponse(

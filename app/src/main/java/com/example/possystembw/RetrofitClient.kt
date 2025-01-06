@@ -325,15 +325,23 @@
 
 package com.example.possystembw
 
+
 import android.util.Log
 import com.example.possystembw.DAO.ARApi
 import com.example.possystembw.DAO.ApiResponse
+import com.example.possystembw.DAO.AttendanceApi
+import com.example.possystembw.DAO.AttendanceService
 import com.example.possystembw.DAO.CategoryApi
 import com.example.possystembw.DAO.CustomerApi
 import com.example.possystembw.DAO.DiscountApiService
+import com.example.possystembw.DAO.LineDetailsApi
+import com.example.possystembw.DAO.LoyaltyCardApi
 import com.example.possystembw.DAO.MixMatchApi
 import com.example.possystembw.DAO.NumberSequenceApi
 import com.example.possystembw.DAO.ProductApi
+import com.example.possystembw.DAO.StaffApi
+import com.example.possystembw.DAO.StockCountingApi
+import com.example.possystembw.DAO.StoreExpenseApi
 import com.example.possystembw.DAO.TransactionApi
 import com.example.possystembw.DAO.TransactionSyncApi
 import com.example.possystembw.DAO.UserApi
@@ -349,6 +357,7 @@ import com.google.gson.JsonDeserializationContext
 import com.google.gson.JsonDeserializer
 import com.google.gson.JsonElement
 import okhttp3.OkHttpClient
+import okhttp3.ResponseBody
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Response
 import retrofit2.Retrofit
@@ -364,8 +373,16 @@ object RetrofitClient {
     //    private const val BASE_URL = "http://173.252.167.180/"
 //    private const val BASE_URL = "https://ecticketph.com/"
 //        private const val BASE_URL = "http://173.252.167.180/"
-    private const val BASE_URL = "https://nodeserver.com.ecticketph.com/"
-//    private const val BASE_URL = "http://10.151.5.145:3000/"
+
+//    private const val BASE_URL = "https://nodeserver.com.ecticketph.com/"
+
+//    private const val BASE_URL = "https://ecposeljin.com.ecticketph.com/"
+
+    //   local
+//       private const val BASE_URL = "http://10.151.5.145:3000/"
+
+    private const val BASE_URL = "https://ecposmiddleware-aj1882pz3-progenxs-projects.vercel.app/"
+    private const val WORLD_TIME_API = "http://worldtimeapi.org/api/"
 
     private const val TAG = "RetrofitClient"
 
@@ -396,6 +413,8 @@ object RetrofitClient {
 
 
     }
+
+
     // Add this to check if you can reach the server
     fun isServerReachable(): Boolean {
         return try {
@@ -407,6 +426,38 @@ object RetrofitClient {
             Log.e(TAG, "Server unreachable: ${e.message}")
             false
         }
+    }
+
+    private val worldTimeRetrofit = Retrofit.Builder()
+        .baseUrl(WORLD_TIME_API)
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+
+
+    val attendanceApi: AttendanceApi by lazy {
+        retrofit.create(AttendanceApi::class.java)
+    }
+
+    val stockCountingApi: StockCountingApi by lazy {
+        retrofit.create(StockCountingApi::class.java)
+    }
+
+    val lineDetailsApi: LineDetailsApi by lazy {
+        retrofit.create(LineDetailsApi::class.java)
+    }
+
+    val attendanceService: AttendanceService by lazy {
+        AttendanceService(attendanceApi)
+    }
+    val staffApi: StaffApi by lazy {
+        retrofit.create(StaffApi::class.java)
+    }
+
+    val storeExpenseApi: StoreExpenseApi by lazy {
+        retrofit.create(StoreExpenseApi::class.java)
+    }
+    val loyaltyCardApi: LoyaltyCardApi by lazy {
+        retrofit.create(LoyaltyCardApi::class.java)
     }
     val productApi: ProductApi by lazy {
         retrofit.create(ProductApi::class.java)
@@ -540,9 +591,60 @@ object RetrofitClient {
 
         retrofit.create(UserApi::class.java)
     }
+
+    //    val transactionApi: TransactionApi by lazy {
+//        val gson = GsonBuilder()
+//            .setDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+//            .serializeNulls()
+//            .create()
+//
+//        val loggingInterceptor = HttpLoggingInterceptor { message ->
+//            Log.d(TAG, message)
+//        }.apply {
+//            level = HttpLoggingInterceptor.Level.BODY
+//        }
+//
+//        val okHttpClient = OkHttpClient.Builder()
+//            .addInterceptor(loggingInterceptor)
+//            .addInterceptor { chain ->
+//                val original = chain.request()
+//                val requestBody = original.body
+//
+//                // Ensure we're not sending an empty body
+//                if (requestBody == null || requestBody.contentLength() == 0L) {
+//                    Log.e(TAG, "Empty request body detected!")
+//                }
+//
+//                val request = original.newBuilder()
+//                    .header("Content-Type", "application/json")
+//                    .method(original.method, requestBody)
+//                    .build()
+//
+//                // Log the complete request for debugging
+//                Log.d(TAG, "Request URL: ${request.url}")
+//                Log.d(TAG, "Request Headers: ${request.headers}")
+//                Log.d(TAG, "Request Body: ${requestBody?.toString()}")
+//
+//                chain.proceed(request)
+//            }
+//            .connectTimeout(30, TimeUnit.SECONDS)
+//            .readTimeout(30, TimeUnit.SECONDS)
+//            .writeTimeout(30, TimeUnit.SECONDS)
+//            .build()
+//
+//        Retrofit.Builder()
+//            .baseUrl(BASE_URL)
+//            .client(okHttpClient)
+//            .addConverterFactory(GsonConverterFactory.create(gson))
+//            .build()
+//            .create(TransactionApi::class.java)
+//    }
+//
+//}
     val transactionApi: TransactionApi by lazy {
         val gson = GsonBuilder()
             .setDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
+            .setPrettyPrinting() // Add this for better JSON formatting in logs
             .serializeNulls()
             .create()
 
@@ -573,7 +675,19 @@ object RetrofitClient {
                 Log.d(TAG, "Request Headers: ${request.headers}")
                 Log.d(TAG, "Request Body: ${requestBody?.toString()}")
 
-                chain.proceed(request)
+                val response = chain.proceed(request)
+
+                // Add detailed error logging for 500 errors
+                if (!response.isSuccessful && response.code == 500) {
+                    val errorBody = response.body?.string()
+                    Log.e(TAG, "API 500 ERROR: $errorBody")
+                    // Must recreate the response since body can only be consumed once
+                    return@addInterceptor response.newBuilder()
+                        .body(ResponseBody.create(response.body?.contentType(), errorBody ?: ""))
+                        .build()
+                }
+
+                response
             }
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
@@ -587,5 +701,4 @@ object RetrofitClient {
             .build()
             .create(TransactionApi::class.java)
     }
-
 }

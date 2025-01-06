@@ -7,10 +7,17 @@ import com.example.possystembw.database.Customer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import java.util.Date
 
 class CustomerRepository(private val customerApi: CustomerApi, private val customerDao: CustomerDao) {
     val allCustomers: Flow<List<Customer>> = customerDao.getAllCustomersFlow()
 
+
+    suspend fun getCustomerPurchaseHistory(customerName: String): List<CustomerPurchaseHistory> {
+        return withContext(Dispatchers.IO) {
+            customerDao.getCustomerPurchaseHistory(customerName)
+        }
+    }
     suspend fun getAllCustomers(): List<Customer> {
         return withContext(Dispatchers.IO) {
             try {
@@ -41,3 +48,17 @@ class CustomerRepository(private val customerApi: CustomerApi, private val custo
 }
 
 
+data class CustomerPurchaseHistory(
+    val id: Int,
+    val itemid: String,
+    val itemName: String,
+    val itemGroup: String,
+    val price: Double,
+    val foodpanda: Double,
+    val grabfood: Double,
+    val manilaprice: Double,
+    val categoryId: Long,
+    val purchaseCount: Int,
+    val lastPurchaseDate: Date,
+    val averageQuantity: Double
+)

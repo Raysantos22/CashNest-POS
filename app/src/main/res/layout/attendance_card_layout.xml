@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_margin="16dp"
+    app:cardCornerRadius="16dp"
+    app:cardElevation="8dp"
+    android:background="#E0E0E0">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- Header with Staff Name, Date, and History Button -->
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="8dp">
+
+            <TextView
+                android:id="@+id/staffNameDate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentStart="true"
+                android:layout_centerVertical="true"
+                android:textSize="18sp"
+                android:textStyle="bold"/>
+
+            <Button
+                android:id="@+id/btnHistory"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentEnd="true"
+                android:text="History"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#9C27B0"/>
+        </RelativeLayout>
+
+        <!-- Attendance Circles Container -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:padding="16dp">
+
+            <!-- Time In -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center">
+
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/timeInCircle"
+                    android:layout_width="80dp"
+                    android:layout_height="80dp"
+                    android:src="@drawable/placeholder_image"
+                    app:civ_border_width="2dp"
+                    app:civ_border_color="#CCCCCC"/>
+
+                <TextView
+                    android:id="@+id/timeInText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Time In"
+                    android:textSize="12sp"/>
+
+                <TextView
+                    android:id="@+id/timeInValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"/>
+            </LinearLayout>
+
+            <!-- Break In -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center">
+
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/breakInCircle"
+                    android:layout_width="80dp"
+                    android:layout_height="80dp"
+                    android:src="@drawable/placeholder_image"
+                    app:civ_border_width="2dp"
+                    app:civ_border_color="#CCCCCC"/>
+
+                <TextView
+                    android:id="@+id/breakInText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Break In"
+                    android:textSize="12sp"/>
+
+                <TextView
+                    android:id="@+id/breakInValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"/>
+            </LinearLayout>
+
+            <!-- Break Out -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center">
+
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/breakOutCircle"
+                    android:layout_width="80dp"
+                    android:layout_height="80dp"
+                    android:src="@drawable/placeholder_image"
+                    app:civ_border_width="2dp"
+                    app:civ_border_color="#CCCCCC"/>
+
+                <TextView
+                    android:id="@+id/breakOutText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Break Out"
+                    android:textSize="12sp"/>
+
+                <TextView
+                    android:id="@+id/breakOutValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"/>
+            </LinearLayout>
+
+            <!-- Time Out -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center">
+
+                <de.hdodenhof.circleimageview.CircleImageView
+                    android:id="@+id/timeOutCircle"
+                    android:layout_width="80dp"
+                    android:layout_height="80dp"
+                    android:src="@drawable/placeholder_image"
+                    app:civ_border_width="2dp"
+                    app:civ_border_color="#CCCCCC"/>
+
+                <TextView
+                    android:id="@+id/timeOutText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Time Out"
+                    android:textSize="12sp"/>
+
+                <TextView
+                    android:id="@+id/timeOutValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"/>
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</androidx.cardview.widget.CardView>

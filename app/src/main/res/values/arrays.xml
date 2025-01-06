@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="waste_types">
+        <item>Select type</item>
+        <item>Throw Away</item>
+        <item>Early Molds</item>
+        <item>Pull Out</item>
+        <item>Rat Bites</item>
+        <item>Ant Bites</item>
+    </string-array>
+</resources>

@@ -1,8 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
+    <!-- Base config for general cleartext traffic -->
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
+
+    <!-- Specific domain configurations -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">timeapi.io</domain>
+        <domain includeSubdomains="true">timezonedb.com</domain>
+        <domain includeSubdomains="true">time.google.com</domain>
+        <domain includeSubdomains="true">time.rs</domain>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
 </network-security-config>

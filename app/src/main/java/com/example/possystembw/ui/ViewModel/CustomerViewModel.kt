@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.possystembw.data.CustomerPurchaseHistory
 import com.example.possystembw.data.CustomerRepository
 import com.example.possystembw.database.Customer
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +20,9 @@ class CustomerViewModel(private val customerRepository: CustomerRepository) : Vi
 
     private val _searchResults = MutableStateFlow<List<Customer>>(emptyList())
     val searchResults: StateFlow<List<Customer>> = _searchResults.asStateFlow()
+
+    private val _purchaseHistory = MutableStateFlow<List<CustomerPurchaseHistory>>(emptyList())
+    val purchaseHistory: StateFlow<List<CustomerPurchaseHistory>> = _purchaseHistory.asStateFlow()
 
     init {
         // Collect local customers immediately
@@ -37,6 +41,27 @@ class CustomerViewModel(private val customerRepository: CustomerRepository) : Vi
             } catch (e: Exception) {
                 Log.e("CustomerViewModel", "Error refreshing customers", e)
                 // Local data will still be available through Flow
+            }
+        }
+    }
+    fun clearPurchaseHistory() {
+        viewModelScope.launch {
+            _purchaseHistory.value = emptyList()
+        }
+    }
+
+    fun loadCustomerPurchaseHistory(customerName: String) {
+        viewModelScope.launch {
+            try {
+                if (customerName == "Walk-in Customer") {
+                    clearPurchaseHistory()
+                    return@launch
+                }
+                val history = customerRepository.getCustomerPurchaseHistory(customerName)
+                _purchaseHistory.value = history
+            } catch (e: Exception) {
+                Log.e("CustomerViewModel", "Error loading purchase history", e)
+                _purchaseHistory.value = emptyList()
             }
         }
     }

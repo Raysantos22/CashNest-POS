@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 137,
-    "identityHash": "bdfea2644a6ba4bf8f030d545b99decc",
+    "identityHash": "63059e0225b65e632cce85eb1d15e312",
     "entities": [
       {
         "tableName": "products",
@@ -122,7 +122,7 @@
       },
       {
         "tableName": "cart_items",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `product_id` INTEGER NOT NULL, `product_name` TEXT NOT NULL, `quantity` INTEGER NOT NULL, `price` REAL NOT NULL, `window_id` INTEGER NOT NULL, `discount` REAL NOT NULL, `discountType` TEXT NOT NULL, `overriddenPrice` REAL, `partialPayment` REAL NOT NULL, `comment` TEXT, `cart_comment` TEXT, `amountPaid` REAL NOT NULL, `transactionId` TEXT, `receiptNumber` TEXT, `originalTransactionId` TEXT, `originalReceiptNumber` TEXT, `isVatExempt` INTEGER NOT NULL, `store` TEXT, `staff` TEXT, `customerName` TEXT, `customerAccName` TEXT, `netAmount` REAL NOT NULL, `grossAmount` REAL NOT NULL, `discountAmount` REAL NOT NULL, `numberOfItems` REAL NOT NULL, `createdDate` INTEGER, `taxIncludedInPrice` REAL NOT NULL, `gCash` REAL NOT NULL, `cash` REAL NOT NULL, `card` REAL NOT NULL, `totalAmountPaid` REAL NOT NULL, `paymentMethod` TEXT, `vatAmount` REAL NOT NULL, `vatExemptAmount` REAL NOT NULL, `bundle_id` INTEGER, `bundle_selections` TEXT, `bundleName` TEXT NOT NULL, `itemGroup` TEXT NOT NULL, `itemId` TEXT NOT NULL, `lineNum` INTEGER)",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `product_id` INTEGER NOT NULL, `product_name` TEXT NOT NULL, `quantity` INTEGER NOT NULL, `price` REAL NOT NULL, `window_id` INTEGER NOT NULL, `discount` REAL NOT NULL, `discountType` TEXT NOT NULL, `overriddenPrice` REAL, `partialPayment` REAL NOT NULL, `comment` TEXT, `cart_comment` TEXT, `amountPaid` REAL NOT NULL, `transactionId` TEXT, `receiptNumber` TEXT, `originalTransactionId` TEXT, `originalReceiptNumber` TEXT, `isVatExempt` INTEGER NOT NULL, `store` TEXT, `staff` TEXT, `customerName` TEXT, `customerAccName` TEXT, `netAmount` REAL NOT NULL, `grossAmount` REAL NOT NULL, `discountAmount` REAL NOT NULL, `numberOfItems` REAL NOT NULL, `createdDate` INTEGER, `taxIncludedInPrice` REAL NOT NULL, `gCash` REAL NOT NULL, `cash` REAL NOT NULL, `card` REAL NOT NULL, `totalAmountPaid` REAL NOT NULL, `paymentMethod` TEXT, `vatAmount` REAL NOT NULL, `vatExemptAmount` REAL NOT NULL, `bundle_id` INTEGER, `bundle_selections` TEXT, `bundleName` TEXT NOT NULL, `itemGroup` TEXT NOT NULL, `itemId` TEXT NOT NULL, `lineNum` INTEGER, `discountName` TEXT)",
         "fields": [
           {
             "fieldPath": "id",
@@ -368,6 +368,12 @@
             "fieldPath": "lineNum",
             "columnName": "lineNum",
             "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "discountName",
+            "columnName": "discountName",
+            "affinity": "TEXT",
             "notNull": false
           }
         ],
@@ -4155,7 +4161,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'bdfea2644a6ba4bf8f030d545b99decc')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '63059e0225b65e632cce85eb1d15e312')"
     ]
   }
 }

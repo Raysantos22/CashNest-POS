@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/containerLayout"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -12,12 +13,14 @@
         android:layout_height="wrap_content"
         android:textSize="18sp"
         android:textStyle="bold"
+        android:textColor="@color/black"
         android:layout_marginBottom="8dp"/>
 
     <TextView
         android:id="@+id/textViewMixMatchDescription"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:textColor="@color/black"
         android:layout_marginBottom="16dp"/>
 
     <androidx.recyclerview.widget.RecyclerView
@@ -26,11 +29,31 @@
         android:layout_height="0dp"
         android:layout_weight="1"/>
 
-    <Button
-        android:id="@+id/buttonApply"
+    <androidx.cardview.widget.CardView
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Apply"
-        android:layout_marginTop="16dp"/>
+        android:layout_height="80dp"
+        app:cardBackgroundColor="@color/navy"
+        app:cardCornerRadius="14dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginStart="2dp"
+        android:layout_marginEnd="2dp"
+        android:layout_marginBottom="2dp"
+        app:cardElevation="4dp"
+        app:cardMaxElevation="6dp"
+        app:cardPreventCornerOverlap="true"
+        app:cardUseCompatPadding="true">
+
+        <Button
+            android:id="@+id/buttonApply"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="?attr/selectableItemBackground"
+            android:text="APPLY"
+            android:textAllCaps="false"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"
+            android:stateListAnimator="@null"/>
+
+    </androidx.cardview.widget.CardView>
 
 </LinearLayout>

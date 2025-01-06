@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_margin="8dp"
+    app:cardCornerRadius="12dp"
+    app:cardElevation="0dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <EditText
+            android:id="@+id/editTextPrinterName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:hint="Printer Name"/>
+
+        <EditText
+            android:id="@+id/editTextMacAddress"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:hint="MAC Address (XX:XX:XX:XX:XX:XX)"/>
+
+        <CheckBox
+            android:id="@+id/checkBoxDefault"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Set as Default Printer"/>
+
+    </LinearLayout>
+
+</androidx.cardview.widget.CardView>

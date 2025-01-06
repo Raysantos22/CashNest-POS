@@ -11,4 +11,8 @@ interface DiscountDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(discounts: List<Discount>)
+
+    @Query("SELECT * FROM discounts WHERE DISCOFFERNAME = :name LIMIT 1")
+    suspend fun getDiscountByName(name: String): Discount?
+
 }

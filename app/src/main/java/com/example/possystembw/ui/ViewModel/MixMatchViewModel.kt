@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.possystembw.data.MixMatchRepository
+import com.example.possystembw.database.CartItem
 import com.example.possystembw.database.MixMatchWithDetails
 import com.example.possystembw.database.Product
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +37,23 @@ class MixMatchViewModel(
                 _loading.value = false
             }
         }
+    }
+    fun getAvailablePromos(): List<MixMatchWithDetails> {
+        return mixMatches.value.take(3) // Take only first 3 promos
+    }
+
+    fun findPromoSuggestionsForCart(cartItems: List<CartItem>): List<MixMatchWithDetails> {
+        return mixMatches.value
+            .filter { mixMatch ->
+                cartItems.any { cartItem ->
+                    mixMatch.lineGroups.any { lineGroup ->
+                        lineGroup.discountLines.any { line ->
+                            line.itemId == cartItem.itemId
+                        }
+                    }
+                }
+            }
+            .take(3) // Limit to 3 promos
     }
 }
 

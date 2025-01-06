@@ -46,6 +46,8 @@ data class CartItem(
     @ColumnInfo(name = "bundleName")val mixMatchId: String = "",
     @ColumnInfo(name = "itemGroup")val itemGroup: String,  // Added field
     @ColumnInfo(name = "itemId")val itemId: String,
-    @ColumnInfo(name = "lineNum")val lineNum: Int? = null  // Added lineNum field
+    @ColumnInfo(name = "lineNum")val lineNum: Int? = null,
+    @ColumnInfo(name = "discountName") val discountName: String? = null // New property to store discount name
+// Added lineNum field
 
 )

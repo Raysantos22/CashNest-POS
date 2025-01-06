@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--        // passcode_dialog.xml-->
+    <androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="300dp"
+    android:layout_height="wrap_content"
+    app:cardCornerRadius="12dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@color/white"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/titleText"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:text="Enter Passcode"
+            android:textSize="20sp"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:textColor="@color/black"
+            android:layout_marginBottom="16dp"/>
+
+        <EditText
+            android:id="@+id/passcodeInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="numberPassword"
+            android:maxLength="6"
+            android:gravity="center"
+            android:background="@drawable/edit_text_background1"
+            android:textColor="@color/black"
+            android:textColorHint="@color/gray"
+            android:textSize="20sp"
+            android:padding="10dp"
+            android:hint="PINCODE"
+            />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="16dp">
+
+            <Button
+                android:id="@+id/cancelButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Cancel"
+                android:textSize="20sp"
+                android:padding="10dp"
+                android:background="@color/navy"
+                />
+
+            <Button
+                android:id="@+id/confirmButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="@color/navy"
+                android:textSize="20sp"
+                android:padding="10dp"
+                android:layout_marginStart="10dp"
+                android:text="Confirm"/>
+        </LinearLayout>
+
+    </LinearLayout>
+</androidx.cardview.widget.CardView>

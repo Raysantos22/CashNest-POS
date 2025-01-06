@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--        // break_status_layouts.xml-->
+    <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <!-- Break Status Button (Start/End) -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/breakStatusCard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="8dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- Break Button -->
+            <Button
+                android:id="@+id/breakButton"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:text="Start Break"
+                android:textSize="16sp"/>
+
+            <!-- Break Duration -->
+            <TextView
+                android:id="@+id/breakDurationText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:text="Break Duration: 0 min"
+                android:textSize="14sp"/>
+        </LinearLayout>
+    </androidx.cardview.widget.CardView>
+
+    <!-- Work Duration -->
+    <TextView
+        android:id="@+id/workDurationText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="8dp"
+        android:gravity="center"
+        android:text="Total Work Time: 0 hrs 0 min"
+        android:textSize="16sp"
+        android:textStyle="bold"/>
+</LinearLayout>

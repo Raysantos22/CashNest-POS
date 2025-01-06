@@ -27,9 +27,9 @@ class DiscountAdapter(
 
         // Format the discount text based on type
         val discountText = when (discount.DISCOUNTTYPE.uppercase()) {
-            "FIXED" -> "${discount.DISCOFFERNAME}\nFixed P${discount.PARAMETER} off"
-            "FIXEDTOTAL" -> "${discount.DISCOFFERNAME}\nFixed Total: $${discount.PARAMETER}"
-            "PERCENTAGE" -> "${discount.DISCOFFERNAME}\nPercentage${discount.PARAMETER}% off"
+            "FIXED" -> "${discount.DISCOFFERNAME}\nFixed ₱${discount.PARAMETER} off"
+            "FIXEDTOTAL" -> "${discount.DISCOFFERNAME}\nFixed Total: ₱${discount.PARAMETER}"
+            "PERCENTAGE" -> "${discount.DISCOFFERNAME}\nPercentage ₱${discount.PARAMETER}% off"
             else -> "${discount.DISCOFFERNAME}\n${discount.PARAMETER}"
         }
 

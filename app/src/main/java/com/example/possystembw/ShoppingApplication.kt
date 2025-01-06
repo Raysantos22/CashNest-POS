@@ -6,6 +6,7 @@ import androidx.constraintlayout.helper.widget.MotionEffect.TAG
 import com.example.possystembw.data.AppDatabase
 import com.example.possystembw.data.CartRepository
 import com.example.possystembw.data.ProductRepository
+import com.example.possystembw.ui.SessionManager
 
 class ShoppingApplication : Application() {
     val database by lazy { AppDatabase.getDatabase(this) }
@@ -17,7 +18,8 @@ class ShoppingApplication : Application() {
             productDao = database.productDao(),
             categoryDao = database.categoryDao(),
             productApi = productApi,
-            categoryApi = categoryApi
+            categoryApi = categoryApi,
+            application = this  // Pass the application context
         )
     }
 
@@ -25,8 +27,17 @@ class ShoppingApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // Initialize SessionManager if not already done elsewhere
+        SessionManager.init(this)
+
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             Log.e(TAG, "Uncaught exception in thread ${thread.name}", throwable)
         }
     }
+
+    companion object {
+        private const val TAG = "ShoppingApplication"
+    }
 }
+
+

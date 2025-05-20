@@ -200,34 +200,6 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
     fun getProductById(id: Int): Product? {
         return allProducts.value?.find { it.id == id }
     }
-//    fun selectCategory(category: Category?) {
-//        viewModelScope.launch {
-//            try {
-//                _selectedCategory.value = category
-//                val currentProducts = repository.allProducts.first()
-//
-//                // Show all products if category is null or "All"
-//                val filteredProducts = when {
-//                    category == null || category.name == "All" -> currentProducts
-//                    category.name == "Uncategorized" -> {
-//                        // Show products that don't match any category
-//                        currentProducts.filter { product ->
-//                            alignedProducts.value.keys
-//                                .filter { it.name != "All" && it.name != "Uncategorized" }
-//                                .none { cat -> product.itemGroup.equals(cat.name, ignoreCase = true) }
-//                        }
-//                    }
-//                    else -> {
-//                        // Filter by selected category
-//                        currentProducts.filter { it.itemGroup.equals(category.name, ignoreCase = true) }
-//                    }
-//                }
-//                _filteredProducts.value = filteredProducts
-//            } catch (e: Exception) {
-//                Log.e("ProductViewModel", "Error selecting category", e)
-//            }
-//        }
-//    }
     fun selectCategory(category: Category?) {
         viewModelScope.launch {
             _selectedCategory.value = category

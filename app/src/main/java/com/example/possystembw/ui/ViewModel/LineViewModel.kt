@@ -17,7 +17,6 @@ import com.example.possystembw.DAO.StockCountingDao
 import com.example.possystembw.RetrofitClient
 import com.example.possystembw.data.AppDatabase
 import com.example.possystembw.data.LineRepository
-import com.example.possystembw.data.LineTransactionVisibilityRepository
 import com.example.possystembw.data.toEntity
 import com.example.possystembw.database.LineTransactionEntity
 import kotlinx.coroutines.Dispatchers
@@ -56,8 +55,6 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getDatabase(application)
     private val lineTransactionDao = database.lineTransactionDao()
     private val stockCountingDao = database.stockCountingDao()
-    private val lineTransactionVisibilityDao = database.lineTransactionVisibilityDao()
-    private val visibilityRepository = LineTransactionVisibilityRepository(lineTransactionVisibilityDao)
 
     companion object {
         private const val TAG = "LineViewModel"
@@ -98,8 +95,6 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
             .baseUrl("https://eljin.org/")
 //            .baseUrl("http://10.151.5.239:8000/")
 //            .baseUrl("https://ecposmiddleware-aj1882pz3-progenxs-projects.vercel.app/")
-
-
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
@@ -107,8 +102,10 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
         val lineDetailsApi = retrofit.create(LineDetailsApi::class.java)
         val stockCountingApi = retrofit.create(StockCountingApi::class.java)
 
-        repository = LineRepository(lineDetailsApi, stockCountingApi, lineTransactionDao,visibilityRepository  )
+        // Fixed: Only pass 3 parameters as per LineRepository constructor
+        repository = LineRepository(lineDetailsApi, stockCountingApi, lineTransactionDao)
     }
+
     suspend fun getUnsyncedTransactions(journalId: String): List<LineTransaction> {
         return repository.getUnsyncedTransactions(journalId)
     }
@@ -117,6 +114,7 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
         this.storeId = storeId
         this.journalId = journalId
     }
+
     suspend fun deleteAllData(journalId: String) {
         withContext(Dispatchers.IO) {
             try {
@@ -128,36 +126,7 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
-    fun hideLineTransaction(itemId: String) {
-        viewModelScope.launch {
-            repository.hideLineTransaction(itemId)
-        }
-    }
 
-    fun showLineTransaction(itemId: String) {
-        viewModelScope.launch {
-            repository.showLineTransaction(itemId)
-        }
-    }
-
-    suspend fun isLineTransactionHidden(itemId: String): Boolean {
-        return repository.isLineTransactionHidden(itemId)
-    }
-
-    fun getLineTransactionsWithVisibility(journalId: String) {
-        viewModelScope.launch {
-            _isLoading.value = true
-            try {
-                val result = repository.getLineTransactionsWithVisibility(journalId)
-                // You can create a new LiveData for this if needed
-                // _lineTransactionsWithVisibility.value = result
-            } catch (e: Exception) {
-                Log.e(TAG, "Error getting line transactions with visibility", e)
-            } finally {
-                _isLoading.value = false
-            }
-        }
-    }
     fun getLineDetails(storeId: String, journalId: String) {
         this.storeId = storeId
         this.journalId = journalId
@@ -201,6 +170,7 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
     fun updateLineTransaction(transaction: LineTransaction) {
         currentData = currentData.map {
             if (it.itemId == transaction.itemId) transaction else it
@@ -343,11 +313,10 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+
     // Add this to LineViewModel
     suspend fun getLocalLineDetails(journalId: String): Result<List<LineTransaction>> =
         repository.getLocalLineDetails(journalId)
-
-    // Add this to LineRepository
 
     private suspend fun updateItemSyncStatus(journalId: String, itemId: String, synced: Boolean) {
         withContext(Dispatchers.IO) {
@@ -361,26 +330,28 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     suspend fun saveLineDetails(storeId: String, journalId: String, items: List<LineTransaction>): Boolean {
-            return try {
-                Log.d(TAG, "Saving ${items.size} line transactions for journal: $journalId")
+        return try {
+            Log.d(TAG, "Saving ${items.size} line transactions for journal: $journalId")
 
-                // Convert all LineTransaction items to LineTransactionEntity
-                val entities = items.map { it.toEntity() }
+            // Convert all LineTransaction items to LineTransactionEntity
+            val entities = items.map { it.toEntity() }
 
-                // Save to repository
-                repository.saveLineTransactions(journalId, entities)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error in saveLineDetails", e)
-                false
-            }
+            // Save to repository
+            repository.saveLineTransactions(journalId, entities)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in saveLineDetails", e)
+            false
         }
+    }
 
     suspend fun hasUnsynced(journalId: String): Boolean {
         return repository.hasUnsynced(journalId)
     }
+
     suspend fun getUnsyncedCount(journalId: String): Int {
         return repository.getUnsyncedCount(journalId)
     }
+
     suspend fun postStockCounting(storeId: String, journalId: String): Boolean {
         return try {
             val response = repository.postStockCounting(storeId, journalId)
@@ -416,7 +387,6 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
 
     fun getCurrentData(): List<LineTransaction> = currentData
 
-
     fun fetchLineDetails(storeId: String, journalId: String, forceRefresh: Boolean = false) {
         viewModelScope.launch {
             _isLoading.value = true
@@ -424,9 +394,9 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
                 val result = repository.getLineDetails(storeId, journalId)
                 result.onSuccess { transactions ->
                     currentData = transactions
-/*
+                    /*
                     LineDataManager.cacheData(journalId, transactions)
-*/
+                    */
                 }
                 _lineDetailsResult.value = result
             } catch (e: Exception) {
@@ -437,6 +407,7 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 }
+
 // LineViewModelFactory.kt
 class LineViewModelFactory(
     private val application: Application

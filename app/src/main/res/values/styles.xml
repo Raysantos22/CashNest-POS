@@ -54,7 +54,10 @@
 <!--        <item name="android:padding">4dp</item>-->
 <!--        <item name="android:scaleType">fitCenter</item>-->
 <!--    </style>-->
-
+    <style name="SwitchTheme" parent="Theme.AppCompat.Light">
+        <item name="colorAccent">@color/colorPrimary</item>
+        <item name="android:colorForeground">@color/colorPrimary</item>
+    </style>
     <style name="SidebarButtonSmall">
         <item name="android:layout_width">42dp</item>
         <item name="android:layout_height">42dp</item>
@@ -62,6 +65,13 @@
         <item name="android:background">?attr/selectableItemBackgroundBorderless</item>
         <item name="android:padding">5dp</item>
         <item name="android:scaleType">fitCenter</item>
+    </style>
+    <style name="SearchViewStyle" parent="Widget.AppCompat.SearchView">
+        <item name="android:textColorPrimary">@android:color/black</item>
+        <item name="android:textColorSecondary">@android:color/black</item>
+        <item name="android:textColorHint">#666666</item>
+        <item name="android:textColor">@android:color/black</item>
+        <item name="android:textSize">14sp</item>
     </style>
     <style name="SidebarBackground">
         <item name="android:background">#0A1E4C</item>

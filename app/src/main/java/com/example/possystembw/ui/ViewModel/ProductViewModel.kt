@@ -28,12 +28,12 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
 
     private var repository: ProductRepository
     val allProducts: LiveData<List<Product>>
-    val visibleProducts: LiveData<List<Product>> // Add this for visible products only
-    val allCategories: Flow<List<Category>> // ← declare here, initialize later
+    val visibleProducts: LiveData<List<Product>>
 
     private val _operationStatus = MutableLiveData<Result<List<Product>>>()
     val operationStatus: LiveData<Result<List<Product>>> = _operationStatus
 
+    // FIXED: This should use aligned visible products for normal operations
     private val _alignedProducts = MutableStateFlow<Map<Category, List<Product>>>(emptyMap())
     val alignedProducts: StateFlow<Map<Category, List<Product>>> = _alignedProducts.asStateFlow()
 
@@ -49,10 +49,6 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    private val _currentQuery = MutableStateFlow<String?>(null)
-    val currentQuery: StateFlow<String?> = _currentQuery.asStateFlow()
-
-    private val _isInitialized = MutableStateFlow(false)
     private val _isSearchActive = MutableStateFlow(false)
     val isSearchActive: StateFlow<Boolean> = _isSearchActive.asStateFlow()
 
@@ -62,6 +58,10 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
     private val _persistentSearchQuery = MutableStateFlow<String?>(null)
     val persistentSearchQuery: StateFlow<String?> = _persistentSearchQuery.asStateFlow()
 
+    // Keep this for admin purposes (ProductVisibilityActivity)
+    private val _allAlignedProducts = MutableStateFlow<Map<Category, List<Product>>>(emptyMap())
+    val allAlignedProducts: StateFlow<Map<Category, List<Product>>> = _allAlignedProducts.asStateFlow()
+
     init {
         val database = AppDatabase.getDatabase(application)
         val productDao = database.productDao()
@@ -69,27 +69,18 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
         val productApi = RetrofitClient.productApi
         val categoryApi = RetrofitClient.categoryApi
         val visibilityDao = database.productVisibilityDao()
-        val lineTransactionVisibilityDao = database.lineTransactionVisibilityDao() // Add this line
 
-        repository = ProductRepository(
-            productDao = productDao,
-            categoryDao = categoryDao,
-            productApi = productApi,
-            categoryApi = categoryApi,
-            application = application,
-            visibilityDao = visibilityDao,
-            lineTransactionVisibilityDao = lineTransactionVisibilityDao // Pass this parameter
-        )
-
+        repository = ProductRepository(productDao, categoryDao, productApi, categoryApi, application, visibilityDao)
         allProducts = repository.allProducts.asLiveData()
         visibleProducts = repository.getVisibleProducts().asLiveData()
-        allCategories = repository.allCategories
 
         loadAlignedProducts()
+        loadAllAlignedProducts()
 
+        // FIXED: Use visibleProducts for filtering
         viewModelScope.launch {
             combine(
-                repository.getVisibleProducts(), // Changed from allProducts to visible products
+                repository.getVisibleProducts(),
                 _selectedCategory,
                 _searchQuery
             ) { products, category, query ->
@@ -110,21 +101,96 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
                 _filteredProducts.value = filteredList
             }
         }
-
-        loadAlignedProducts()
     }
 
+    // FIXED: Main loadAlignedProducts should use visible products
+    fun loadAlignedProducts() {
+        viewModelScope.launch {
+            try {
+                repository.getAlignedProducts() // This now returns visible products
+                    .catch { e ->
+                        Log.e("ProductViewModel", "Error loading aligned products", e)
+                        emit(emptyMap())
+                    }
+                    .collect { aligned ->
+                        _alignedProducts.value = aligned
+                    }
+            } catch (e: Exception) {
+                Log.e("ProductViewModel", "Error in loadAlignedProducts", e)
+                _alignedProducts.value = emptyMap()
+            }
+        }
+    }
+
+    // Keep this separate for admin purposes
+    private fun loadAllAlignedProducts() {
+        viewModelScope.launch {
+            try {
+                repository.getAllAlignedProducts()
+                    .catch { e ->
+                        Log.e("ProductViewModel", "Error loading all aligned products", e)
+                        emit(emptyMap())
+                    }
+                    .collect { aligned ->
+                        _allAlignedProducts.value = aligned
+                    }
+            } catch (e: Exception) {
+                Log.e("ProductViewModel", "Error in loadAllAlignedProducts", e)
+                _allAlignedProducts.value = emptyMap()
+            }
+        }
+    }
+
+    // FIXED: Updated filterProducts to use visibleProducts
+    fun filterProducts(query: String?) {
+        viewModelScope.launch {
+            _persistentSearchQuery.value = query
+            _isSearchActive.value = !query.isNullOrBlank()
+
+            val filtered = visibleProducts.value?.filter { product ->
+                val matchesSearch = query.isNullOrBlank() ||
+                        product.itemName.contains(query, ignoreCase = true) ||
+                        product.itemGroup.contains(query, ignoreCase = true)
+
+                val matchesCategory = _selectedCategory.value?.let { category ->
+                    when {
+                        category.name == "All" -> true
+                        else -> product.itemGroup.equals(category.name, ignoreCase = true)
+                    }
+                } ?: true
+
+                matchesSearch && matchesCategory
+            } ?: emptyList()
+
+            _currentSearchResults.value = filtered
+            _filteredProducts.value = filtered
+        }
+    }
+
+    // FIXED: Updated clearSearch to use visibleProducts
+    fun clearSearch() {
+        viewModelScope.launch {
+            _persistentSearchQuery.value = null
+            _isSearchActive.value = false
+            _currentSearchResults.value = emptyList()
+
+            // Reset to visible products if no category is selected
+            if (_selectedCategory.value == null || _selectedCategory.value?.name == "All") {
+                _filteredProducts.value = visibleProducts.value ?: emptyList()
+            }
+        }
+    }
+
+    // Rest of your existing methods remain the same...
     fun hideProduct(productId: Int) {
         viewModelScope.launch {
             repository.hideProduct(productId)
-            // No need to reload aligned products since categories are based on all products
         }
     }
 
     fun showProduct(productId: Int) {
         viewModelScope.launch {
             repository.showProduct(productId)
-            // No need to reload aligned products since categories are based on all products
         }
     }
 
@@ -137,14 +203,15 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
             .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
     }
 
-
-
-
-    fun refreshProducts() {
+    // Add this method to force refresh visible products after visibility changes
+    fun refreshVisibleProducts() {
         viewModelScope.launch {
-            repository.refreshProducts()
+            loadAlignedProducts()
+            // Reapply current filters
+            filterProducts(_persistentSearchQuery.value)
         }
     }
+
     fun refreshEverything() {
         viewModelScope.launch {
             try {
@@ -153,7 +220,6 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
                 loadAlignedProducts()
             } catch (e: Exception) {
                 Log.e("ProductViewModel", "Error refreshing data", e)
-                // Handle error appropriately
             } finally {
                 _isLoading.value = false
             }
@@ -167,40 +233,11 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
     fun deleteAllProducts() = viewModelScope.launch {
         repository.deleteAllProducts()
     }
+
     fun getProductByName(name: String): Product? {
         return allProducts.value?.find { it.itemName == name }
     }
 
-
-    /* fun insertAllProductsFromApi() = viewModelScope.launch {
-         _isLoading.value = true
-         val result = repository.insertAllProductsFromApi()
-         _operationStatus.postValue(result)
-         loadAlignedProducts()
-         _isLoading.value = false
-     }*/
-
-
-    private suspend fun initializeData() {
-        try {
-            _isLoading.value = true
-
-            // First load products and categories from local DB
-            val initialProducts = repository.allProducts.first()
-
-            // If DB is empty, fetch from API
-            if (initialProducts.isEmpty()) {
-                repository.refreshProductsAndCategories()
-            }
-
-            loadAlignedProducts()
-            _isInitialized.value = true
-        } finally {
-            _isLoading.value = false
-        }
-    }
-
-    // Modify insertAllProductsFromApi to properly sync with categories
     suspend fun insertAllProductsFromApi() {
         _isLoading.value = true
         try {
@@ -216,41 +253,14 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    // New function to load aligned products
-    fun loadAlignedProducts() {
-        viewModelScope.launch {
-            try {
-                repository.getAlignedVisibleProducts() // Changed to use visible products
-                    .catch { e ->
-                        Log.e("ProductViewModel", "Error loading aligned products", e)
-                        emit(emptyMap())
-                    }
-                    .collect { aligned ->
-                        _alignedProducts.value = aligned
-                    }
-            } catch (e: Exception) {
-                Log.e("ProductViewModel", "Error in loadAlignedProducts", e)
-                _alignedProducts.value = emptyMap()
-            }
-        }
-    }
-
-
     fun getProductById(id: Int): Product? {
         return allProducts.value?.find { it.id == id }
     }
+
     fun selectCategory(category: Category?) {
         viewModelScope.launch {
             _selectedCategory.value = category
-
-            // Reapply current search with new category
-            filterProducts(_persistentSearchQuery.value)
-        }
-    }
-     fun filterProducts(products: List<Product>, category: Category?) {
-        _filteredProducts.value = when {
-            category == null || category.name == "All" -> products
-            else -> products.filter { it.itemGroup.equals(category.name, ignoreCase = true) }
+            // The filtering will be handled automatically by the combine flow
         }
     }
 
@@ -267,9 +277,9 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
             repository.refreshProductsAndCategories()
         } catch (e: Exception) {
             Log.e("ProductViewModel", "Error refreshing products and categories", e)
-            // You might want to update _operationStatus here as well
         }
     }
+
     fun findProduct(identifier: String?): Product? {
         if (identifier.isNullOrBlank()) return null
 
@@ -280,45 +290,24 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
             normalizedItemId.equals(normalizedIdentifier, ignoreCase = true)
         }
     }
-    fun filterProducts(query: String?) {
-        viewModelScope.launch {
-            _persistentSearchQuery.value = query
-            _isSearchActive.value = !query.isNullOrBlank()
 
-            val filtered = visibleProducts.value?.filter { product -> // Changed to use visibleProducts
-                val matchesSearch = query.isNullOrBlank() ||
-                        product.itemName.contains(query, ignoreCase = true) ||
-                        product.itemGroup.contains(query, ignoreCase = true)
-
-                // Also check category if one is selected
-                val matchesCategory = _selectedCategory.value?.let { category ->
-                    when {
-                        category.name == "All" -> true
-                        else -> product.itemGroup.equals(category.name, ignoreCase = true)
-                    }
-                } ?: true
-
-                matchesSearch && matchesCategory
-            } ?: emptyList()
-
-            _currentSearchResults.value = filtered
-            _filteredProducts.value = filtered
-        }
-    }
-
-
-    fun clearSearch() {
-        viewModelScope.launch {
-            _persistentSearchQuery.value = null
-            _isSearchActive.value = false
-            _currentSearchResults.value = emptyList()
-
-            // Only reset to all products if no category is selected
-            if (_selectedCategory.value == null) {
-                _filteredProducts.value = allProducts.value ?: emptyList()
-            }
-        }
-    }
+    // FIXED: Simplified filtering logic
+//    fun filterProducts(query: String?) {
+//        viewModelScope.launch {
+//            _persistentSearchQuery.value = query
+//            _isSearchActive.value = !query.isNullOrBlank()
+//            // The actual filtering is handled by the combine flow in init
+//        }
+//    }
+//
+//    fun clearSearch() {
+//        viewModelScope.launch {
+//            _persistentSearchQuery.value = null
+//            _isSearchActive.value = false
+//            _currentSearchResults.value = emptyList()
+//            // The filtering will be handled automatically by the combine flow
+//        }
+//    }
 
     class ProductViewModelFactory(private val application: Application) : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {

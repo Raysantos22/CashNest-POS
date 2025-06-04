@@ -5276,10 +5276,12 @@ private fun printReceiptWithBluetoothPrinter(
 
     private fun observeViewModels() {
         lifecycleScope.launch {
+            // Use the main alignedProducts (which now contains only visible products)
             productViewModel.alignedProducts.collect { alignedProducts ->
                 displayAlignedProducts(alignedProducts)
             }
         }
+
         lifecycleScope.launch {
             windowViewModel.allWindows.collect { windows ->
                 val currentWindow = windows.find { it.id == windowId }
@@ -5325,10 +5327,14 @@ private fun printReceiptWithBluetoothPrinter(
             }
         }
 
-        productViewModel.visibleProducts.observe(this) { products ->
-            productAdapter.submitList(products)
-        }
+//        productViewModel.visibleProducts.observe(this) { products ->
+//            productAdapter.submitList(products)
+//        }
 
+        productViewModel.visibleProducts.observe(this) { products ->
+            Log.d("Window1", "Visible products updated: ${products.size}")
+            loadWindowSpecificProducts() // Reload with new visible products
+        }
 
         lifecycleScope.launch {
             categoryViewModel.categories.collect { categories ->
@@ -5544,31 +5550,24 @@ private fun printReceiptWithBluetoothPrinter(
         }
     }
     private fun refreshProductAdapter() {
-        // Observe the visible products and update the adapter
-        productViewModel.visibleProducts.observe(this) { visibleProducts ->
-            productAdapter.submitList(visibleProducts)
-
-            // If you're using category filtering, you might want to reapply the current category filter
-            productViewModel.selectedCategory.value?.let { selectedCategory ->
-                productViewModel.selectCategory(selectedCategory)
-            }
-        }
-
-        // Alternative: If you're using alignedProducts with categories
         lifecycleScope.launch {
-            productViewModel.alignedProducts.collect { alignedProducts ->
-                // Update your UI based on the current selected category
-                val currentCategory = productViewModel.selectedCategory.value
-                val productsToShow = if (currentCategory == null || currentCategory.name == "All") {
-                    alignedProducts[Category(-1, "All")] ?: emptyList()
-                } else {
-                    alignedProducts[currentCategory] ?: emptyList()
+            // Force refresh the visible products alignment
+            productViewModel.refreshVisibleProducts()
+
+            // Wait a bit for the refresh to complete
+            delay(100)
+
+            // Then update the adapter with current visible products
+            productViewModel.visibleProducts.value?.let { visibleProducts ->
+                productAdapter.submitList(visibleProducts)
+
+                // Reapply current category filter if one is selected
+                productViewModel.selectedCategory.value?.let { selectedCategory ->
+                    productViewModel.selectCategory(selectedCategory)
                 }
-                productAdapter.submitList(productsToShow)
             }
         }
     }
-
     private fun initializeProgressDialog() {
         val progressView = layoutInflater.inflate(R.layout.progress_dialog, null)
         progressDialog = AlertDialog.Builder(this)
@@ -9406,106 +9405,134 @@ private fun showPointsRedemptionDialog(
         }
     }
 
-private fun loadWindowSpecificProducts() {
-    lifecycleScope.launch {
-        try {
-            val window = windowViewModel.allWindows.first().find { it.id == windowId }
-            if (window != null) {
-                val description = window.description.uppercase()
-                Log.d("Window1", "Loading products for window: $description")
+    private fun loadWindowSpecificProducts() {
+        lifecycleScope.launch {
+            try {
+                val window = windowViewModel.allWindows.first().find { it.id == windowId }
+                if (window != null) {
+                    val description = window.description.uppercase()
+                    Log.d("Window1", "Loading products for window: $description")
 
-                val allProducts = productViewModel.visibleProducts.value ?: emptyList()
+                    val allProducts = productViewModel.visibleProducts.value ?: emptyList()
+                    Log.d("Window1", "Total visible products: ${allProducts.size}")
 
-                // Filter products based on window description
-                val windowFilteredProducts = when {
-                    description.contains("GRABFOOD") -> {
-                        allProducts.filter { product ->
-                            product.grabfood > 0
-                        }.map { product ->
-                            product.copy(price = product.grabfood)
+                    // Filter products based on window description
+                    val windowFilteredProducts = when {
+                        description.contains("GRABFOOD") -> {
+                            allProducts.filter { product ->
+                                product.grabfood > 0
+                            }.map { product ->
+                                product.copy(price = product.grabfood)
+                            }
                         }
-                    }
-                    description.contains("FOODPANDA") -> {
-                        allProducts.filter { product ->
-                            product.foodpanda > 0
-                        }.map { product ->
-                            product.copy(price = product.foodpanda)
+                        description.contains("FOODPANDA") -> {
+                            allProducts.filter { product ->
+                                product.foodpanda > 0
+                            }.map { product ->
+                                product.copy(price = product.foodpanda)
+                            }
                         }
-                    }
-                    description.contains("MANILARATE") -> {
-                        allProducts.filter { product ->
-                            product.manilaprice > 0
-                        }.map { product ->
-                            product.copy(price = product.manilaprice)
+                        description.contains("MANILARATE") -> {
+                            allProducts.filter { product ->
+                                product.manilaprice > 0
+                            }.map { product ->
+                                product.copy(price = product.manilaprice)
+                            }
                         }
-                    }
-                    description.contains("PARTYCAKES") -> {
-                        allProducts.filter { product ->
-                            product.itemName.equals("PARTY CAKES", ignoreCase = true)
+                        description.contains("PARTYCAKES") -> {
+                            allProducts.filter { product ->
+                                product.itemGroup.equals("PARTY CAKES", ignoreCase = true)
+                            }
                         }
-                    }
-                    description.contains("PURCHASE") -> {
-                        allProducts.filter { product ->
-                            (product.price > 0 &&
-                                    product.grabfood == 0.0 &&
-                                    product.foodpanda == 0.0 &&
-                                    product.manilaprice == 0.0) ||
-                                    product.itemName.equals("PARTY CAKES", ignoreCase = true)
-                        }
-                    }
-                    else -> allProducts
-                }
+                        description.contains("PURCHASE") -> {
+                            // DEBUG: Let's see what's filtering out the products
+                            Log.d("Window1", "PURCHASE filter - analyzing ${allProducts.size} products:")
+                            allProducts.forEachIndexed { index, product ->
+                                Log.d("Window1", "Product $index: ${product.itemName}")
+                                Log.d("Window1", "  - price: ${product.price}")
+                                Log.d("Window1", "  - grabfood: ${product.grabfood}")
+                                Log.d("Window1", "  - foodpanda: ${product.foodpanda}")
+                                Log.d("Window1", "  - manilaprice: ${product.manilaprice}")
+                                Log.d("Window1", "  - itemGroup: ${product.itemGroup}")
+                            }
 
-                // Apply current search if exists
-                val searchQuery = productViewModel.persistentSearchQuery.value
-                val searchFilteredProducts = if (!searchQuery.isNullOrBlank()) {
-                    windowFilteredProducts.filter { product ->
-                        product.itemName.contains(searchQuery, ignoreCase = true) ||
-                                product.itemGroup.contains(searchQuery, ignoreCase = true)
+                            // OPTION 1: Show ALL visible products (recommended for PURCHASE)
+                            allProducts
+
+                            // OPTION 2: If you need price filtering, use this instead:
+                            // allProducts.filter { product -> product.price > 0 }
+
+                            // OPTION 3: Original logic (commented out to see if this was the issue)
+                            /*
+                            allProducts.filter { product ->
+                                (product.price > 0 &&
+                                        product.grabfood == 0.0 &&
+                                        product.foodpanda == 0.0 &&
+                                        product.manilaprice == 0.0) ||
+                                        product.itemName.equals("PARTY CAKES", ignoreCase = true)
+                            }
+                            */
+                        }
+                        else -> allProducts
+                    }
+
+                    Log.d("Window1", "Window filtered products: ${windowFilteredProducts.size}")
+
+                    // Apply current search if exists
+                    val searchQuery = productViewModel.persistentSearchQuery.value
+                    val searchFilteredProducts = if (!searchQuery.isNullOrBlank()) {
+                        windowFilteredProducts.filter { product ->
+                            product.itemName.contains(searchQuery, ignoreCase = true) ||
+                                    product.itemGroup.contains(searchQuery, ignoreCase = true) ||
+                                    product.barcode.toString().contains(searchQuery, ignoreCase = true)
+                        }
+                    } else {
+                        windowFilteredProducts
+                    }
+
+                    Log.d("Window1", "Search filtered products: ${searchFilteredProducts.size}")
+
+                    // Apply category filter if exists
+                    val selectedCategory = productViewModel.selectedCategory.value
+                    val finalProducts = when {
+                        selectedCategory == null || selectedCategory.name == "All" -> {
+                            searchFilteredProducts
+                        }
+                        selectedCategory.name == "Mix & Match" -> {
+                            // Handle Mix & Match category if needed
+                            searchFilteredProducts
+                        }
+                        else -> {
+                            searchFilteredProducts.filter { product ->
+                                product.itemGroup.equals(selectedCategory.name, ignoreCase = true)
+                            }
+                        }
+                    }
+
+                    Log.d("Window1", "Final filtered products: ${finalProducts.size}")
+
+                    withContext(Dispatchers.Main) {
+                        Log.d("Window1", "Displaying ${finalProducts.size} products")
+                        productAdapter.submitList(finalProducts)
+                        updateAvailableCategories(finalProducts)
+                        findViewById<TextView>(R.id.textView3)?.text =
+                            "Products (${finalProducts.size})"
                     }
                 } else {
-                    windowFilteredProducts
+                    Log.e("Window1", "Window not found for id: $windowId")
                 }
-
-                // Apply category filter if exists
-                val selectedCategory = productViewModel.selectedCategory.value
-                val finalProducts = when {
-                    selectedCategory == null || selectedCategory.name == "All" -> {
-                        searchFilteredProducts
-                    }
-                    selectedCategory.name == "Mix & Match" -> {
-                        // Handle Mix & Match category if needed
-                        searchFilteredProducts
-                    }
-                    else -> {
-                        searchFilteredProducts.filter { product ->
-                            product.itemGroup.equals(selectedCategory.name, ignoreCase = true)
-                        }
-                    }
-                }
-
+            } catch (e: Exception) {
+                Log.e("Window1", "Error loading window-specific products", e)
                 withContext(Dispatchers.Main) {
-                    Log.d("Window1", "Displaying ${finalProducts.size} products")
-                    productAdapter.submitList(finalProducts)
-                    updateAvailableCategories(finalProducts)
-                    findViewById<TextView>(R.id.textView3)?.text =
-                        "Products (${finalProducts.size})"
+                    Toast.makeText(
+                        this@Window1,
+                        "Error loading products: ${e.message}",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
-            } else {
-                Log.e("Window1", "Window not found for id: $windowId")
-            }
-        } catch (e: Exception) {
-            Log.e("Window1", "Error loading window-specific products", e)
-            withContext(Dispatchers.Main) {
-                Toast.makeText(
-                    this@Window1,
-                    "Error loading products: ${e.message}",
-                    Toast.LENGTH_SHORT
-                ).show()
             }
         }
     }
-}
     private fun setupBarcodeScanning() {
         barcodeScanner = BarcodeScanning.getClient()
         cameraProviderFuture = ProcessCameraProvider.getInstance(this)

@@ -24,27 +24,26 @@ class ProductRepository(
     private val productApi: ProductApi,
     private val categoryApi: CategoryApi,
     private val application: Application,
-    private val visibilityDao: ProductVisibilityDao, // Product visibility DAO
-    private val lineTransactionVisibilityDao: LineTransactionVisibilityDao // Add this if your ProductVisibilityRepository needs it
+    private val visibilityDao: ProductVisibilityDao // Add this parameter
+// Add application context to access SessionManager
+
 ) {
-
-    val allProducts: Flow<List<Product>> = productDao.getAllProducts()
-    val allCategories: Flow<List<Category>> = categoryDao.getAllCategories()
-
-    private val visibilityRepository = ProductVisibilityRepository(visibilityDao, lineTransactionVisibilityDao)
-
-    suspend fun hideProduct(productId: Int) {
-        visibilityRepository.hideProduct(productId)
-    }
-
     fun getVisibleProducts(): Flow<List<Product>> {
         return combine(
             productDao.getAllProducts(),
             visibilityDao.getHiddenProducts()
         ) { allProducts, hiddenVisibilities ->
             val hiddenIds = hiddenVisibilities.map { it.productId }.toSet()
+            // Filter OUT products that ARE in the hidden list
             allProducts.filter { product -> product.id !in hiddenIds }
         }
+    }
+
+    val allProducts: Flow<List<Product>> = productDao.getAllProducts()
+    val allCategories: Flow<List<Category>> = categoryDao.getAllCategories()
+    private val visibilityRepository = ProductVisibilityRepository(visibilityDao)
+    suspend fun hideProduct(productId: Int) {
+        visibilityRepository.hideProduct(productId)
     }
 
     suspend fun showProduct(productId: Int) {
@@ -58,13 +57,11 @@ class ProductRepository(
     fun getHiddenProducts(): Flow<List<ProductVisibility>> {
         return visibilityRepository.getHiddenProducts()
     }
-
-    // Update getAlignedProducts to use visible products
-    fun getAlignedVisibleProducts(): Flow<Map<Category, List<Product>>> {
-        return combine(allCategories, getVisibleProducts()) { categories, products ->
+    fun getAllAlignedProducts(): Flow<Map<Category, List<Product>>> {
+        return combine(allCategories, allProducts) { categories, products ->
             val alignedMap = mutableMapOf<Category, List<Product>>()
 
-            // Always add all visible products to "All" category
+            // Always add all products to "All" category
             alignedMap[Category(-1, "All")] = products
 
             // Group products by their categories
@@ -81,6 +78,40 @@ class ProductRepository(
 
             // Add uncategorized products to "Uncategorized" category
             val uncategorizedProducts = products.filter { product ->
+                categories.none { category ->
+                    product.itemGroup.equals(category.name, ignoreCase = true)
+                }
+            }
+            if (uncategorizedProducts.isNotEmpty()) {
+                alignedMap[Category(-3, "Uncategorized")] = uncategorizedProducts
+            }
+
+            alignedMap
+        }
+    }
+
+    // Update getAlignedProducts to use visible products
+    fun getAlignedVisibleProducts(): Flow<Map<Category, List<Product>>> {
+        return combine(allCategories, getVisibleProducts()) { categories, visibleProducts ->
+            val alignedMap = mutableMapOf<Category, List<Product>>()
+
+            // Always add all visible products to "All" category
+            alignedMap[Category(-1, "All")] = visibleProducts
+
+            // Group visible products by their categories
+            categories
+                .filter { it.name != "All" }
+                .forEach { category ->
+                    val categoryProducts = visibleProducts.filter { product ->
+                        product.itemGroup.equals(category.name, ignoreCase = true)
+                    }
+                    if (categoryProducts.isNotEmpty()) {
+                        alignedMap[category] = categoryProducts
+                    }
+                }
+
+            // Add uncategorized visible products to "Uncategorized" category
+            val uncategorizedProducts = visibleProducts.filter { product ->
                 categories.none { category ->
                     product.itemGroup.equals(category.name, ignoreCase = true)
                 }
@@ -226,36 +257,7 @@ class ProductRepository(
     }
 
     fun getAlignedProducts(): Flow<Map<Category, List<Product>>> {
-        return combine(allCategories, allProducts) { categories, products ->
-            val alignedMap = mutableMapOf<Category, List<Product>>()
-
-            // Always add all products to "All" category
-            alignedMap[Category(-1, "All")] = products
-
-            // Group products by their categories
-            categories
-                .filter { it.name != "All" }
-                .forEach { category ->
-                    val categoryProducts = products.filter { product ->
-                        product.itemGroup.equals(category.name, ignoreCase = true)
-                    }
-                    if (categoryProducts.isNotEmpty()) {
-                        alignedMap[category] = categoryProducts
-                    }
-                }
-
-            // Add uncategorized products to "Uncategorized" category
-            val uncategorizedProducts = products.filter { product ->
-                categories.none { category ->
-                    product.itemGroup.equals(category.name, ignoreCase = true)
-                }
-            }
-            if (uncategorizedProducts.isNotEmpty()) {
-                alignedMap[Category(-3, "Uncategorized")] = uncategorizedProducts
-            }
-
-            alignedMap
-        }
+        return getAlignedVisibleProducts()
     }
 
 
@@ -285,145 +287,85 @@ class ProductRepository(
     fun getProductsByCategory(categoryName: String): Flow<List<Product>> {
         return productDao.getProductsByCategory(categoryName)
     }
-
-//    suspend fun insertAllProductsFromApi(): Result<List<Product>> = withContext(Dispatchers.IO) {
-//        try {
-//            // Step 1: Ensure default categories exist first
-//            ensureDefaultCategories()
-//
-//            // Step 2: Get all unique categories from products
-//            val storeId = getCurrentStoreId()
-//            val productsResponse = productApi.getAllProducts(storeId)
-//            if (!productsResponse.isSuccessful) {
-//                return@withContext Result.failure(Exception("Failed to fetch products"))
-//            }
-//
-//            val products = productsResponse.body() ?: emptyList()
-//            if (products.isEmpty()) {
-//                return@withContext Result.failure(Exception("No products received from API"))
-//            }
-//
-//            // Rest of the method remains the same...
-//            // Step 3: Extract and create unique categories
-//            val uniqueCategories = products
-//                .map { it.itemGroup.trim() }
-//                .distinct()
-//                .filter { it.isNotBlank() }
-//
-//            // Step 4: Insert categories and build category mapping
-//            val categoryMap = mutableMapOf<String, Long>()
-//
-//            // Add existing categories to map
-//            categoryDao.getAllCategoriesSync().forEach { category ->
-//                categoryMap[category.name.lowercase().trim()] = category.groupId
-//            }
-//
-//            // Insert new categories
-//            uniqueCategories.forEach { categoryName ->
-//                if (!categoryMap.containsKey(categoryName.lowercase())) {
-//                    val id = categoryDao.insertCategory(Category(name = categoryName.trim()))
-//                    categoryMap[categoryName.lowercase()] = id
-//                }
-//            }
-//
-//            // Get uncategorized category ID
-//            val uncategorizedId = categoryDao.getCategoryByName("Uncategorized")?.groupId ?: -3L
-//
-//            // Step 5: Process products with proper category IDs
-//            val processedProducts = products.map { product ->
-//                val categoryName = product.itemGroup.trim().lowercase()
-//                val categoryId = categoryMap[categoryName] ?: uncategorizedId
-//                product.copy(categoryId = categoryId)
-//            }
-//
-//            // Step 6: Insert processed products
-//            productDao.deleteAll()
-//            productDao.insertAll(processedProducts)
-//
-//            return@withContext Result.success(processedProducts)
-//        } catch (e: Exception) {
-//            Log.e("ProductRepository", "Error inserting products", e)
-//            return@withContext Result.failure(e)
-//        }
-//    }
-suspend fun insertAllProductsFromApi(): Result<List<Product>> = withContext(Dispatchers.IO) {
-    try {
-        // Step 1: Store current visibility settings before clearing products
-        val currentVisibilitySettings = mutableMapOf<String, Boolean>()
-        val existingProducts = productDao.getAllProductsSync() // You'll need to add this method
-        existingProducts.forEach { product ->
-            val isHidden = visibilityDao.getVisibility(product.id)?.isHidden ?: false
-            // Use itemid as the key since it's more stable than auto-generated id
-            currentVisibilitySettings[product.itemid] = isHidden
-        }
-
-        // Step 2: Ensure default categories exist first
-        ensureDefaultCategories()
-
-        // Step 3: Get all unique categories from products
-        val storeId = getCurrentStoreId()
-        val productsResponse = productApi.getAllProducts(storeId)
-        if (!productsResponse.isSuccessful) {
-            return@withContext Result.failure(Exception("Failed to fetch products"))
-        }
-
-        val products = productsResponse.body() ?: emptyList()
-        if (products.isEmpty()) {
-            return@withContext Result.failure(Exception("No products received from API"))
-        }
-
-        // Step 4: Extract and create unique categories
-        val uniqueCategories = products
-            .map { it.itemGroup.trim() }
-            .distinct()
-            .filter { it.isNotBlank() }
-
-        // Step 5: Insert categories and build category mapping
-        val categoryMap = mutableMapOf<String, Long>()
-
-        // Add existing categories to map
-        categoryDao.getAllCategoriesSync().forEach { category ->
-            categoryMap[category.name.lowercase().trim()] = category.groupId
-        }
-
-        // Insert new categories
-        uniqueCategories.forEach { categoryName ->
-            if (!categoryMap.containsKey(categoryName.lowercase())) {
-                val id = categoryDao.insertCategory(Category(name = categoryName.trim()))
-                categoryMap[categoryName.lowercase()] = id
+    //    }
+    suspend fun insertAllProductsFromApi(): Result<List<Product>> = withContext(Dispatchers.IO) {
+        try {
+            // Step 1: Store current visibility settings before clearing products
+            val currentVisibilitySettings = mutableMapOf<String, Boolean>()
+            val existingProducts = productDao.getAllProductsSync() // You'll need to add this method
+            existingProducts.forEach { product ->
+                val isHidden = visibilityDao.getVisibility(product.id)?.isHidden ?: false
+                // Use itemid as the key since it's more stable than auto-generated id
+                currentVisibilitySettings[product.itemid] = isHidden
             }
-        }
 
-        // Get uncategorized category ID
-        val uncategorizedId = categoryDao.getCategoryByName("Uncategorized")?.groupId ?: -3L
+            // Step 2: Ensure default categories exist first
+            ensureDefaultCategories()
 
-        // Step 6: Process products with proper category IDs
-        val processedProducts = products.map { product ->
-            val categoryName = product.itemGroup.trim().lowercase()
-            val categoryId = categoryMap[categoryName] ?: uncategorizedId
-            product.copy(categoryId = categoryId)
-        }
-
-        // Step 7: Clear old data
-        visibilityDao.deleteAll() // Clear old visibility settings
-        productDao.deleteAll()
-
-        // Step 8: Insert processed products
-        productDao.insertAll(processedProducts)
-
-        // Step 9: Restore visibility settings based on itemid
-        val newProducts = productDao.getAllProductsSync()
-        newProducts.forEach { product ->
-            val wasHidden = currentVisibilitySettings[product.itemid] ?: false
-            if (wasHidden) {
-                visibilityDao.insertVisibility(ProductVisibility(product.id, true))
+            // Step 3: Get all unique categories from products
+            val storeId = getCurrentStoreId()
+            val productsResponse = productApi.getAllProducts(storeId)
+            if (!productsResponse.isSuccessful) {
+                return@withContext Result.failure(Exception("Failed to fetch products"))
             }
-        }
 
-        return@withContext Result.success(processedProducts)
-    } catch (e: Exception) {
-        Log.e("ProductRepository", "Error inserting products", e)
-        return@withContext Result.failure(e)
+            val products = productsResponse.body() ?: emptyList()
+            if (products.isEmpty()) {
+                return@withContext Result.failure(Exception("No products received from API"))
+            }
+
+            // Step 4: Extract and create unique categories
+            val uniqueCategories = products
+                .map { it.itemGroup.trim() }
+                .distinct()
+                .filter { it.isNotBlank() }
+
+            // Step 5: Insert categories and build category mapping
+            val categoryMap = mutableMapOf<String, Long>()
+
+            // Add existing categories to map
+            categoryDao.getAllCategoriesSync().forEach { category ->
+                categoryMap[category.name.lowercase().trim()] = category.groupId
+            }
+
+            // Insert new categories
+            uniqueCategories.forEach { categoryName ->
+                if (!categoryMap.containsKey(categoryName.lowercase())) {
+                    val id = categoryDao.insertCategory(Category(name = categoryName.trim()))
+                    categoryMap[categoryName.lowercase()] = id
+                }
+            }
+
+            // Get uncategorized category ID
+            val uncategorizedId = categoryDao.getCategoryByName("Uncategorized")?.groupId ?: -3L
+
+            // Step 6: Process products with proper category IDs
+            val processedProducts = products.map { product ->
+                val categoryName = product.itemGroup.trim().lowercase()
+                val categoryId = categoryMap[categoryName] ?: uncategorizedId
+                product.copy(categoryId = categoryId)
+            }
+
+            // Step 7: Clear old data
+            visibilityDao.deleteAll() // Clear old visibility settings
+            productDao.deleteAll()
+
+            // Step 8: Insert processed products
+            productDao.insertAll(processedProducts)
+
+            // Step 9: Restore visibility settings based on itemid
+            val newProducts = productDao.getAllProductsSync()
+            newProducts.forEach { product ->
+                val wasHidden = currentVisibilitySettings[product.itemid] ?: false
+                if (wasHidden) {
+                    visibilityDao.insertVisibility(ProductVisibility(product.id, true))
+                }
+            }
+
+            return@withContext Result.success(processedProducts)
+        } catch (e: Exception) {
+            Log.e("ProductRepository", "Error inserting products", e)
+            return@withContext Result.failure(e)
+        }
     }
-}
 }

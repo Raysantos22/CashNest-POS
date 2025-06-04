@@ -1,120 +1,108 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_margin="4dp"
-    app:cardCornerRadius="12dp"
-    app:cardElevation="6dp"
-    android:id="@+id/cardView">
+    android:orientation="vertical"
+    android:background="@color/white">
 
+    <!-- Table Row -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:padding="16dp"
-        android:background="@color/white">
+        android:gravity="center_vertical"
+        android:background="?android:attr/selectableItemBackground">
 
-        <!-- Product Info Section -->
+        <!-- Product Name Column -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
+            android:layout_weight="3"
+            android:orientation="vertical"
+            android:layout_marginEnd="8dp">
 
             <TextView
                 android:id="@+id/tvProductName"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Product Name"
-                android:textSize="18sp"
+                android:text="Sample Product Name"
+                android:textSize="14sp"
                 android:textStyle="bold"
                 android:textColor="@android:color/black"
                 android:maxLines="2"
-                android:ellipsize="end" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="4dp"
-                android:gravity="center_vertical">
-
-
-
-                <TextView
-                    android:id="@+id/tvProductGroup"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Category"
-                    android:textSize="14sp"
-                    android:textColor="@android:color/darker_gray"
-                    android:layout_marginStart="6dp"
-                    android:background="@color/black"
-                    android:paddingHorizontal="8dp"
-                    android:paddingVertical="2dp" />
-
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="8dp"
-                android:gravity="center_vertical">
-
-
-                <TextView
-                    android:id="@+id/tvPrice"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="₱0.00"
-                    android:textSize="16sp"
-                    android:textColor="@color/colorPrimary"
-                    android:textStyle="bold"
-                    android:layout_marginStart="6dp" />
-
-            </LinearLayout>
+                android:ellipsize="end"
+                android:gravity="start" />
 
         </LinearLayout>
 
-        <!-- Visibility Toggle Section -->
+        <!-- Category Column -->
         <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="match_parent"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="2"
             android:orientation="vertical"
-            android:gravity="center"
-            android:layout_marginStart="16dp">
+            android:layout_marginHorizontal="4dp">
 
             <TextView
-                android:id="@+id/tvVisibilityStatus"
-                android:layout_width="wrap_content"
+                android:id="@+id/tvProductGroup"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Visible"
-                android:textSize="12sp"
+                android:text="Electronics"
+                android:textSize="13sp"
+                android:textColor="@color/text_secondary"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:gravity="center" />
+
+        </LinearLayout>
+
+        <!-- Price Column -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="2"
+            android:orientation="vertical"
+            android:layout_marginHorizontal="4dp">
+
+            <TextView
+                android:id="@+id/tvPrice"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="₱999.00"
+                android:textSize="13sp"
                 android:textStyle="bold"
                 android:textColor="@color/colorPrimary"
-                android:layout_marginBottom="8dp" />
+                android:gravity="center" />
 
-            <androidx.cardview.widget.CardView
+        </LinearLayout>
+
+        <!-- Visibility Toggle Column -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1.5"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:layout_marginStart="4dp">
+
+            <Switch
+                android:id="@+id/switchVisibility"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                app:cardCornerRadius="20dp"
-                app:cardElevation="4dp"
-                android:id="@+id/switchCard">
-
-                <Switch
-                    android:id="@+id/switchVisibility"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_margin="4dp"
-                    android:thumb="@drawable/switch_thumb"
-                    android:track="@drawable/switch_track" />
-
-            </androidx.cardview.widget.CardView>
+                android:theme="@style/SwitchTheme"
+                android:scaleX="0.8"
+                android:scaleY="0.8" />
 
         </LinearLayout>
 
     </LinearLayout>
 
-</androidx.cardview.widget.CardView>
+    <!-- Row Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="0.5dp"
+        android:background="#E0E0E0"
+        android:layout_marginHorizontal="16dp" />
+
+</LinearLayout>

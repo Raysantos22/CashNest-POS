@@ -19,10 +19,7 @@ import retrofit2.Response
 class LineRepository(
     private val api: LineDetailsApi,
     private val stockCountingApi: StockCountingApi,
-    private val dao: LineTransactionDao,
-    private val visibilityRepository: LineTransactionVisibilityRepository // Add this
-
-
+    private val dao: LineTransactionDao
 ) {
     companion object {
         private const val TAG = "LineRepository"
@@ -238,40 +235,7 @@ class LineRepository(
             throw e
         }
     }
-    suspend fun hideLineTransaction(itemId: String) {
-        visibilityRepository.hideLineTransaction(itemId)
-    }
 
-    suspend fun showLineTransaction(itemId: String) {
-        visibilityRepository.showLineTransaction(itemId)
-    }
-
-    suspend fun isLineTransactionHidden(itemId: String): Boolean {
-        return visibilityRepository.isLineTransactionHidden(itemId)
-    }
-
-    // Get line transactions with visibility information
-    suspend fun getLineTransactionsWithVisibility(journalId: String): Result<List<LineTransactionWithVisibility>> =
-        runCatching {
-            // Get line transactions from local database only (since they're already loaded from batch count)
-            val localData = dao.getLineTransactionsByJournal(journalId)
-
-            if (localData.isEmpty()) {
-                throw Exception("No local data found for journal: $journalId. Please ensure data is loaded first.")
-            }
-
-            val lineTransactions = localData.map { it.toModel() }
-
-            val lineTransactionsWithVisibility = lineTransactions.map { transaction ->
-                val isVisible = !transaction.itemId?.let {
-                    visibilityRepository.isLineTransactionHidden(it)
-                }!! ?: false // Default to visible if itemId is null
-
-                LineTransactionWithVisibility(transaction, isVisible)
-            }
-
-            lineTransactionsWithVisibility
-        }
     suspend fun postStockCounting(storeId: String, journalId: String): Response<Unit> {
         return stockCountingApi.postStockCounting(storeId, "1", journalId)  // Pass "1" as String
     }

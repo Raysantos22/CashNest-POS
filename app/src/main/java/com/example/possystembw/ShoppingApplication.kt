@@ -20,7 +20,6 @@ class ShoppingApplication : Application() {
             productApi = productApi,
             categoryApi = categoryApi,
             visibilityDao = database.productVisibilityDao(),
-            lineTransactionVisibilityDao = database.lineTransactionVisibilityDao(),
             application = this  // Pass the application context
         )
     }

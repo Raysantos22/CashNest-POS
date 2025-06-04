@@ -5,6 +5,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/white"
     >
 
     <androidx.appcompat.widget.Toolbar
@@ -25,6 +26,7 @@
         android:text="Request Category"
         android:textSize="18sp"
         android:textStyle="bold"
+        android:textColor="@color/black"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/toolbar" />
@@ -52,7 +54,7 @@
             android:background="@drawable/rounded_button_background"
             android:padding="16dp"
             android:text="Add Item"
-            android:textColor="#FFFFFF" />
+            android:textColor="@color/black" />
 
         <Button
             android:id="@+id/btnEditItem"
@@ -64,7 +66,7 @@
             android:background="@drawable/rounded_button_background"
             android:padding="16dp"
             android:text="Edit Item"
-            android:textColor="#FFFFFF" />
+            android:textColor="@color/black" />
 
         <Button
             android:id="@+id/btnUpdateItem"
@@ -76,7 +78,7 @@
             android:background="@drawable/rounded_button_background"
             android:padding="16dp"
             android:text="Update Item"
-            android:textColor="#FFFFFF" />
+            android:textColor="@color/black" />
 
         <Button
             android:id="@+id/btnCreateMixMatch"
@@ -89,7 +91,7 @@
             android:drawableTop="@drawable/ic_mix_match"
             android:padding="16dp"
             android:text="Create Mix &amp; Match"
-            android:textColor="#FFFFFF" />
+            android:textColor="@color/black"/>
 
         <Button
             android:id="@+id/btnAddDiscount"
@@ -101,7 +103,7 @@
             android:background="@drawable/rounded_button_background"
             android:padding="16dp"
             android:text="Add Discount"
-            android:textColor="#FFFFFF" />
+            android:textColor="@color/black" />
 
         <Button
             android:id="@+id/btnEditDiscount"
@@ -113,7 +115,7 @@
             android:background="@drawable/rounded_button_background"
             android:padding="16dp"
             android:text="Edit Discount"
-            android:textColor="#FFFFFF" />
+            android:textColor="@color/black" />
 
         <Button
             android:id="@+id/btnManageVisibility"
@@ -124,8 +126,8 @@
             android:layout_rowWeight="1"
             android:background="@drawable/rounded_button_background"
             android:padding="16dp"
-            android:text="Enable disable"
-            android:textColor="#FFFFFF" />
+            android:text="Enable/Disable POS Product"
+            android:textColor="@color/black" />
         <Button
             android:id="@+id/btnManageVisibility1"
             android:layout_width="0dp"
@@ -135,8 +137,8 @@
             android:layout_rowWeight="1"
             android:background="@drawable/rounded_button_background"
             android:padding="16dp"
-            android:text="Enable disable"
-            android:textColor="#FFFFFF" />
+            android:text="Enable/Disable Batch Product "
+            android:textColor="@color/black" />
 
 
     </GridLayout>

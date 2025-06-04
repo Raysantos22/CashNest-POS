@@ -135,9 +135,9 @@ import com.example.possystembw.database.LineTransactionVisibility
     RboTransactionDiscountTrans::class,ProductBundle::class, MixMatch::class,
     MixMatchLineGroup::class, NumberSequenceRemoteEntity::class,
             MixMatchDiscountLine::class,ZRead::class,NumberSequenceEntity::class,NumberSequence::class,PrinterSettings::class,StaffEntity::class,
-    StoreExpense::class,LoyaltyCard::class,AttendanceRecord::class, StockCountingEntity::class,LineTransactionEntity::class,ProductVisibility::class,LineTransactionVisibility::class
+    StoreExpense::class,LoyaltyCard::class,AttendanceRecord::class, StockCountingEntity::class,LineTransactionEntity::class,ProductVisibility::class
 ],
-    version = 171   )
+    version = 173 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun productDao(): ProductDao
@@ -189,7 +189,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun stockCountingDao(): StockCountingDao
     abstract fun lineTransactionDao(): LineTransactionDao
     abstract fun productVisibilityDao(): ProductVisibilityDao
-    abstract fun lineTransactionVisibilityDao(): LineTransactionVisibilityDao
 
 
 
@@ -207,7 +206,7 @@ abstract class AppDatabase : RoomDatabase() {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
-                    "POSBWbakeshop154" // Keep this new name if you want to start fresh
+                    "POSBWbakeshop156" // Keep this new name if you want to start fresh
                 )
                     .addMigrations(
                         MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5,

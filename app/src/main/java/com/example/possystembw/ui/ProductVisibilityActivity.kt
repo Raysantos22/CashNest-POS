@@ -9,8 +9,10 @@ import android.widget.LinearLayout
 import android.widget.SearchView
 import androidx.appcompat.widget.Toolbar
 import androidx.appcompat.app.AppCompatActivity
+import androidx.cardview.widget.CardView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.asFlow
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -22,6 +24,7 @@ import com.example.possystembw.database.Product
 import com.example.possystembw.ui.ViewModel.ProductViewModel
 import com.google.android.material.snackbar.Snackbar
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -30,8 +33,8 @@ class ProductVisibilityActivity : AppCompatActivity() {
     private lateinit var adapter: ProductVisibilityAdapter
     private lateinit var recyclerView: RecyclerView
     private lateinit var searchView: SearchView
-    private lateinit var btnToggleAllOn: Button
-    private lateinit var btnToggleAllOff: Button
+    private lateinit var cardToggleAllOn: CardView
+    private lateinit var cardToggleAllOff: CardView
     private lateinit var categoryButtonsContainer: LinearLayout
 
     private var selectedCategory: Category? = null
@@ -63,8 +66,8 @@ class ProductVisibilityActivity : AppCompatActivity() {
     private fun initializeViews() {
         recyclerView = findViewById(R.id.recyclerViewProducts)
         searchView = findViewById(R.id.searchView)
-        btnToggleAllOn = findViewById(R.id.btnToggleAllOn)
-        btnToggleAllOff = findViewById(R.id.btnToggleAllOff)
+        cardToggleAllOn = findViewById(R.id.cardToggleAllOn)
+        cardToggleAllOff = findViewById(R.id.cardToggleAllOff)
         categoryButtonsContainer = findViewById(R.id.categoryButtonsContainer)
 
         searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
@@ -94,7 +97,6 @@ class ProductVisibilityActivity : AppCompatActivity() {
         recyclerView.layoutManager = LinearLayoutManager(this)
         recyclerView.adapter = adapter
 
-        // Add item decoration for better spacing
         val spacing = resources.getDimensionPixelSize(R.dimen.grid_spacing)
         recyclerView.addItemDecoration(object : RecyclerView.ItemDecoration() {
             override fun getItemOffsets(
@@ -109,17 +111,13 @@ class ProductVisibilityActivity : AppCompatActivity() {
     }
 
     private fun setupToggleButtons() {
-        btnToggleAllOn.setOnClickListener {
+        cardToggleAllOn.setOnClickListener {
             toggleAllProducts(true)
-            updateToggleButtonStates()
         }
 
-        btnToggleAllOff.setOnClickListener {
+        cardToggleAllOff.setOnClickListener {
             toggleAllProducts(false)
-            updateToggleButtonStates()
         }
-
-        updateToggleButtonStates()
     }
 
     private fun updateToggleButtonStates() {
@@ -127,30 +125,25 @@ class ProductVisibilityActivity : AppCompatActivity() {
         val visibleCount = currentList.count { it.isVisible }
         val totalCount = currentList.size
 
-        // Update button appearances based on current state
         if (visibleCount == totalCount) {
-            btnToggleAllOn.alpha = 0.5f
-            btnToggleAllOff.alpha = 1.0f
+            cardToggleAllOn.alpha = 0.5f
+            cardToggleAllOff.alpha = 1.0f
         } else if (visibleCount == 0) {
-            btnToggleAllOn.alpha = 1.0f
-            btnToggleAllOff.alpha = 0.5f
+            cardToggleAllOn.alpha = 1.0f
+            cardToggleAllOff.alpha = 0.5f
         } else {
-            btnToggleAllOn.alpha = 1.0f
-            btnToggleAllOff.alpha = 1.0f
+            cardToggleAllOn.alpha = 1.0f
+            cardToggleAllOff.alpha = 1.0f
         }
     }
 
     private fun observeData() {
-        // Observe aligned products for categories
-
+        // Observe categories from all aligned products
         lifecycleScope.launch {
-            productViewModel.alignedProducts.collect { alignedProducts ->
-                Log.d("ProductVisibility", "Aligned products received: ${alignedProducts.size} categories")
-                alignedProducts.forEach { (category, products) ->
-                    Log.d("ProductVisibility", "Category: ${category.name}, Products: ${products.size}")
-                }
+            productViewModel.allAlignedProducts.collect { allAlignedProducts ->
+                Log.d("ProductVisibility", "All aligned products received: ${allAlignedProducts.size} categories")
 
-                categories = alignedProducts.keys.toList().sortedWith(
+                categories = allAlignedProducts.keys.toList().sortedWith(
                     compareBy<Category> {
                         when (it.name) {
                             "All" -> 0
@@ -165,19 +158,25 @@ class ProductVisibilityActivity : AppCompatActivity() {
             }
         }
 
-        // Observe all products (including hidden ones) for visibility management
-        productViewModel.allProducts.observe(this) { products ->
-            Log.d("ProductVisibility", "All products received: ${products.size}")
-            lifecycleScope.launch {
-                val productsWithVisibility = products.map { product ->
-                    val isVisible = !productViewModel.isProductHidden(product.id)
-                    ProductWithVisibility(product, isVisible)
+        // FIXED: Observe all products and their visibility status
+        lifecycleScope.launch {
+            combine(
+                productViewModel.allProducts.asFlow(),
+                productViewModel.getHiddenProducts()
+            ) { allProducts, hiddenProducts ->
+                val hiddenProductIds = hiddenProducts.map { it.productId }.toSet()
+
+                allProducts.map { product ->
+                    ProductWithVisibility(
+                        product = product,
+                        isVisible = product.id !in hiddenProductIds
+                    )
                 }
+            }.collect { productsWithVisibility ->
                 allProductsWithVisibility = productsWithVisibility
-                Log.d("ProductVisibility", "Products with visibility: ${allProductsWithVisibility.size}")
+                Log.d("ProductVisibility", "Updated products with visibility: ${allProductsWithVisibility.size}")
                 filterProducts()
             }
-
         }
     }
 
@@ -191,20 +190,18 @@ class ProductVisibilityActivity : AppCompatActivity() {
         }
     }
 
-    private fun createCategoryButton(category: Category): Button {
-        val button = Button(this).apply {
+    private fun createCategoryButton(category: Category): android.widget.Button {
+        val button = android.widget.Button(this).apply {
             text = category.name
             textSize = 14f
             setPadding(32, 16, 32, 16)
 
-            // Set initial appearance
             updateCategoryButtonAppearance(this, category == selectedCategory)
 
             setOnClickListener {
                 selectCategory(category)
             }
 
-            // Add margin
             val params = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -217,32 +214,26 @@ class ProductVisibilityActivity : AppCompatActivity() {
         return button
     }
 
-    // FIXED: Different backgrounds for selected and unselected states
-    private fun updateCategoryButtonAppearance(button: Button, isSelected: Boolean) {
+    private fun updateCategoryButtonAppearance(button: android.widget.Button, isSelected: Boolean) {
         if (isSelected) {
-            // Use a selected background (you might need to create this drawable)
             button.setBackgroundColor(ContextCompat.getColor(this, R.color.colorPrimary))
             button.setTextColor(ContextCompat.getColor(this, android.R.color.white))
             button.elevation = 8f
         } else {
-            // Use an unselected background
             button.setBackgroundColor(ContextCompat.getColor(this, android.R.color.white))
             button.setTextColor(ContextCompat.getColor(this, R.color.colorPrimary))
             button.elevation = 2f
-            // Add border for unselected state
             button.background = ContextCompat.getDrawable(this, R.drawable.category_button_unselected)
         }
     }
 
     private fun selectCategory(category: Category) {
-        val previousCategory = selectedCategory
         selectedCategory = if (selectedCategory == category) null else category
 
         Log.d("ProductVisibility", "Selected category: ${selectedCategory?.name ?: "None"}")
 
-        // Update button appearances
         for (i in 0 until categoryButtonsContainer.childCount) {
-            val button = categoryButtonsContainer.getChildAt(i) as Button
+            val button = categoryButtonsContainer.getChildAt(i) as android.widget.Button
             val buttonCategory = categories[i]
             updateCategoryButtonAppearance(button, buttonCategory == selectedCategory)
         }
@@ -265,7 +256,6 @@ class ProductVisibilityActivity : AppCompatActivity() {
                 when (category.name) {
                     "All" -> true
                     "Uncategorized" -> {
-                        // Check if product doesn't belong to any known category
                         val knownCategories = categories.filter { it.name != "All" && it.name != "Uncategorized" }
                         knownCategories.none { cat ->
                             product.itemGroup.equals(cat.name, ignoreCase = true)
@@ -275,9 +265,7 @@ class ProductVisibilityActivity : AppCompatActivity() {
                 }
             } ?: true
 
-            val result = matchesSearch && matchesCategory
-            Log.d("ProductVisibility", "Product: ${product.itemName}, Group: ${product.itemGroup}, Matches: $result")
-            result
+            matchesSearch && matchesCategory
         }
 
         Log.d("ProductVisibility", "Filtered ${filteredList.size} products from ${allProductsWithVisibility.size} total")
@@ -295,29 +283,22 @@ class ProductVisibilityActivity : AppCompatActivity() {
     }
 
     private fun toggleProductVisibility(product: Product, isEnabled: Boolean) {
-        if (isEnabled) {
-            productViewModel.showProduct(product.id)
-        } else {
-            productViewModel.hideProduct(product.id)
-        }
-
-        // Update local list immediately for better UX
-        allProductsWithVisibility = allProductsWithVisibility.map { productWithVisibility ->
-            if (productWithVisibility.product.id == product.id) {
-                productWithVisibility.copy(isVisible = isEnabled)
+        lifecycleScope.launch {
+            if (isEnabled) {
+                productViewModel.showProduct(product.id)
             } else {
-                productWithVisibility
+                productViewModel.hideProduct(product.id)
             }
-        }
 
-        filterProducts()
+            // The UI will automatically update through the Flow observation
+            // No need to manually update allProductsWithVisibility here
+        }
     }
 
     private fun toggleAllProducts(showAll: Boolean) {
         val currentList = adapter.currentList
 
         lifecycleScope.launch {
-            // Update database
             currentList.forEach { productWithVisibility ->
                 val product = productWithVisibility.product
                 if (showAll) {
@@ -327,21 +308,7 @@ class ProductVisibilityActivity : AppCompatActivity() {
                 }
             }
 
-            // Update local list immediately
-            allProductsWithVisibility = allProductsWithVisibility.map { productWithVisibility ->
-                val shouldUpdate = currentList.any { it.product.id == productWithVisibility.product.id }
-                if (shouldUpdate) {
-                    productWithVisibility.copy(isVisible = showAll)
-                } else {
-                    productWithVisibility
-                }
-            }
-
-            // Update UI immediately
             withContext(Dispatchers.Main) {
-                filterProducts()
-
-                // Show feedback
                 val message = if (showAll) "All products shown" else "All products hidden"
                 Snackbar.make(recyclerView, message, Snackbar.LENGTH_SHORT).show()
             }

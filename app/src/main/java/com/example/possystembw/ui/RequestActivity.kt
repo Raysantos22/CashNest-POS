@@ -80,18 +80,18 @@ class RequestActivity : AppCompatActivity() {
         val intent = Intent(this, ProductVisibilityActivity::class.java)
         startActivity(intent)
     }
-    private fun openLineVisibilityScreen() {
-        val intent = Intent(this, LineTransactionVisibilityActivity::class.java)
-        startActivity(intent)
-    }
+//    private fun openLineVisibilityScreen() {
+//        val intent = Intent(this, LineTransactionVisibilityActivity::class.java)
+//        startActivity(intent)
+//    }
 
     private fun setupRequestButtons() {
         findViewById<Button>(R.id.btnManageVisibility).setOnClickListener {
             openProductVisibilityScreen()
         }
-        findViewById<Button>(R.id.btnManageVisibility1).setOnClickListener {
-            openLineVisibilityScreen()
-        }
+//        findViewById<Button>(R.id.btnManageVisibility1).setOnClickListener {
+//            openLineVisibilityScreen()
+//        }
         findViewById<Button>(R.id.btnAddItem).setOnClickListener {
             showAddItemDialog()
         }

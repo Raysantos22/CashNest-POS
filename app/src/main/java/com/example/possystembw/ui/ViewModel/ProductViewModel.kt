@@ -12,20 +12,24 @@ import com.example.possystembw.RetrofitClient
 import com.example.possystembw.data.AppDatabase
 import com.example.possystembw.data.ProductRepository
 import com.example.possystembw.database.Category
+import com.example.possystembw.database.ProductVisibility
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.stateIn
 
 class ProductViewModel(application: Application) : AndroidViewModel(application) {
 
     private var repository: ProductRepository
     val allProducts: LiveData<List<Product>>
-
+    val visibleProducts: LiveData<List<Product>> // Add this for visible products only
+    val allCategories: Flow<List<Category>> // ← declare here, initialize later
 
     private val _operationStatus = MutableLiveData<Result<List<Product>>>()
     val operationStatus: LiveData<Result<List<Product>>> = _operationStatus
@@ -41,7 +45,6 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
 
     private val _filteredProducts = MutableStateFlow<List<Product>>(emptyList())
     val filteredProducts: StateFlow<List<Product>> = _filteredProducts.asStateFlow()
-
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -65,13 +68,28 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
         val categoryDao = database.categoryDao()
         val productApi = RetrofitClient.productApi
         val categoryApi = RetrofitClient.categoryApi
-        repository = ProductRepository(productDao, categoryDao, productApi, categoryApi, application)
+        val visibilityDao = database.productVisibilityDao()
+        val lineTransactionVisibilityDao = database.lineTransactionVisibilityDao() // Add this line
+
+        repository = ProductRepository(
+            productDao = productDao,
+            categoryDao = categoryDao,
+            productApi = productApi,
+            categoryApi = categoryApi,
+            application = application,
+            visibilityDao = visibilityDao,
+            lineTransactionVisibilityDao = lineTransactionVisibilityDao // Pass this parameter
+        )
+
         allProducts = repository.allProducts.asLiveData()
+        visibleProducts = repository.getVisibleProducts().asLiveData()
+        allCategories = repository.allCategories
+
         loadAlignedProducts()
 
         viewModelScope.launch {
             combine(
-                repository.allProducts,
+                repository.getVisibleProducts(), // Changed from allProducts to visible products
                 _selectedCategory,
                 _searchQuery
             ) { products, category, query ->
@@ -93,11 +111,31 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
             }
         }
 
-        // Load aligned products
         loadAlignedProducts()
     }
 
+    fun hideProduct(productId: Int) {
+        viewModelScope.launch {
+            repository.hideProduct(productId)
+            // No need to reload aligned products since categories are based on all products
+        }
+    }
 
+    fun showProduct(productId: Int) {
+        viewModelScope.launch {
+            repository.showProduct(productId)
+            // No need to reload aligned products since categories are based on all products
+        }
+    }
+
+    suspend fun isProductHidden(productId: Int): Boolean {
+        return repository.isProductHidden(productId)
+    }
+
+    fun getHiddenProducts(): StateFlow<List<ProductVisibility>> {
+        return repository.getHiddenProducts()
+            .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    }
 
 
 
@@ -182,7 +220,7 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
     fun loadAlignedProducts() {
         viewModelScope.launch {
             try {
-                repository.getAlignedProducts()
+                repository.getAlignedVisibleProducts() // Changed to use visible products
                     .catch { e ->
                         Log.e("ProductViewModel", "Error loading aligned products", e)
                         emit(emptyMap())
@@ -196,6 +234,7 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
             }
         }
     }
+
 
     fun getProductById(id: Int): Product? {
         return allProducts.value?.find { it.id == id }
@@ -246,7 +285,7 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
             _persistentSearchQuery.value = query
             _isSearchActive.value = !query.isNullOrBlank()
 
-            val filtered = allProducts.value?.filter { product ->
+            val filtered = visibleProducts.value?.filter { product -> // Changed to use visibleProducts
                 val matchesSearch = query.isNullOrBlank() ||
                         product.itemName.contains(query, ignoreCase = true) ||
                         product.itemGroup.contains(query, ignoreCase = true)
@@ -266,6 +305,7 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
             _filteredProducts.value = filtered
         }
     }
+
 
     fun clearSearch() {
         viewModelScope.launch {

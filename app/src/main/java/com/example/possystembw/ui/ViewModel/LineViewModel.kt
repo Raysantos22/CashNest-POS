@@ -17,6 +17,7 @@ import com.example.possystembw.DAO.StockCountingDao
 import com.example.possystembw.RetrofitClient
 import com.example.possystembw.data.AppDatabase
 import com.example.possystembw.data.LineRepository
+import com.example.possystembw.data.LineTransactionVisibilityRepository
 import com.example.possystembw.data.toEntity
 import com.example.possystembw.database.LineTransactionEntity
 import kotlinx.coroutines.Dispatchers
@@ -55,7 +56,8 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getDatabase(application)
     private val lineTransactionDao = database.lineTransactionDao()
     private val stockCountingDao = database.stockCountingDao()
-
+    private val lineTransactionVisibilityDao = database.lineTransactionVisibilityDao()
+    private val visibilityRepository = LineTransactionVisibilityRepository(lineTransactionVisibilityDao)
 
     companion object {
         private const val TAG = "LineViewModel"
@@ -105,7 +107,7 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
         val lineDetailsApi = retrofit.create(LineDetailsApi::class.java)
         val stockCountingApi = retrofit.create(StockCountingApi::class.java)
 
-        repository = LineRepository(lineDetailsApi, stockCountingApi, lineTransactionDao)
+        repository = LineRepository(lineDetailsApi, stockCountingApi, lineTransactionDao,visibilityRepository  )
     }
     suspend fun getUnsyncedTransactions(journalId: String): List<LineTransaction> {
         return repository.getUnsyncedTransactions(journalId)
@@ -126,6 +128,94 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+    fun hideLineTransaction(itemId: String) {
+        viewModelScope.launch {
+            repository.hideLineTransaction(itemId)
+        }
+    }
+
+    fun showLineTransaction(itemId: String) {
+        viewModelScope.launch {
+            repository.showLineTransaction(itemId)
+        }
+    }
+
+    suspend fun isLineTransactionHidden(itemId: String): Boolean {
+        return repository.isLineTransactionHidden(itemId)
+    }
+
+    fun getLineTransactionsWithVisibility(journalId: String) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val result = repository.getLineTransactionsWithVisibility(journalId)
+                // You can create a new LiveData for this if needed
+                // _lineTransactionsWithVisibility.value = result
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting line transactions with visibility", e)
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+    fun getLineDetails(storeId: String, journalId: String) {
+        this.storeId = storeId
+        this.journalId = journalId
+
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val result = repository.getLineDetails(storeId, journalId)
+                _lineDetailsResult.value = result
+                result.onSuccess { data ->
+                    currentData = data
+                }.onFailure { error ->
+                    Log.e(TAG, "Error getting line details", error)
+                }
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    fun syncTransactions() {
+        if (storeId == null || journalId == null) {
+            Log.e(TAG, "Store ID or Journal ID is null")
+            return
+        }
+
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val result = repository.syncTransactions(storeId!!, journalId!!)
+                result.onSuccess {
+                    Log.d(TAG, "Sync completed successfully")
+                    // Refresh data after sync
+                    getLineDetails(storeId!!, journalId!!)
+                }.onFailure { error ->
+                    Log.e(TAG, "Sync failed", error)
+                    _syncStatus.value = SyncStatus.Error("", error.message ?: "Unknown error")
+                }
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+    fun updateLineTransaction(transaction: LineTransaction) {
+        currentData = currentData.map {
+            if (it.itemId == transaction.itemId) transaction else it
+        }
+        _lineDetailsResult.value = Result.success(currentData)
+    }
+
+    fun hasUnsyncedChanges(): Boolean {
+        return currentData.any { it.syncStatus == 0 }
+    }
+
+    fun getUnsyncedCount(): Int {
+        return currentData.count { it.syncStatus == 0 }
+    }
+
     fun syncModifiedData() {
         viewModelScope.launch {
             try {

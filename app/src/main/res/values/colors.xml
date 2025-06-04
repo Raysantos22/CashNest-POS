@@ -56,4 +56,19 @@
     <color name="button_blue">#000080</color>
     <color name="orange">#FF5722</color>
 
+    <color name="selected_item_background">#E3F2FD</color>
+    <color name="default_item_background">#FFFFFF</color>
+    <color name="selection_count_background">#2196F3</color>
+    <color name="bulk_actions_background">#F5F5F5</color>
+
+    <!-- Action button colors -->
+    <color name="colorSuccess">#4CAF50</color>
+    <color name="colorError">#F44336</color>
+    <color name="colorWarning">#FF9800</color>
+
+    <!-- If you don't have these basic colors, add them too -->
+    <color name="colorPrimary">#2196F3</color>
+    <color name="colorPrimaryDark">#1976D2</color>
+    <color name="colorAccent">#FF4081</color>
+
 </resources>

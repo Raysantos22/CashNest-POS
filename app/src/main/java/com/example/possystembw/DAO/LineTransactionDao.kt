@@ -1,5 +1,6 @@
 package com.example.possystembw.DAO
 
+import androidx.lifecycle.LiveData
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -43,7 +44,8 @@ interface LineTransactionDao {
 //    @Query("DELETE FROM line_transactions WHERE journalId = :journalId")
 //    suspend fun deleteLineTransactionsByJournal(journalId: String)
 
-
+    @Query("SELECT * FROM line_transactions WHERE journalId = :journalId")
+    fun getLineTransactionsByJournalLiveData(journalId: String): LiveData<List<LineTransactionEntity>>
 
     @Query("UPDATE line_transactions SET syncStatus = :syncStatus WHERE journalId = :journalId AND itemId = :itemId")
     suspend fun updateSyncStatus(journalId: String, itemId: String, syncStatus: Int)

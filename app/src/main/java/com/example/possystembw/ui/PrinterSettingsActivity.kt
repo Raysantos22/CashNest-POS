@@ -149,6 +149,10 @@ class PrinterSettingsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnScanPrinters).setOnClickListener {
             startScanningProcess()
         }
+        findViewById<Button>(R.id.btnCreateRequest).setOnClickListener {
+            val intent = Intent(this, RequestActivity::class.java)
+            startActivity(intent)
+        }
     }
 
 //    private fun setupExpenseList() {

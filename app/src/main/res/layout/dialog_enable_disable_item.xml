@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <EditText
+        android:id="@+id/etSearchItem"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Search products..."
+        android:layout_marginBottom="8dp" />
+
+    <ToggleButton
+        android:id="@+id/toggleShowDisabled"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textOn="Show All Products"
+        android:textOff="Show Enabled Only"
+        android:layout_marginBottom="16dp" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvProducts"
+        android:layout_width="match_parent"
+        android:layout_height="400dp" />
+
+</LinearLayout>

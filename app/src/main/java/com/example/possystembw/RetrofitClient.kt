@@ -350,6 +350,7 @@ import com.example.possystembw.DAO.WindowTableApi
 import com.example.possystembw.database.CartItem
 import com.example.possystembw.database.Product
 import com.example.possystembw.database.TransactionRecord
+import com.example.possystembw.ui.RequestApiService
 import com.example.possystembw.ui.ViewModel.CustomDateAdapter
 import com.google.gson.FieldNamingPolicy
 import com.google.gson.GsonBuilder
@@ -437,7 +438,9 @@ object RetrofitClient {
     val attendanceApi: AttendanceApi by lazy {
         retrofit.create(AttendanceApi::class.java)
     }
-
+    val requestApiService: RequestApiService by lazy {
+        retrofit.create(RequestApiService::class.java)
+    }
     val stockCountingApi: StockCountingApi by lazy {
         retrofit.create(StockCountingApi::class.java)
     }

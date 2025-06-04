@@ -491,9 +491,8 @@
                         <Button
                             android:id="@+id/btnStoreExpense"
                             android:layout_width="0dp"
-                            android:layout_height="wrap_content"
+                            android:layout_height="match_parent"
                             android:layout_weight="1"
-                            android:layout_marginEnd="8dp"
                             android:background="@drawable/button_background"
                             android:padding="12dp"
                             android:text="Store Expense"
@@ -504,14 +503,25 @@
                         <Button
                             android:id="@+id/btnEmergencyResync"
                             android:layout_width="0dp"
-                            android:layout_height="wrap_content"
+                            android:layout_height="match_parent"
                             android:layout_weight="1"
-                            android:layout_marginStart="8dp"
+                            android:layout_marginStart="5dp"
                             android:background="@drawable/rounded_button_background"
                             android:padding="12dp"
                             android:text="Emergency Resync"
                             android:textColor="#FFFFFF"
-                            android:textSize="16sp" />
+                            android:textSize="12sp" />
+                        <Button
+                            android:id="@+id/btnCreateRequest"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:layout_marginStart="4dp"
+                            android:background="@drawable/rounded_button_background"
+                            android:padding="12dp"
+                            android:text="Create Request"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp" />
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>
                 <!-- Add Store Expense List Label -->

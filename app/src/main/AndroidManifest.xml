@@ -19,7 +19,7 @@
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
-    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 
@@ -37,29 +37,42 @@
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
         <activity
+            android:name=".ui.RequestActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"/>
+        <activity
             android:name=".ui.SplashActivity"
             android:exported="true"
-            android:screenOrientation="landscape"  >
-        <intent-filter>
+            android:screenOrientation="landscape">
+            <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".ui.ProductVisibilityActivity"
+            android:label="Show/Hide Products"
+            android:parentActivityName=".ui.RequestActivity" />
+        <activity
+            android:name=".ui.LineTransactionVisibilityActivity"
+            android:label="Show/Hide Products"
+            android:parentActivityName=".ui.RequestActivity" />
         <activity
             android:name=".ui.StaffSelectionActivity"
             android:exported="false" />
         <activity
             android:name=".ui.LineActivity"
-            android:screenOrientation="landscape"
-            android:exported="false" />
+            android:exported="false"
+            android:screenOrientation="landscape" />
         <activity
             android:name=".ui.StockCountingActivity"
-            android:screenOrientation="landscape"
-            android:exported="false" />
-
+            android:exported="false"
+            android:screenOrientation="landscape" />
         <activity
             android:name=".ui.PrinterSettingsActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:screenOrientation="landscape" />
         <activity
             android:name=".ui.ViewModel.OrderWebViewActivity"
             android:exported="false" />
@@ -82,13 +95,11 @@
         <activity
             android:name=".ui.LoginActivity"
             android:exported="TRUE"
-            android:screenOrientation="landscape"/>
-<!--            <intent-filter>-->
-<!--                <action android:name="android.intent.action.MAIN" />-->
-
-<!--                <category android:name="android.intent.category.LAUNCHER" />-->
-<!--            </intent-filter>-->
-<!--        </activity>-->
+            android:screenOrientation="landscape" /> <!-- <intent-filter> -->
+        <!-- <action android:name="android.intent.action.MAIN" /> -->
+        <!-- <category android:name="android.intent.category.LAUNCHER" /> -->
+        <!-- </intent-filter> -->
+        <!-- </activity> -->
         <activity
             android:name=".ui.Window1"
             android:exported="false"

@@ -2752,8 +2752,10 @@ private fun printReturnReceipt(
         })
 
         // Update suggestions when products change
-        productViewModel.allProducts.observe(this) { products ->
-            val newSuggestions = products.mapNotNull { product ->
+//        productViewModel.visibleProducts.observe(this) { products ->
+        productViewModel.visibleProducts.observe(this) { products ->
+
+        val newSuggestions = products.mapNotNull { product ->
                 listOfNotNull(
                     product.itemName.takeIf { it.isNotBlank() },
                     product.itemGroup.takeIf { it.isNotBlank() },
@@ -2778,7 +2780,7 @@ private fun printReturnReceipt(
                     val productsToFilter = if (productViewModel.isSearchActive.value) {
                         productViewModel.currentSearchResults.value
                     } else {
-                        productViewModel.allProducts.value ?: emptyList()
+                        productViewModel.visibleProducts.value ?: emptyList()
                     }
 
 
@@ -3624,7 +3626,7 @@ private fun showMixMatchProductSelection(mixMatch: MixMatchWithDetails) {
         // Fixed flow collection
         lifecycleScope.launch {
             combine(
-                productViewModel.allProducts.asFlow(),
+                productViewModel.visibleProducts.asFlow(),
                 categoryViewModel.categories,
                 productViewModel.isLoading
             ) { products: List<Product>, categories: List<Category>, isLoading: Boolean ->
@@ -3662,7 +3664,7 @@ private fun showMixMatchProductSelection(mixMatch: MixMatchWithDetails) {
 
     private fun updateCategoriesAndRecreate() {
         lifecycleScope.launch {
-            val products = productViewModel.allProducts.value ?: emptyList()
+            val products = productViewModel.visibleProducts.value ?: emptyList()
             val categories = categoryViewModel.categories.first()
 
             Log.d(TAG, "Total products: ${products.size}")
@@ -3729,7 +3731,7 @@ private fun showMixMatchProductSelection(mixMatch: MixMatchWithDetails) {
 //
 //        lifecycleScope.launch {
 //            combine(
-//                productViewModel.allProducts.asFlow(),
+//                productViewModel.visibleProducts.asFlow(),
 //                categoryViewModel.categories,
 //                productViewModel.isLoading
 //            ) { products, categories, isLoading ->
@@ -3798,7 +3800,7 @@ private fun setupCategoryRecyclerView() {
     // Observe categories and products
     lifecycleScope.launch {
         combine(
-            productViewModel.allProducts.asFlow(),
+            productViewModel.visibleProducts.asFlow(),
             categoryViewModel.categories,
             windowViewModel.allWindows
         ) { products, categories, windows ->
@@ -3817,7 +3819,7 @@ private fun setupCategoryRecyclerView() {
                 val window = windowViewModel.allWindows.first().find { it.id == windowId }
                 if (window != null) {
                     val description = window.description.uppercase()
-                    val allProducts = productViewModel.allProducts.value ?: emptyList()
+                    val allProducts = productViewModel.visibleProducts.value ?: emptyList()
 
                     // First filter by window type
                     val windowFilteredProducts = when {
@@ -3947,7 +3949,7 @@ private fun setupCategoryRecyclerView() {
     private fun observeCategoriesAndProducts() {
         lifecycleScope.launch {
             combine(
-                productViewModel.allProducts.asFlow(),
+                productViewModel.visibleProducts.asFlow(),
                 categoryViewModel.categories,
                 productViewModel.isLoading
             ) { products, categories, isLoading ->
@@ -5295,7 +5297,7 @@ private fun printReceiptWithBluetoothPrinter(
         lifecycleScope.launch {
             combine(
                 windowViewModel.allWindows,
-                productViewModel.allProducts.asFlow()
+                productViewModel.visibleProducts.asFlow()
             ) { windows, products ->
                 loadWindowSpecificProducts()
             }.collect { result ->
@@ -5307,7 +5309,7 @@ private fun printReceiptWithBluetoothPrinter(
 //        lifecycleScope.launch {
 //            combine(
 //                windowViewModel.allWindows,
-//                productViewModel.allProducts.asFlow()
+//                productViewModel.visibleProducts.asFlow()
 //            ) { windows, products ->
 //                loadWindowSpecificProducts()
 //            }.collectLatest { result ->
@@ -5323,7 +5325,7 @@ private fun printReceiptWithBluetoothPrinter(
             }
         }
 
-        productViewModel.allProducts.observe(this) { products ->
+        productViewModel.visibleProducts.observe(this) { products ->
             productAdapter.submitList(products)
         }
 
@@ -5335,7 +5337,7 @@ private fun printReceiptWithBluetoothPrinter(
 
             lifecycleScope.launch {
                 categoryViewModel.categories.collectLatest { categories ->
-                    productViewModel.allProducts.value?.let { products ->
+                    productViewModel.visibleProducts.value?.let { products ->
                         val nonEmptyCategories = categories.filter { category ->
                             products.any { it.itemGroup == category.name }
                         }
@@ -5475,6 +5477,9 @@ private fun printReceiptWithBluetoothPrinter(
                             mixMatchJob
                         )
 
+                        // After all API calls complete, reload aligned products to respect visibility settings
+                        productViewModel.loadAlignedProducts()
+
                         // Check results and prepare status message
                         val statusMessages = mutableListOf<String>()
 
@@ -5511,6 +5516,9 @@ private fun printReceiptWithBluetoothPrinter(
                                     Toast.LENGTH_LONG
                                 ).show()
                                 updateCategoriesAndRecreate()
+
+                                // Refresh the product adapter with the updated visible products
+                                refreshProductAdapter()
                             } else {
                                 Toast.makeText(
                                     this@Window1,
@@ -5535,7 +5543,31 @@ private fun printReceiptWithBluetoothPrinter(
             }
         }
     }
+    private fun refreshProductAdapter() {
+        // Observe the visible products and update the adapter
+        productViewModel.visibleProducts.observe(this) { visibleProducts ->
+            productAdapter.submitList(visibleProducts)
 
+            // If you're using category filtering, you might want to reapply the current category filter
+            productViewModel.selectedCategory.value?.let { selectedCategory ->
+                productViewModel.selectCategory(selectedCategory)
+            }
+        }
+
+        // Alternative: If you're using alignedProducts with categories
+        lifecycleScope.launch {
+            productViewModel.alignedProducts.collect { alignedProducts ->
+                // Update your UI based on the current selected category
+                val currentCategory = productViewModel.selectedCategory.value
+                val productsToShow = if (currentCategory == null || currentCategory.name == "All") {
+                    alignedProducts[Category(-1, "All")] ?: emptyList()
+                } else {
+                    alignedProducts[currentCategory] ?: emptyList()
+                }
+                productAdapter.submitList(productsToShow)
+            }
+        }
+    }
 
     private fun initializeProgressDialog() {
         val progressView = layoutInflater.inflate(R.layout.progress_dialog, null)
@@ -9346,7 +9378,7 @@ private fun showPointsRedemptionDialog(
     private fun updatePricesForWindow(windowDescription: String) {
         lifecycleScope.launch {
             try {
-                val currentProducts = productViewModel.allProducts.value ?: return@launch
+                val currentProducts = productViewModel.visibleProducts.value ?: return@launch
 
                 // Update prices based on window type
                 val updatedProducts = currentProducts.map { product ->
@@ -9382,7 +9414,7 @@ private fun loadWindowSpecificProducts() {
                 val description = window.description.uppercase()
                 Log.d("Window1", "Loading products for window: $description")
 
-                val allProducts = productViewModel.allProducts.value ?: emptyList()
+                val allProducts = productViewModel.visibleProducts.value ?: emptyList()
 
                 // Filter products based on window description
                 val windowFilteredProducts = when {
@@ -9645,7 +9677,7 @@ private fun loadWindowSpecificProducts() {
 
     private fun handleScannedBarcode(barcode: Long, overlay: FrameLayout, statusText: TextView) {
         lifecycleScope.launch {
-            val product = productViewModel.allProducts.value?.find { it.barcode == barcode }
+            val product = productViewModel.visibleProducts.value?.find { it.barcode == barcode }
             if (product != null) {
                 addToCart(product)
                 withContext(Dispatchers.Main) {

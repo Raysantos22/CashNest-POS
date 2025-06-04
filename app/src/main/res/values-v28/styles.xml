@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="SmartPayCardStyle" parent="Widget.MaterialComponents.CardView">
+        <item name="cardElevation">8dp</item>
+        <item name="cardBackgroundColor">#673AB7</item>
+        <item name="rippleColor">#FFFFFF</item>
+        <item name="android:outlineSpotShadowColor">#304FFE</item>  <!-- Blue shadow color -->
+        <item name="android:outlineAmbientShadowColor">#304FFE</item>  <!-- Blue shadow color -->
+    </style>
+</resources>

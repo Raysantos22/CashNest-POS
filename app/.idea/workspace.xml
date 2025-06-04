@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="NONE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="c23bda29-bdbc-4e68-86a5-22ced07bedbd" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/DAO/LineTransactionVisibilityDao.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/DAO/ProductStatusDao.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/DAO/ProductVisibilityDao.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/adapter/LineTransactionVisibilityAdapter.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/adapter/MixMatchItemsAdapter.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/adapter/ProductSearchAdapter.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/adapter/ProductVisibilityAdapter.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/adapter/SearchProductsAdapter.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/data/LineTransactionVisibilityRepository.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/data/ProductStatusRepository.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/data/ProductVisibilityRepository.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/data/RequestRepository.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/database/LineTransactionVisibility.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/database/ProductStatus.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/database/ProductVisibility.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/ui/LineTransactionVisibilityActivity.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/ui/ProductVisibilityActivity.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/ui/RequestActivity.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/ui/RequestApiService.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/ui/ViewModel/LineTransactionVisibilityViewModel.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/ui/ViewModel/RequestItem.kt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/drawable/category_badge_background.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/drawable/category_button_unselected.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/drawable/ic_visibility.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/drawable/search_background.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/drawable/switch_thumb.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/drawable/switch_track.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/activity_line_transaction_visibility.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/activity_product_visibility.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/activity_request.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/dialog_add_discount.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/dialog_add_item.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/dialog_add_mix_match_items.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/dialog_create_mix_match.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/dialog_create_mix_match_unified.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/dialog_edit_discount.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/dialog_edit_item.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/dialog_edit_item_with_search.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/dialog_enable_disable_item.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/dialog_journal_id_input.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/dialog_search_item.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/dialog_search_product.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/dialog_select_product.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/item_line_transaction_visibility.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/item_mix_match.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/item_product_enable_disable.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/item_product_search.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/item_product_visibility.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/main/res/layout/item_search_product.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../.idea/deploymentTargetSelector.xml" beforeDir="false" afterPath="$PROJECT_DIR$/../.idea/deploymentTargetSelector.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/AndroidManifest.xml" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/AndroidManifest.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/possystembw/DAO/LineTransactionDao.kt" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/DAO/LineTransactionDao.kt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/possystembw/DAO/ProductDao.kt" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/DAO/ProductDao.kt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/possystembw/RetrofitClient.kt" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/RetrofitClient.kt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/possystembw/ShoppingApplication.kt" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/ShoppingApplication.kt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/possystembw/data/AppDatabase.kt" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/data/AppDatabase.kt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/possystembw/data/LineRepository.kt" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/data/LineRepository.kt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/possystembw/data/ProductRepository.kt" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/data/ProductRepository.kt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/possystembw/ui/PrinterSettingsActivity.kt" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/ui/PrinterSettingsActivity.kt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/possystembw/ui/ViewModel/LineViewModel.kt" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/ui/ViewModel/LineViewModel.kt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/possystembw/ui/ViewModel/ProductViewModel.kt" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/ui/ViewModel/ProductViewModel.kt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/java/com/example/possystembw/ui/Window1.kt" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/java/com/example/possystembw/ui/Window1.kt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/res/layout/activity_printer_settings.xml" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/res/layout/activity_printer_settings.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/res/values/colors.xml" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/res/values/colors.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main/res/values/strings.xml" beforeDir="false" afterPath="$PROJECT_DIR$/src/main/res/values/strings.xml" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ClangdSettings">
+    <option name="formatViaClangd" value="false" />
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$/.." />
+  </component>
+  <component name="ProjectColorInfo"><![CDATA[{
+  "associatedIndex": 6
+}]]></component>
+  <component name="ProjectId" id="2y1Jq6q4Ecf2QZcLMkWZBuwnEIT" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.cidr.known.project.marker": "true",
+    "RunOnceActivity.readMode.enableVisualFormatting": "true",
+    "android.gradle.sync.needed": "true",
+    "cf.first.check.clang-format": "false",
+    "cidr.known.project.marker": "true",
+    "git-widget-placeholder": "master",
+    "kotlin-language-version-configured": "true",
+    "last_opened_file_path": "C:/Users/PROGRAMMER/Downloads/PossystemBW"
+  }
+}]]></component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="c23bda29-bdbc-4e68-86a5-22ced07bedbd" name="Changes" comment="" />
+      <created>1748996333800</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1748996333800</updated>
+    </task>
+    <servers />
+  </component>
+</project>

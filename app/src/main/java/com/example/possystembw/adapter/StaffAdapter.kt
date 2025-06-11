@@ -34,6 +34,7 @@ class StaffAdapter : RecyclerView.Adapter<StaffAdapter.StaffViewHolder>() {
                 "SV" -> "Supervisor"
                 "ST" -> "Staff"
                 "CH" -> "Cluster Head"
+                "AD" -> "Admin"
                 else -> staff.role
             }
             radioButton.isChecked = position == selectedPosition

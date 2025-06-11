@@ -8,8 +8,6 @@ import com.example.possystembw.database.ZRead
 
 @Dao
 interface ZReadDao {
-
-
     @Query("SELECT * FROM zread ORDER BY date DESC LIMIT 1")
     suspend fun getLastZRead(): ZRead?
 
@@ -24,4 +22,8 @@ interface ZReadDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(zRead: ZRead)
+
+    // Add this method to check if Z-Read exists for today
+    @Query("SELECT COUNT(*) > 0 FROM zread WHERE date = :date")
+    suspend fun hasZReadForDate(date: String): Boolean
 }

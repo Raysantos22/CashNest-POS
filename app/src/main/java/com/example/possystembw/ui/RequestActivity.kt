@@ -76,14 +76,15 @@ class RequestActivity : AppCompatActivity() {
             onBackPressed()
         }
     }
+    //    private fun openLineVisibilityScreen() {
+//        val intent = Intent(this, LineTransactionVisibilityActivity::class.java)
+//        startActivity(intent)
+//    }
+
     private fun openProductVisibilityScreen() {
         val intent = Intent(this, ProductVisibilityActivity::class.java)
         startActivity(intent)
     }
-//    private fun openLineVisibilityScreen() {
-//        val intent = Intent(this, LineTransactionVisibilityActivity::class.java)
-//        startActivity(intent)
-//    }
 
     private fun setupRequestButtons() {
         findViewById<Button>(R.id.btnManageVisibility).setOnClickListener {

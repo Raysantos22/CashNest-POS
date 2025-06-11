@@ -461,6 +461,9 @@
         app:layout_constraintStart_toEndOf="@+id/sidebarLayout"
         app:layout_constraintTop_toTopOf="parent" />
 
+
+
+
     <Button
         android:id="@+id/insertButton"
         android:layout_width="40dp"
@@ -501,8 +504,8 @@
         android:id="@+id/constraintLayout"
         android:layout_width="440dp"
         android:layout_height="match_parent"
-        android:padding="5dp"
         android:background="@drawable/cartdesign"
+        android:padding="5dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent"
@@ -511,47 +514,46 @@
         <!-- Header Section -->
 
 
-
         <androidx.cardview.widget.CardView
             android:id="@+id/staffSelectorContainer"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:layout_marginTop="10dp"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="8dp"
-            app:cardBackgroundColor="#ffffff"
             android:clickable="true"
             android:focusable="true"
+            app:cardBackgroundColor="#ffffff"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="8dp"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent">
 
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:padding="16dp"
+                android:background="?attr/selectableItemBackground"
                 android:gravity="center_vertical"
-                android:background="?attr/selectableItemBackground">
+                android:orientation="horizontal"
+                android:padding="16dp">
 
                 <ImageView
                     android:id="@+id/staffIcon"
                     android:layout_width="24dp"
                     android:layout_height="24dp"
                     android:src="@drawable/baseline_people_24"
-                    app:tint="@color/navy"/>
+                    app:tint="@color/navy" />
 
                 <TextView
                     android:id="@+id/staffNameTextView"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="12dp"
+                    android:ellipsize="end"
+                    android:maxLength="20"
+                    android:maxLines="1"
                     android:textColor="@color/navy"
                     android:textSize="18sp"
-                    android:textStyle="bold"
-                    android:ellipsize="end"
-                    android:maxLines="1"
-                    android:maxLength="20"/>
+                    android:textStyle="bold" />
 
                 <ImageView
                     android:id="@+id/dropdownIcon"
@@ -559,7 +561,7 @@
                     android:layout_height="24dp"
                     android:layout_marginStart="12dp"
                     android:src="@drawable/baseline_arrow_drop_down_24"
-                    app:tint="@color/navy"/>
+                    app:tint="@color/navy" />
 
             </LinearLayout>
         </androidx.cardview.widget.CardView>
@@ -585,11 +587,11 @@
             android:layout_marginStart="16dp"
             android:layout_marginEnd="16dp"
             android:layout_marginBottom="8dp"
+            android:windowSoftInputMode="adjustPan"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintHorizontal_bias="0.0"
-            android:windowSoftInputMode="adjustPan"
-           app:layout_constraintStart_toStartOf="parent">
+            app:layout_constraintStart_toStartOf="parent">
 
             <!-- Comment Section (Initially Gone) -->
             <TextView
@@ -754,13 +756,12 @@
         </androidx.constraintlayout.widget.ConstraintLayout>
 
 
-
         <androidx.cardview.widget.CardView
             android:id="@+id/cardView2"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:layout_marginTop="10dp"
             android:layout_marginStart="300dp"
+            android:layout_marginTop="10dp"
             app:cardBackgroundColor="@color/navy"
             app:cardCornerRadius="8dp"
             app:cardElevation="4dp"
@@ -829,11 +830,11 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:layout_gravity="left"
+            android:layout_marginStart="10dp"
+            android:layout_marginTop="10dp"
             app:cardBackgroundColor="#FF4C02"
             app:cardCornerRadius="10dp"
             app:cardElevation="4dp"
-            android:layout_marginStart="10dp"
-            android:layout_marginTop="10dp"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintTop_toTopOf="parent">
 
@@ -844,6 +845,7 @@
                 android:background="@drawable/check"
                 android:contentDescription="Toggle Button"
                 android:padding="0dp" />
+
             <ImageButton
                 android:id="@+id/toggleButton"
                 android:layout_width="50dp"
@@ -961,8 +963,8 @@
                     android:layout_marginEnd="10dp"
                     android:background="@drawable/button_shadow_background"
                     android:elevation="4dp"
-                    android:text="Add Comment"
-                    app:layout_constraintEnd_toStartOf="@id/deleteCommentButton"
+                    android:text="Add / Delete Comment"
+                    app:layout_constraintEnd_toStartOf="@id/Reportsbutton"
                     app:layout_constraintStart_toEndOf="@id/voidPartialPaymentButton"
                     app:layout_constraintTop_toBottomOf="@id/priceOverrideButton" />
 
@@ -975,6 +977,20 @@
                     android:background="@drawable/button_shadow_background"
                     android:elevation="4dp"
                     android:text="Delete Comment"
+                    android:visibility="gone"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toEndOf="@id/addCommentButton"
+                    app:layout_constraintTop_toBottomOf="@id/partialPaymentButton" />
+
+                <Button
+                    android:id="@+id/Reportsbutton"
+                    android:layout_width="0dp"
+                    android:layout_height="160dp"
+                    android:layout_marginTop="10dp"
+                    android:layout_marginEnd="10dp"
+                    android:background="@drawable/button_shadow_background"
+                    android:elevation="4dp"
+                    android:text="Cash Drawer"
                     app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toEndOf="@id/addCommentButton"
                     app:layout_constraintTop_toBottomOf="@id/partialPaymentButton" />
@@ -1017,7 +1033,7 @@
                     android:text="X-Read"
                     app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toEndOf="@id/zReadButton"
-                    app:layout_constraintTop_toBottomOf="@id/deleteCommentButton" />
+                    app:layout_constraintTop_toBottomOf="@id/Reportsbutton" />
 
                 <!-- Fourth Row -->
                 <Button

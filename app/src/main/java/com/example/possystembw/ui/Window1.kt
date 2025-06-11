@@ -325,6 +325,10 @@ class Window1 : AppCompatActivity() {
     private var lastScanTime: Long = 0
     private val SCAN_COOLDOWN = 1000
 
+        private var isTransactionDisabledAfterZRead = false
+    private var midnightHandler: Handler? = null
+    private var midnightRunnable: Runnable? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN)
@@ -425,8 +429,12 @@ class Window1 : AppCompatActivity() {
             setupBarcodeScanning()
             setupBarcodeScanButton()
 
-
             initializeCameraX()
+
+            findViewById<Button>(R.id.Reportsbutton).setOnClickListener {
+                val intent = Intent(this, ReportsActivity::class.java)
+                startActivity(intent)
+            }
 
             findViewById<Button>(R.id.priceOverrideButton).setOnClickListener {
                 showPriceOverrideDialog()
@@ -458,6 +466,7 @@ class Window1 : AppCompatActivity() {
             finish()
         }
     }
+
     private fun initializeCameraX() {
         try {
             ProcessCameraProvider.getInstance(this)
@@ -2698,6 +2707,9 @@ private fun printReturnReceipt(
         }
         disconnectPrinter()
         returnDialog?.dismiss()
+        midnightHandler?.removeCallbacks(midnightRunnable ?: return)
+        midnightHandler = null
+        midnightRunnable = null
     }
 
 
@@ -3101,6 +3113,7 @@ private fun voidPartialPayment() {
         val numberSequenceApi = RetrofitClient.numberSequenceApi
         val numberSequenceRemoteDao = database.numberSequenceRemoteDao()
         numberSequenceRemoteRepository = NumberSequenceRemoteRepository(numberSequenceApi, numberSequenceRemoteDao)
+
 
     }
     private fun setupTransactionView() {
@@ -4623,54 +4636,71 @@ private fun printXReadWithBluetoothPrinter(
     }
 
     private fun showCashFundDialog() {
-        if (isCashFundEntered) {
-            showCurrentCashFundStatus()
-            return
-        }
+        // Check if transactions are disabled after Z-Read
+        lifecycleScope.launch {
+            val hasZReadToday = hasZReadForToday()
+            if (hasZReadToday && isAfterMidnight()) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@Window1,
+                        "Cash fund operations are disabled. Z-Read completed for today. Please wait until next day.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                return@launch
+            }
 
-        val dialogView = layoutInflater.inflate(R.layout.dialog_cash_fund, null)
-        val editTextCashFund = dialogView.findViewById<EditText>(R.id.editTextCashFund)
+            // Your existing showCashFundDialog logic here...
+            if (isCashFundEntered) {
+                showCurrentCashFundStatus()
+                return@launch
+            }
 
-        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle)
-            .setTitle("Enter Cash Fund")
-            .setView(dialogView)
-            .setPositiveButton("Submit") { _, _ ->
-                val cashFund = editTextCashFund.text.toString().toDoubleOrNull()
-                if (cashFund != null && cashFund > 0) {
-                    currentCashFund = cashFund
-                    saveCashFund(cashFund, "INITIAL")
-                    if (bluetoothPrinterHelper.printCashFundReceipt(cashFund, "INITIAL")) {
-                        Toast.makeText(
-                            this,
-                            "Cash Fund Receipt printed successfully",
-                            Toast.LENGTH_SHORT
-                        ).show()
+            val dialogView = layoutInflater.inflate(R.layout.dialog_cash_fund, null)
+            val editTextCashFund = dialogView.findViewById<EditText>(R.id.editTextCashFund)
+
+            val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle)
+                .setTitle("Enter Cash Fund")
+                .setView(dialogView)
+                .setPositiveButton("Submit") { _, _ ->
+                    val cashFund = editTextCashFund.text.toString().toDoubleOrNull()
+                    if (cashFund != null && cashFund > 0) {
+                        currentCashFund = cashFund
+                        saveCashFund(cashFund, "INITIAL")
+                        if (bluetoothPrinterHelper.printCashFundReceipt(cashFund, "INITIAL")) {
+                            Toast.makeText(
+                                this@Window1,
+                                "Cash Fund Receipt printed successfully",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            Toast.makeText(
+                                this@Window1,
+                                "Failed to print Cash Fund Receipt",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                        isCashFundEntered = true
+                        enableTransactions()
                     } else {
                         Toast.makeText(
-                            this,
-                            "Failed to print Cash Fund Receipt",
+                            this@Window1,
+                            "Please enter a valid amount greater than zero",
                             Toast.LENGTH_SHORT
                         ).show()
                     }
-                    isCashFundEntered = true
-                    enableTransactions()
-                } else {
-                    Toast.makeText(
-                        this,
-                        "Please enter a valid amount greater than zero",
-                        Toast.LENGTH_SHORT
-                    ).show()
                 }
-            }
-            .setNegativeButton("Cancel") { dialog, _ ->
-                dialog.dismiss()
-            }
-            .create()
+                .setNegativeButton("Cancel") { dialog, _ ->
+                    dialog.dismiss()
+                }
+                .create()
 
-        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-        dialog.show()
+            withContext(Dispatchers.Main) {
+                dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+                dialog.show()
+            }
+        }
     }
-
     private fun showCurrentCashFundStatus() {
         AlertDialog.Builder(this)
             .setTitle("Cash Fund Status")
@@ -9822,7 +9852,354 @@ private fun showPointsRedemptionDialog(
 //            }
 //        }
 //    }
+private fun enableTransactionsForNewDay() {
+    // Only enable if cash fund is available
+    if (currentCashFund > 0) {
+        enableTransactions()
+    }
+
+    // Always enable cash management buttons for new day
+    binding.cashFundButton.isEnabled = true
+    binding.pulloutCashFundButton.isEnabled = true
+    binding.tenderDeclarationButton.isEnabled = true
+
+    // Enable Z-Read and X-Read buttons
+    zReadButton.isEnabled = true
+    xReadButton.isEnabled = true
+
+    // Reset Z-Read status
+    resetCashManagementStatus()
+}
+
+private fun disableAllTransactionsAfterZRead() {
+    // Disable all transaction buttons
+    binding.payButton.isEnabled = false
+    binding.clearCartButton.isEnabled = false
+    binding.insertButton.isEnabled = false
+    binding.priceOverrideButton.isEnabled = false
+    binding.discountButton.isEnabled = false
+    binding.partialPaymentButton.isEnabled = false
+    binding.voidPartialPaymentButton.isEnabled = false
+
+    // Disable cash management buttons
+    binding.cashFundButton.isEnabled = false
+    binding.pulloutCashFundButton.isEnabled = false
+    binding.tenderDeclarationButton.isEnabled = false
+
+    // Disable Z-Read and X-Read buttons
+    zReadButton.isEnabled = false
+    xReadButton.isEnabled = false
+}
+
+// Automatic Z-Read at midnight
+private suspend fun performAutomaticZRead() {
+    try {
+        Log.d(TAG, "Performing automatic Z-Read at midnight")
+
+        // Get unprocessed transactions
+        val transactions = transactionDao.getAllUnprocessedTransactions()
+
+        if (transactions.isEmpty()) {
+            Log.d(TAG, "No transactions to process for automatic Z-Read")
+            return
+        }
+
+        // Generate Z-Report ID
+        val zReportId = generateZReportId()
+        val storeId = SessionManager.getCurrentUser()?.storeid ?: run {
+            Log.e(TAG, "Store ID not found for automatic Z-Read")
+            return
+        }
+
+        // Get tender declaration
+        val currentTenderDeclaration = tenderDeclarationDao.getLatestTenderDeclaration()
+
+        // Create Z-Read record
+        val totalAmount = transactions.sumOf { it.totalAmountPaid }
+        val zRead = ZRead(
+            zReportId = zReportId,
+            date = getCurrentDate(),
+            time = getCurrentTime(),
+            totalTransactions = transactions.size,
+            totalAmount = totalAmount
+        )
+
+        // Save Z-Read record
+        zReadDao.insert(zRead)
+
+        // Create transaction logger for BIR purposes
+        val transactionLogger = TransactionLogger(this@Window1)
+        transactionLogger.logZRead(
+            zReportId = zReportId,
+            transactions = transactions,
+            tenderDeclaration = currentTenderDeclaration
+        )
+
+        // Update transactions with Z-Report ID
+        transactionViewModel.updateTransactionsZReport(storeId, zReportId)
+
+        Log.d(TAG, "Automatic Z-Read completed successfully")
+
+        // After automatic Z-Read, enable transactions for new day
+        enableTransactionsForNewDay()
+
+    } catch (e: Exception) {
+        Log.e(TAG, "Error performing automatic Z-Read", e)
+    }
+}
+
+    private suspend fun hasZReadForToday(): Boolean {
+        val today = getCurrentDate()
+        return zReadDao.getZReadByDate(today) != null
+    }
+
+    // Add this method to check if it's past midnight
+    private fun isAfterMidnight(): Boolean {
+        val calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Manila"))
+        val currentHour = calendar.get(Calendar.HOUR_OF_DAY)
+        val currentMinute = calendar.get(Calendar.MINUTE)
+
+        // Check if it's between 00:01 and 23:59
+        return currentHour > 0 || (currentHour == 0 && currentMinute > 0)
+    }
+
+    // Modified initialization method - call this in onCreate
+    private fun initializeTransactionControl() {
+        lifecycleScope.launch {
+            checkZReadStatusAndControlTransactions()
+            setupMidnightScheduler()
+        }
+    }
+
+    // Main method to check Z-Read status and control transactions
+    private suspend fun checkZReadStatusAndControlTransactions() {
+        val hasZReadToday = hasZReadForToday()
+
+        if (hasZReadToday) {
+            // Z-Read exists for today
+            if (isAfterMidnight()) {
+                // It's after midnight (00:01 onwards), disable all transactions
+                disableAllTransactionsAfterZRead()
+                isTransactionDisabledAfterZRead = true
+
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@Window1,
+                        "Z-Read completed for today. Transactions disabled until next day.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            } else {
+                // It's exactly midnight (00:00), allow transactions
+                enableTransactionsForNewDay()
+                isTransactionDisabledAfterZRead = false
+            }
+        } else {
+            // No Z-Read for today
+            val calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Manila"))
+            val currentHour = calendar.get(Calendar.HOUR_OF_DAY)
+
+            if (currentHour == 0) {
+                // It's midnight and no Z-Read, perform automatic Z-Read
+                performAutomaticZRead()
+            } else {
+                // Normal operation
+                enableTransactionsForNewDay()
+                isTransactionDisabledAfterZRead = false
+            }
+        }
+    }
+
+    // Setup scheduler to check at midnight
+    private fun setupMidnightScheduler() {
+        midnightHandler = Handler(Looper.getMainLooper())
+
+        val scheduleNextCheck = {
+            val calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Manila"))
+            calendar.add(Calendar.DAY_OF_MONTH, 1)
+            calendar.set(Calendar.HOUR_OF_DAY, 0)
+            calendar.set(Calendar.MINUTE, 0)
+            calendar.set(Calendar.SECOND, 0)
+            calendar.set(Calendar.MILLISECOND, 0)
+
+            val timeUntilMidnight = calendar.timeInMillis - System.currentTimeMillis()
+
+            midnightRunnable = Runnable {
+                lifecycleScope.launch {
+                    checkZReadStatusAndControlTransactions()
+                    setupMidnightScheduler() // Schedule next check
+                }
+            }
+
+            midnightHandler?.postDelayed(midnightRunnable!!, timeUntilMidnight)
+        }
+
+        scheduleNextCheck()
+    }
+//private fun addToCart(product: Product) {
+//    checkStaffAndProceed {
+//        if (currentCashFund <= 0) {
+//            Toast.makeText(
+//                this,
+//                "Cannot perform transactions. Please set a cash fund.",
+//                Toast.LENGTH_LONG
+//            ).show()
+//            return@checkStaffAndProceed
+//        }
+//
+//        lifecycleScope.launch {
+//            val existingItems = cartViewModel.getAllCartItems(windowId).first()
+//            val partialPayment = existingItems.firstOrNull()?.partialPayment ?: 0.0
+//
+//            // Log the product we're trying to add
+//            Log.d(TAG, "Adding product: ${product.itemName} (${product.itemid})")
+//
+//            // Check if we have the "PULLMAN X 2" product and apply discount directly
+//            var matchingDiscount: Discount? = null
+//
+//            // Handle special case for PULLMAN X 2 product
+//            if (product.itemName.trim().equals("PULLMAN X 2", ignoreCase = true)) {
+//                // Check if discounts are loaded
+//                val loadedDiscounts = discountViewModel.discounts.value
+//
+//                if (!loadedDiscounts.isNullOrEmpty()) {
+//                    // Try to find matching discount
+//                    matchingDiscount = loadedDiscounts.find { discount ->
+//                        discount.DISCOFFERNAME.trim().equals(product.itemName.trim(), ignoreCase = true)
+//                    }
+//
+//                    if (matchingDiscount != null) {
+//                        Log.d(TAG, "Found matching discount: ${matchingDiscount.DISCOFFERNAME}")
+//                    } else {
+//                        Log.d(TAG, "No matching discount found in loaded discounts")
+//                    }
+//                } else {
+//                    // If discounts aren't loaded, create a hardcoded one for PULLMAN X 2
+//                    Log.d(TAG, "Creating hardcoded discount for PULLMAN X 2")
+//                    matchingDiscount = Discount(
+//                        id = 27,
+//                        DISCOFFERNAME = "PULLMAN X 2",
+//                        PARAMETER = 29,
+//                        DISCOUNTTYPE = "fixed"
+//                    )
+//                }
+//            }
+//
+//            // Find matching items in cart
+//            val existingNonDiscountedItem = existingItems.find { item ->
+//                item.productId == product.id &&
+//                        item.discount == 0.0 &&
+//                        item.discountType.isEmpty() &&
+//                        item.bundleId == null
+//            }
+//
+//            val existingDiscountedItem = existingItems.find { item ->
+//                item.productId == product.id &&
+//                        (item.discount > 0.0 ||
+//                                item.discountType.isNotEmpty() ||
+//                                item.bundleId != null)
+//            }
+//
+//            // If there's a matching discount, apply it to a new cart item
+//            if (matchingDiscount != null) {
+//                Log.d(TAG, "Applying discount: ${matchingDiscount.DISCOFFERNAME} (${matchingDiscount.PARAMETER} ${matchingDiscount.DISCOUNTTYPE})")
+//
+//                // Show toast to confirm discount application
+//                withContext(Dispatchers.Main) {
+//                    Toast.makeText(
+//                        this@Window1,
+//                        "Applied discount: ${matchingDiscount.DISCOFFERNAME} (${matchingDiscount.PARAMETER} ${matchingDiscount.DISCOUNTTYPE})",
+//                        Toast.LENGTH_SHORT
+//                    ).show()
+//                }
+//
+//                // Create new item with discount applied
+//                cartViewModel.insert(
+//                    CartItem(
+//                        productId = product.id,
+//                        quantity = 1,
+//                        windowId = windowId,
+//                        productName = product.itemName,
+//                        price = product.price,
+//                        partialPayment = partialPayment,
+//                        vatAmount = 0.0,
+//                        vatExemptAmount = 0.0,
+//                        itemGroup = product.itemGroup,
+//                        itemId = product.itemid,
+//                        discount = matchingDiscount.PARAMETER.toDouble(),
+//                        discountType = matchingDiscount.DISCOUNTTYPE,
+//                        discountName = matchingDiscount.DISCOFFERNAME
+//                    )
+//                )
+//
+//            } else when {
+//                // If clicking a non-discounted item
+//                existingNonDiscountedItem != null -> {
+//                    // Update quantity of existing non-discounted item
+//                    cartViewModel.update(
+//                        existingNonDiscountedItem.copy(
+//                            quantity = existingNonDiscountedItem.quantity + 1,
+//                            partialPayment = partialPayment
+//                        )
+//                    )
+//                }
+//                // If the product exists but only as a discounted item, create new non-discounted entry
+//                existingDiscountedItem != null -> {
+//                    // Create new cart item without discount
+//                    cartViewModel.insert(
+//                        CartItem(
+//                            productId = product.id,
+//                            quantity = 1,
+//                            windowId = windowId,
+//                            productName = product.itemName,
+//                            price = product.price,
+//                            partialPayment = partialPayment,
+//                            vatAmount = 0.0,
+//                            vatExemptAmount = 0.0,
+//                            itemGroup = product.itemGroup,
+//                            itemId = product.itemid,
+//                            discount = 0.0,
+//                            discountType = ""
+//                        )
+//                    )
+//                }
+//                // If the product doesn't exist in cart at all
+//                else -> {
+//                    cartViewModel.insert(
+//                        CartItem(
+//                            productId = product.id,
+//                            quantity = 1,
+//                            windowId = windowId,
+//                            productName = product.itemName,
+//                            price = product.price,
+//                            partialPayment = partialPayment,
+//                            vatAmount = 0.0,
+//                            vatExemptAmount = 0.0,
+//                            itemGroup = product.itemGroup,
+//                            itemId = product.itemid,
+//                            discount = 0.0,
+//                            discountType = ""
+//                        )
+//                    )
+//                }
+//            }
+//
+//            Log.d(TAG, "Added/Updated cart item for product ${product.id} in window $windowId")
+//            updateTotalAmount(cartViewModel.getAllCartItems(windowId).first())
+//        }
+//    }
+//}
 private fun addToCart(product: Product) {
+    // First check if transactions are disabled after Z-Read
+    if (isTransactionDisabledAfterZRead) {
+        Toast.makeText(
+            this,
+            "Transactions are disabled. Z-Read completed for today. Please wait until next day.",
+            Toast.LENGTH_LONG
+        ).show()
+        return
+    }
+
     checkStaffAndProceed {
         if (currentCashFund <= 0) {
             Toast.makeText(
@@ -9834,6 +10211,20 @@ private fun addToCart(product: Product) {
         }
 
         lifecycleScope.launch {
+            // Check Z-Read status before allowing transaction
+            val hasZReadToday = hasZReadForToday()
+            if (hasZReadToday && isAfterMidnight()) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@Window1,
+                        "Cannot add items. Z-Read completed for today.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                return@launch
+            }
+
+            // Your existing addToCart logic here...
             val existingItems = cartViewModel.getAllCartItems(windowId).first()
             val partialPayment = existingItems.firstOrNull()?.partialPayment ?: 0.0
 
@@ -9917,6 +10308,7 @@ private fun addToCart(product: Product) {
                         discountName = matchingDiscount.DISCOFFERNAME
                     )
                 )
+
             } else when {
                 // If clicking a non-discounted item
                 existingNonDiscountedItem != null -> {

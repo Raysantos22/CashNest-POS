@@ -69,6 +69,7 @@ import com.example.possystembw.database.WindowTable
 import com.example.possystembw.ui.AttendanceActivity
 import com.example.possystembw.ui.LoginActivity
 import com.example.possystembw.ui.PrinterSettingsActivity
+import com.example.possystembw.ui.ReportsActivity
 import com.example.possystembw.ui.SessionManager
 import com.example.possystembw.ui.StaffManager
 import com.example.possystembw.ui.StockCountingActivity
@@ -347,10 +348,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupSidebarButtons() {
         findViewById<ImageButton>(R.id.button2).setOnClickListener {
-            showToast("DASHBOARD")
-            loadWebContent("https://eljin.org/dashboard")
+            val intent = Intent(this, ReportsActivity::class.java)
+            startActivity(intent)
+            showToast("Reports")
         }
-
         findViewById<ImageButton>(R.id.button3).setOnClickListener {
             showToast("ORDERING")
             loadWebContent("https://eljin.org/order")

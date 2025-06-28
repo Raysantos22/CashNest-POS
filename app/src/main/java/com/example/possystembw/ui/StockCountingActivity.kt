@@ -201,8 +201,7 @@ class StockCountingActivity : AppCompatActivity() {
 
     private fun setupSidebarButtons() {
         findViewById<ImageButton>(R.id.button2).setOnClickListener {
-            val intent = Intent(this, MainActivity::class.java)
-            intent.putExtra("web_url", "https://eljin.org/dashboard")
+            val intent = Intent(this, ReportsActivity::class.java)
             startActivity(intent)
         }
 

@@ -34,15 +34,18 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 class LineViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository: LineRepository
+    val repository: LineRepository
     private val _lineDetailsResult = MutableLiveData<Result<List<LineTransaction>>?>()
     val lineDetailsResult: LiveData<Result<List<LineTransaction>>?> = _lineDetailsResult
     private val _isLoading = MutableLiveData<Boolean>()
     val isLoading: LiveData<Boolean> = _isLoading
-    private var currentData: List<LineTransaction> = emptyList()
+    private var currentData: List<LineTransaction> = emptyList()  // Keep non-null with default
 
     private val _syncStatus = MutableLiveData<SyncStatus>()
     val syncStatus: LiveData<SyncStatus> = _syncStatus
@@ -59,6 +62,7 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
     companion object {
         private const val TAG = "LineViewModel"
     }
+
     data class SyncProgress(
         val isComplete: Boolean = false,
         val totalItems: Int = 0,
@@ -84,17 +88,15 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
-            .connectionPool(ConnectionPool(5, 5, TimeUnit.MINUTES)) // Allow multiple connections
+            .connectionPool(ConnectionPool(5, 5, TimeUnit.MINUTES))
             .dispatcher(Dispatcher().apply {
-                maxRequestsPerHost = 5 // Allow multiple simultaneous requests to the same host
+                maxRequestsPerHost = 5
                 maxRequests = 5
             })
             .build()
 
         val retrofit = Retrofit.Builder()
             .baseUrl("https://eljin.org/")
-//            .baseUrl("http://10.151.5.239:8000/")
-//            .baseUrl("https://ecposmiddleware-aj1882pz3-progenxs-projects.vercel.app/")
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
@@ -102,7 +104,6 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
         val lineDetailsApi = retrofit.create(LineDetailsApi::class.java)
         val stockCountingApi = retrofit.create(StockCountingApi::class.java)
 
-        // Fixed: Only pass 3 parameters as per LineRepository constructor
         repository = LineRepository(lineDetailsApi, stockCountingApi, lineTransactionDao)
     }
 
@@ -135,12 +136,21 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
             _isLoading.value = true
             try {
                 val result = repository.getLineDetails(storeId, journalId)
-                _lineDetailsResult.value = result
-                result.onSuccess { data ->
-                    currentData = data
-                }.onFailure { error ->
-                    Log.e(TAG, "Error getting line details", error)
-                }
+
+                // Handle the result properly with null safety
+                val processedResult = result.fold(
+                    onSuccess = { transactions ->
+                        // transactions is guaranteed to be non-null List<LineTransaction>
+                        currentData = transactions
+                        Result.success(transactions)
+                    },
+                    onFailure = { error ->
+                        Log.e(TAG, "Error getting line details", error)
+                        Result.failure<List<LineTransaction>>(error)
+                    }
+                )
+
+                _lineDetailsResult.value = processedResult
             } finally {
                 _isLoading.value = false
             }
@@ -159,7 +169,6 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
                 val result = repository.syncTransactions(storeId!!, journalId!!)
                 result.onSuccess {
                     Log.d(TAG, "Sync completed successfully")
-                    // Refresh data after sync
                     getLineDetails(storeId!!, journalId!!)
                 }.onFailure { error ->
                     Log.e(TAG, "Sync failed", error)
@@ -205,14 +214,12 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
 
-                // Get unsynced transactions
                 val unsyncedItems = repository.getUnsyncedTransactions(currentJournalId)
                 if (unsyncedItems.isEmpty()) {
                     _syncProgress.value = SyncProgress(isComplete = true, totalItems = 0)
                     return@launch
                 }
 
-                // Initialize progress
                 _syncProgress.value = SyncProgress(
                     isComplete = false,
                     totalItems = unsyncedItems.size,
@@ -220,44 +227,32 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
                     currentItemId = ""
                 )
 
-                // Process each item
                 unsyncedItems.forEachIndexed { index, item ->
                     try {
-                        // Update progress for current item
                         _syncProgress.value = _syncProgress.value?.copy(
                             currentItem = index + 1,
                             currentItemId = item.itemId ?: "Unknown"
                         )
 
-                        // Post line details
                         val response = withTimeout(5000) {
                             repository.postLineDetails(
                                 itemId = item.itemId.orEmpty(),
                                 storeId = currentStoreId,
                                 journalId = currentJournalId,
-                                adjustment = (item.adjustment?.toDoubleOrNull() ?: 0.0).toInt()
-                                    .toString(),
-                                receivedCount = (item.receivedCount?.toDoubleOrNull()
-                                    ?: 0.0).toInt()
-                                    .toString(),
-                                transferCount = (item.transferCount?.toDoubleOrNull()
-                                    ?: 0.0).toInt()
-                                    .toString(),
-                                wasteCount = (item.wasteCount?.toDoubleOrNull() ?: 0.0).toInt()
-                                    .toString(),
+                                adjustment = (item.adjustment?.toDoubleOrNull() ?: 0.0).toInt().toString(),
+                                receivedCount = (item.receivedCount?.toDoubleOrNull() ?: 0.0).toInt().toString(),
+                                transferCount = (item.transferCount?.toDoubleOrNull() ?: 0.0).toInt().toString(),
+                                wasteCount = (item.wasteCount?.toDoubleOrNull() ?: 0.0).toInt().toString(),
                                 wasteType = item.wasteType ?: "none",
                                 counted = (item.counted?.toDoubleOrNull() ?: 0.0).toInt().toString()
                             )
                         }
+
                         if (response.isSuccessful) {
-                            // Update sync status in database
                             repository.updateSyncStatus(currentJournalId, item.itemId.orEmpty(), 1)
                             Log.d(TAG, "Successfully synced item: ${item.itemId}")
                         } else {
-                            Log.e(
-                                TAG,
-                                "Failed to sync item: ${item.itemId}, code: ${response.code()}"
-                            )
+                            Log.e(TAG, "Failed to sync item: ${item.itemId}, code: ${response.code()}")
                             _syncProgress.value = SyncProgress(
                                 isComplete = true,
                                 totalItems = unsyncedItems.size,
@@ -267,7 +262,6 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
                             return@launch
                         }
 
-                        // Add delay to prevent overwhelming the server
                         delay(100)
 
                     } catch (e: Exception) {
@@ -280,7 +274,6 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
                                     errorMessage = "No internet connection"
                                 )
                             }
-
                             else -> {
                                 _syncProgress.value = SyncProgress(
                                     isComplete = true,
@@ -314,9 +307,17 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Add this to LineViewModel
-    suspend fun getLocalLineDetails(journalId: String): Result<List<LineTransaction>> =
-        repository.getLocalLineDetails(journalId)
+    suspend fun getLocalLineDetails(journalId: String): Result<List<LineTransaction>> {
+        return repository.getLocalLineDetails(journalId).fold(
+            onSuccess = { transactions ->
+                // transactions could be nullable, handle it safely
+                Result.success(transactions ?: emptyList())
+            },
+            onFailure = { error ->
+                Result.failure(error)
+            }
+        )
+    }
 
     private suspend fun updateItemSyncStatus(journalId: String, itemId: String, synced: Boolean) {
         withContext(Dispatchers.IO) {
@@ -328,15 +329,156 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+    suspend fun getItemsWithTransactions(storeId: String, journalId: String): List<LineTransaction> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val currentDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+
+                Log.d("LineViewModel", "Starting filter query")
+                Log.d("LineViewModel", "Parameters - storeId: $storeId, journalId: $journalId, currentDate: $currentDate")
+
+                // First, let's get all line transactions for debugging
+                val allLineTransactions = database.lineTransactionDao().getAllLineTransactions(journalId)
+                Log.d("LineViewModel", "Total line transactions for journal: ${allLineTransactions.size}")
+
+                // Get all transactions for debugging
+                val allTransactions = database.transactionDao().getAllTransactionsForDate(currentDate)
+                Log.d("LineViewModel", "Total transactions for date $currentDate: ${allTransactions.size}")
+
+                // Check for specific itemId from transaction in line_transactions
+                val transactionItemIds = allTransactions.mapNotNull { it.itemId }.distinct()
+                Log.d("LineViewModel", "Transaction itemIds: $transactionItemIds")
+
+                transactionItemIds.forEach { itemId ->
+                    val foundInLineTransactions = allLineTransactions.any { it.itemId == itemId }
+                    Log.d("LineViewModel", "ItemId $itemId exists in line_transactions: $foundInLineTransactions")
+                }
+
+                // Log some sample data
+                allLineTransactions.take(3).forEachIndexed { index, item ->
+                    Log.d("LineViewModel", "Sample LineTransaction $index: itemId=${item.itemId}, adjustment=${item.adjustment}, receivedCount=${item.receivedCount}, wasteCount=${item.wasteCount}, posted=${item.posted}")
+                }
+
+                allTransactions.take(3).forEachIndexed { index, transaction ->
+                    Log.d("LineViewModel", "Sample Transaction $index: itemId=${transaction.itemId}, quantity=${transaction.quantity}, timestamp=${transaction.timestamp}")
+                }
+
+                // Check for items with modified quantities (regardless of posted status)
+                val itemsWithActivity = allLineTransactions.filter { item ->
+                    val adjustment = item.adjustment.toDoubleOrNull() ?: 0.0
+                    val receivedCount = item.receivedCount.toDoubleOrNull() ?: 0.0
+                    val wasteCount = item.wasteCount.toDoubleOrNull() ?: 0.0
+                    val transferCount = item.transferCount?.toDoubleOrNull() ?: 0.0
+                    val counted = item.counted.toDoubleOrNull() ?: 0.0
+
+                    (receivedCount - adjustment != 0.0) ||
+                            wasteCount != 0.0 ||
+                            transferCount != 0.0 ||
+                            counted != 0.0 ||
+                            item.syncStatus == 0
+                }
+                Log.d("LineViewModel", "Items with any activity (ignoring posted status): ${itemsWithActivity.size}")
+
+                // Check if the POS transaction itemId exists in line_transactions
+                val posItemId = "PAS-PRO-053" // From your log
+                val lineTransactionExists = database.lineTransactionDao().findLineTransactionByItemId(posItemId, journalId)
+                Log.d("LineViewModel", "POS ItemId '$posItemId' exists in line_transactions: ${lineTransactionExists != null}")
+
+                // Get all itemIds from line_transactions to see the pattern
+                val allItemIds = database.lineTransactionDao().getAllItemIdsForJournal(journalId)
+                Log.d("LineViewModel", "First 10 itemIds in line_transactions: ${allItemIds.take(10)}")
+
+                // Check matching count between tables
+                val matchingCount = database.lineTransactionDao().getMatchingItemCount(journalId)
+                Log.d("LineViewModel", "Matching itemIds between transactions and line_transactions: $matchingCount")
+
+                // Use the corrected query
+                val filteredLineTransactions = database.lineTransactionDao().getItemsWithTransactions(
+                    journalId = journalId,
+                    currentDate = currentDate
+                )
+
+                Log.d("LineViewModel", "Filtered line transactions count: ${filteredLineTransactions.size}")
+
+                // If no results, try the alternative query (without date filter)
+                val alternativeResults = if (filteredLineTransactions.isEmpty()) {
+                    Log.d("LineViewModel", "No results with date filter, trying alternative query")
+                    database.lineTransactionDao().getItemsWithQuantities(journalId)
+                } else {
+                    filteredLineTransactions
+                }
+
+                Log.d("LineViewModel", "Alternative query results: ${alternativeResults.size}")
+
+                // Convert to LineTransaction objects
+                val result = alternativeResults.map { entity ->
+                    Log.d("LineViewModel", "Converting entity: itemId=${entity.itemId}, adjustment=${entity.adjustment}, receivedCount=${entity.receivedCount}")
+
+                    LineTransaction(
+                        journalId = entity.journalId,
+                        lineNum = entity.lineNum,
+                        transDate = entity.transDate,
+                        itemId = entity.itemId,
+                        itemDepartment = entity.itemDepartment,
+                        storeName = entity.storeName,
+                        adjustment = entity.adjustment,
+                        costPrice = entity.costPrice,
+                        priceUnit = entity.priceUnit,
+                        salesAmount = entity.salesAmount,
+                        inventOnHand = entity.inventOnHand,
+                        counted = entity.counted,
+                        reasonRefRecId = entity.reasonRefRecId,
+                        variantId = entity.variantId,
+                        posted = entity.posted,
+                        postedDateTime = entity.postedDateTime,
+                        createdAt = entity.createdAt,
+                        updatedAt = entity.updatedAt,
+                        wasteCount = entity.wasteCount,
+                        receivedCount = entity.receivedCount,
+                        wasteType = entity.wasteType,
+                        transferCount = entity.transferCount,
+                        wasteDate = entity.wasteDate,
+                        itemGroupId = entity.itemGroupId,
+                        itemName = entity.itemName,
+                        itemType = entity.itemType,
+                        nameAlias = entity.nameAlias,
+                        notes = entity.notes,
+                        itemGroup = entity.itemGroup,
+                        itemDepartmentLower = entity.itemDepartmentLower,
+                        zeroPriceValid = entity.zeroPriceValid,
+                        dateBlocked = entity.dateBlocked,
+                        dateToBeBlocked = entity.dateToBeBlocked,
+                        blockedOnPos = entity.blockedOnPos,
+                        activeOnDelivery = entity.activeOnDelivery,
+                        barcode = entity.barcode,
+                        dateToActivateItem = entity.dateToActivateItem,
+                        mustSelectUom = entity.mustSelectUom,
+                        production = entity.production,
+                        moq = entity.moq,
+                        fgCount = entity.fgCount,
+                        transparentStocks = entity.transparentStocks,
+                        stocks = entity.stocks,
+                        postedLower = entity.postedLower,
+                        syncStatus = entity.syncStatus
+                    )
+                }
+
+                Log.d("LineViewModel", "Final result count: ${result.size}")
+                result
+
+            } catch (e: Exception) {
+                Log.e("LineViewModel", "Error filtering items with transactions", e)
+                Log.e("LineViewModel", "Exception details: ${e.message}")
+                Log.e("LineViewModel", "Stack trace: ${e.stackTrace.joinToString("\n")}")
+                emptyList()
+            }
+        }
+    }
 
     suspend fun saveLineDetails(storeId: String, journalId: String, items: List<LineTransaction>): Boolean {
         return try {
             Log.d(TAG, "Saving ${items.size} line transactions for journal: $journalId")
-
-            // Convert all LineTransaction items to LineTransactionEntity
             val entities = items.map { it.toEntity() }
-
-            // Save to repository
             repository.saveLineTransactions(journalId, entities)
         } catch (e: Exception) {
             Log.e(TAG, "Error in saveLineDetails", e)
@@ -387,18 +529,88 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
 
     fun getCurrentData(): List<LineTransaction> = currentData
 
+    suspend fun clearLocalData(journalId: String) {
+        withContext(Dispatchers.IO) {
+            try {
+                Log.d(TAG, "Clearing local data for journal: $journalId")
+                lineTransactionDao.deleteLineTransactionsByJournal(journalId)
+                Log.d(TAG, "Successfully cleared local data for journal: $journalId")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error clearing local data for journal: $journalId", e)
+                throw e
+            }
+        }
+    }
+
+    fun forceRefreshFromApi(storeId: String, journalId: String) {
+        this.storeId = storeId
+        this.journalId = journalId
+
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                // Clear local data first
+                clearLocalData(journalId)
+
+                // Force API call by calling repository directly (bypassing local check)
+                val result = repository.forceApiCall(storeId, journalId)
+
+                val processedResult = result.fold(
+                    onSuccess = { transactions ->
+                        val safeTransactions = transactions ?: emptyList()
+                        currentData = safeTransactions
+                        Log.d(TAG, "Force refresh successful: ${safeTransactions.size} items")
+                        Result.success(safeTransactions)
+                    },
+                    onFailure = { error ->
+                        Log.e(TAG, "Force refresh failed", error)
+                        Result.failure<List<LineTransaction>>(error)
+                    }
+                )
+
+                _lineDetailsResult.value = processedResult
+            } catch (e: Exception) {
+                Log.e(TAG, "Exception in force refresh", e)
+                _lineDetailsResult.value = Result.failure(e)
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    // Enhanced fetchLineDetails with better force refresh handling
     fun fetchLineDetails(storeId: String, journalId: String, forceRefresh: Boolean = false) {
         viewModelScope.launch {
             _isLoading.value = true
             try {
-                val result = repository.getLineDetails(storeId, journalId)
-                result.onSuccess { transactions ->
-                    currentData = transactions
-                    /*
-                    LineDataManager.cacheData(journalId, transactions)
-                    */
+                val result = if (forceRefresh) {
+                    // Clear local data first when forcing refresh
+                    clearLocalData(journalId)
+                    // Then get fresh data from API
+                    repository.forceApiCall(storeId, journalId)
+                } else {
+                    // Normal flow (check local first, then API)
+                    repository.getLineDetails(storeId, journalId)
                 }
-                _lineDetailsResult.value = result
+
+                val processedResult = result.fold(
+                    onSuccess = { transactions ->
+                        val safeTransactions = transactions ?: emptyList()
+                        currentData = safeTransactions
+                        if (forceRefresh) {
+                            Log.d(TAG, "Force refresh completed: ${safeTransactions.size} items")
+                        }
+                        Result.success(safeTransactions)
+                    },
+                    onFailure = { error ->
+                        if (forceRefresh) {
+                            Log.e(TAG, "Force refresh failed", error)
+                        }
+                        Result.failure<List<LineTransaction>>(error)
+                    }
+                )
+
+                _lineDetailsResult.value = processedResult
             } catch (e: Exception) {
                 _lineDetailsResult.value = Result.failure(e)
             } finally {
@@ -406,7 +618,7 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
-}
+    }
 
 // LineViewModelFactory.kt
 class LineViewModelFactory(

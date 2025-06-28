@@ -500,7 +500,6 @@ class Window1 : AppCompatActivity() {
     }
     override fun onResume() {
         super.onResume()
-
         // Check session validity and refresh
         if (!SessionManager.isSessionValid()) {
             // Redirect to login if session is invalid
@@ -512,6 +511,8 @@ class Window1 : AppCompatActivity() {
         // Refresh session timestamp on activity resume
         SessionManager.refreshSession()
         updatePrinterIndicator()
+//        checkForExistingCashFund() // And/or here
+
 
     }
     private fun setupUpdateButtonAnimation() {
@@ -650,9 +651,10 @@ class Window1 : AppCompatActivity() {
 
     fun setupSidebarButtons() {
         findViewById<ImageButton>(R.id.button2).setOnClickListener {
-            navigateToMainWithUrl("https://eljin.org/dashboard", "DASHBOARD")
+            val intent = Intent(this, ReportsActivity::class.java)
+            startActivity(intent)
+            showToast("Reports")
         }
-
         findViewById<ImageButton>(R.id.button3).setOnClickListener {
             navigateToMainWithUrl("https://eljin.org/order", "ORDERING")
         }
@@ -1044,9 +1046,9 @@ class Window1 : AppCompatActivity() {
         }
 
         // Item sales functionality
-        itemSalesButton.setOnClickListener {
-            showItemSalesDialog(datePickerButton.text.toString())
-        }
+//        itemSalesButton.setOnClickListener {
+//            showItemSalesDialog(datePickerButton.text.toString())
+//        }
 
         // Search functionality
         searchEditText.addTextChangedListener(object : TextWatcher {
@@ -1090,138 +1092,7 @@ class Window1 : AppCompatActivity() {
         dialog.show()
     }
 
-    private fun showItemSalesDialog(dateStr: String) {
-        val dialogView = layoutInflater.inflate(R.layout.dialog_item_sales, null)
-        val recyclerView = dialogView.findViewById<RecyclerView>(R.id.itemSalesRecyclerView)
-        val totalSalesTextView = dialogView.findViewById<TextView>(R.id.totalSalesTextView)
-        val totalQuantityTextView = dialogView.findViewById<TextView>(R.id.totalQuantityTextView)
-        val totalTransactionsTextView = dialogView.findViewById<TextView>(R.id.totalTransactionsTextView)
-        val dateTextView = dialogView.findViewById<TextView>(R.id.dateTextView)
-        val searchEditText = dialogView.findViewById<EditText>(R.id.searchEditText)
-        val printButton = dialogView.findViewById<Button>(R.id.printButton)
-        val closeButton = dialogView.findViewById<Button>(R.id.closeButton)
 
-        dateTextView.text = "Sales for $dateStr"
-        recyclerView.layoutManager = LinearLayoutManager(this)
-
-        // Parse the date string
-        val date = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).parse(dateStr)
-        val startDate = Calendar.getInstance().apply {
-            time = date
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-        }
-        val endDate = Calendar.getInstance().apply {
-            time = date
-            set(Calendar.HOUR_OF_DAY, 23)
-            set(Calendar.MINUTE, 59)
-            set(Calendar.SECOND, 59)
-        }
-
-        var itemSalesAdapter: ItemSalesAdapter? = null
-
-        lifecycleScope.launch {
-            try {
-                val transactions = withContext(Dispatchers.IO) {
-                    transactionDao.getTransactionsByDateRange(startDate.time, endDate.time)
-                }
-
-                // Get all items from these transactions
-                val itemSales = mutableMapOf<String, ItemSalesSummary>()
-                var totalSales = 0.0
-                var totalQuantity = 0
-
-                withContext(Dispatchers.IO) {
-                    transactions.forEach { transaction ->
-                        val items = transactionDao.getTransactionRecordsByTransactionId(transaction.transactionId)
-                        items.forEach { item ->
-                            val key = item.name
-                            val currentSummary = itemSales.getOrDefault(key, ItemSalesSummary(
-                                name = item.name,
-                                quantity = 0,
-                                totalAmount = 0.0
-                            ))
-
-                            val effectivePrice = if (item.priceOverride!! > 0.0) item.priceOverride else item.price
-                            val itemTotal = effectivePrice * item.quantity
-
-                            totalQuantity += item.quantity
-
-                            itemSales[key] = currentSummary.copy(
-                                quantity = currentSummary.quantity + item.quantity,
-                                totalAmount = currentSummary.totalAmount + itemTotal
-                            )
-
-                            totalSales += itemTotal
-                        }
-                    }
-                }
-
-                // Sort items by total amount
-                val sortedItems = itemSales.values.sortedByDescending { it.totalAmount }
-
-                // Update UI on main thread
-                withContext(Dispatchers.Main) {
-                    itemSalesAdapter = ItemSalesAdapter(
-                        sortedItems,
-                        totalSales,
-                        totalQuantity,
-                        transactions.size
-                    )
-                    recyclerView.adapter = itemSalesAdapter
-
-                    // Update summary views
-                    totalTransactionsTextView.text = transactions.size.toString()
-                    totalQuantityTextView.text = totalQuantity.toString()
-                    totalSalesTextView.text = String.format("₱%.2f", totalSales)
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(
-                        this@Window1,
-                        "Error loading item sales: ${e.message}",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-            }
-        }
-
-        // Search functionality
-        searchEditText.addTextChangedListener(object : TextWatcher {
-            override fun afterTextChanged(s: Editable?) {
-                itemSalesAdapter?.filter(s.toString())
-            }
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-        })
-
-        // Print functionality
-        printButton.setOnClickListener {
-            itemSalesAdapter?.printItemSalesReport(this)
-        }
-
-        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle1)
-            .setView(dialogView)
-            .create()
-
-        closeButton.setOnClickListener {
-            dialog.dismiss()
-        }
-
-        dialog.window?.apply {
-            setBackgroundDrawableResource(R.drawable.dialog_background)
-            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-
-        dialog.show()
-    }
-
-    data class ItemSalesSummary(
-        val name: String,
-        val quantity: Int,
-        val totalAmount: Double
-    )
 
     private fun showTransactionDetailsDialog(transaction: TransactionSummary) {
         Log.d(TAG, "Showing transaction details dialog for transaction ID: ${transaction.transactionId}")
@@ -2698,19 +2569,45 @@ private fun printReturnReceipt(
         super.onPause()
         // Remove the disconnectPrinter() call
     }
-    override fun onDestroy() {
-        mediaPlayer.release()
-        transactionSyncService?.stopSyncService()
-        super.onDestroy()
-        if (::refreshJob.isInitialized) {
-            refreshJob.cancel()
-        }
-        disconnectPrinter()
-        returnDialog?.dismiss()
-        midnightHandler?.removeCallbacks(midnightRunnable ?: return)
-        midnightHandler = null
-        midnightRunnable = null
+//    override fun onDestroy() {
+////        mediaPlayer.release()
+//        transactionSyncService?.stopSyncService()
+//        super.onDestroy()
+//        if (::refreshJob.isInitialized) {
+//            refreshJob.cancel()
+//        }
+//        if (::mediaPlayer.isInitialized) {
+//            mediaPlayer.release()
+//        }
+//        disconnectPrinter()
+//        returnDialog?.dismiss()
+//        midnightHandler?.removeCallbacks(midnightRunnable ?: return)
+//        midnightHandler = null
+//        midnightRunnable = null
+//    }
+override fun onDestroy() {
+    transactionSyncService?.stopSyncService()
+    super.onDestroy()
+
+    if (::refreshJob.isInitialized) {
+        refreshJob.cancel()
     }
+
+    if (::mediaPlayer.isInitialized) {
+        try {
+            mediaPlayer.stop()
+            mediaPlayer.release()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error releasing mediaPlayer", e)
+        }
+    }
+
+    disconnectPrinter()
+    returnDialog?.dismiss()
+    midnightHandler?.removeCallbacks(midnightRunnable ?: return)
+    midnightHandler = null
+    midnightRunnable = null
+}
 
 
 
@@ -3788,136 +3685,237 @@ private fun showMixMatchProductSelection(mixMatch: MixMatchWithDetails) {
 //            }
 //        }
 //    }
-private fun setupCategoryRecyclerView() {
-    categoryAdapter = CategoryAdapter { category ->
-        when (category.name) {
-            "All" -> {
-                lifecycleScope.launch {
-                    loadWindowSpecificProducts() // This will reload all products for current window
+// Replace your setupCategoryRecyclerView and filterProductsByWindowAndCategory methods with these versions
+
+    private fun setupCategoryRecyclerView() {
+        categoryAdapter = CategoryAdapter { category ->
+            Log.d("CategoryClick", "========== CATEGORY CLICKED ==========")
+            Log.d("CategoryClick", "Category clicked: '${category.name}' (ID: ${category.groupId})")
+
+            when (category.name) {
+                "All" -> {
+                    Log.d("CategoryClick", "Loading all products for window")
+                    loadWindowSpecificProducts()
+                }
+                "Mix & Match" -> {
+                    Log.d("CategoryClick", "Opening Mix & Match dialog")
+                    showMixMatchDialog()
+                }
+                else -> {
+                    Log.d("CategoryClick", "Filtering by category: '${category.name}'")
+                    filterProductsByWindowAndCategory(category)
                 }
             }
-            "Mix & Match" -> {
-                showMixMatchDialog()
-            }
-            else -> {
-                filterProductsByWindowAndCategory(category)
+            Log.d("CategoryClick", "========================================")
+        }
+
+        binding.categoryRecyclerView.apply {
+            layoutManager = LinearLayoutManager(this@Window1, LinearLayoutManager.HORIZONTAL, false)
+            adapter = categoryAdapter
+        }
+
+        // Observe categories and products
+        lifecycleScope.launch {
+            combine(
+                productViewModel.visibleProducts.asFlow(),
+                categoryViewModel.categories,
+                windowViewModel.allWindows
+            ) { products, categories, windows ->
+                Triple(products, categories, windows)
+            }.collect { (products, categories, windows) ->
+                val currentWindow = windows.find { it.id == windowId }
+                if (currentWindow != null) {
+                    updateCategoriesForWindow(currentWindow, categories, products)
+                }
             }
         }
     }
-
-    binding.categoryRecyclerView.apply {
-        layoutManager = LinearLayoutManager(this@Window1, LinearLayoutManager.HORIZONTAL, false)
-        adapter = categoryAdapter
-    }
-
-    // Observe categories and products
-    lifecycleScope.launch {
-        combine(
-            productViewModel.visibleProducts.asFlow(),
-            categoryViewModel.categories,
-            windowViewModel.allWindows
-        ) { products, categories, windows ->
-            Triple(products, categories, windows)
-        }.collect { (products, categories, windows) ->
-            val currentWindow = windows.find { it.id == windowId }
-            if (currentWindow != null) {
-                updateCategoriesForWindow(currentWindow, categories, products)
-            }
-        }
-    }
-}
     private fun filterProductsByWindowAndCategory(category: Category) {
         lifecycleScope.launch {
             try {
+                Log.d("CategoryFilter", "======= FILTERING BY CATEGORY =======")
+                Log.d("CategoryFilter", "Target category: '${category.name}'")
+
                 val window = windowViewModel.allWindows.first().find { it.id == windowId }
                 if (window != null) {
                     val description = window.description.uppercase()
-                    val allProducts = productViewModel.visibleProducts.value ?: emptyList()
+                    Log.d("CategoryFilter", "Window description: '$description'")
 
-                    // First filter by window type
-                    val windowFilteredProducts = when {
-                        description.contains("GRABFOOD") -> {
-                            allProducts.filter { it.grabfood > 0 }
-                                .map { it.copy(price = it.grabfood) }
-                        }
-                        description.contains("FOODPANDA") -> {
-                            allProducts.filter { it.foodpanda > 0 }
-                                .map { it.copy(price = it.foodpanda) }
-                        }
-                        description.contains("MANILARATE") -> {
-                            allProducts.filter { it.manilaprice > 0 }
-                                .map { it.copy(price = it.manilaprice) }
-                        }
-                        description.contains("PARTYCAKES") -> {
-                            allProducts.filter {
-                                it.itemGroup.equals("PARTY CAKES", ignoreCase = true)
-                            }
-                        }
-                        description.contains("PURCHASE") -> {
-                            allProducts.filter {
-                                it.grabfood == 0.0 && it.foodpanda == 0.0 &&
-                                        it.manilaprice == 0.0 && it.price > 0
-                            }
-                        }
-                        else -> allProducts
+                    // Get all products first
+                    val allProducts = productViewModel.visibleProducts.value ?: emptyList()
+                    Log.d("CategoryFilter", "STEP 1 - All products count: ${allProducts.size}")
+
+                    // Show first few products to see their categories
+                    allProducts.take(5).forEach { product ->
+                        Log.d("CategoryFilter", "Sample product: '${product.itemName}' -> category: '${product.itemGroup}'")
                     }
 
-                    // Then filter by category
+                    // First filter by window type
+                    val windowFilteredProducts = getWindowFilteredProducts(allProducts, description)
+                    Log.d("CategoryFilter", "STEP 2 - After window filtering: ${windowFilteredProducts.size} products")
+
+                    // Show categories of window-filtered products
+                    val windowCategories = windowFilteredProducts.map { it.itemGroup }.distinct()
+                    Log.d("CategoryFilter", "Available categories in window: ${windowCategories.joinToString(", ") { "'$it'" }}")
+
+                    // Then filter by category with detailed logging
                     val categoryFilteredProducts = windowFilteredProducts.filter { product ->
-                        product.itemGroup.equals(category.name, ignoreCase = true)
+                        val productCategory = product.itemGroup
+                        val targetCategory = category.name
+
+                        val matches = when (targetCategory) {
+                            "All" -> {
+                                Log.d("CategoryFilter", "Product '${product.itemName}': ALL category -> MATCH")
+                                true
+                            }
+                            "Uncategorized" -> {
+                                val knownCategories = windowFilteredProducts
+                                    .map { it.itemGroup.uppercase() }
+                                    .distinct()
+
+                                val isUncategorized = knownCategories.none { cat ->
+                                    productCategory.equals(cat, ignoreCase = true)
+                                }
+                                Log.d("CategoryFilter", "Product '${product.itemName}': Uncategorized check -> ${if (isUncategorized) "MATCH" else "NO MATCH"}")
+                                isUncategorized
+                            }
+                            else -> {
+                                // Try multiple matching strategies
+                                val exactMatch = productCategory.equals(targetCategory, ignoreCase = true)
+                                val containsMatch = productCategory.contains(targetCategory, ignoreCase = true)
+                                val reverseContainsMatch = targetCategory.contains(productCategory, ignoreCase = true)
+
+                                Log.d("CategoryFilter", "Product '${product.itemName}':")
+                                Log.d("CategoryFilter", "  Product category: '$productCategory'")
+                                Log.d("CategoryFilter", "  Target category: '$targetCategory'")
+                                Log.d("CategoryFilter", "  Exact match: $exactMatch")
+                                Log.d("CategoryFilter", "  Contains match: $containsMatch")
+                                Log.d("CategoryFilter", "  Reverse contains: $reverseContainsMatch")
+
+                                val finalMatch = exactMatch || containsMatch
+                                Log.d("CategoryFilter", "  Final result: ${if (finalMatch) "MATCH" else "NO MATCH"}")
+
+                                finalMatch
+                            }
+                        }
+
+                        matches
+                    }
+
+                    Log.d("CategoryFilter", "STEP 3 - After category filtering: ${categoryFilteredProducts.size} products")
+
+                    // Show which products made it through
+                    if (categoryFilteredProducts.isEmpty()) {
+                        Log.w("CategoryFilter", "❌ NO PRODUCTS FOUND for category '${category.name}'!")
+                        Log.w("CategoryFilter", "Available products in window were:")
+                        windowFilteredProducts.take(10).forEach { product ->
+                            Log.w("CategoryFilter", "  - '${product.itemName}' (category: '${product.itemGroup}')")
+                        }
+                    } else {
+                        Log.d("CategoryFilter", "✅ Found ${categoryFilteredProducts.size} products:")
+                        categoryFilteredProducts.take(5).forEach { product ->
+                            Log.d("CategoryFilter", "  - '${product.itemName}' (category: '${product.itemGroup}')")
+                        }
                     }
 
                     withContext(Dispatchers.Main) {
                         productAdapter.submitList(categoryFilteredProducts)
                         findViewById<TextView>(R.id.textView3)?.text =
                             "Products (${categoryFilteredProducts.size})"
+                        Log.d("CategoryFilter", "✅ UI updated with ${categoryFilteredProducts.size} products")
                     }
+                } else {
+                    Log.e("CategoryFilter", "❌ Window not found with ID: $windowId")
                 }
+                Log.d("CategoryFilter", "=====================================")
             } catch (e: Exception) {
-                Log.e("Window1", "Error filtering products by category", e)
+                Log.e("CategoryFilter", "❌ Error filtering products by category", e)
             }
         }
     }
+    private fun getWindowFilteredProducts(allProducts: List<Product>, description: String): List<Product> {
+        Log.d("WindowFilter", "Filtering ${allProducts.size} products for window: '$description'")
+
+        val filtered = when {
+            description.contains("GRABFOOD") -> {
+                val result = allProducts.filter { it.grabfood > 0 }
+                    .map { it.copy(price = it.grabfood) }
+                Log.d("WindowFilter", "GRABFOOD filter: ${result.size} products (grabfood > 0)")
+                result
+            }
+            description.contains("FOODPANDA") -> {
+                val result = allProducts.filter { it.foodpanda > 0 }
+                    .map { it.copy(price = it.foodpanda) }
+                Log.d("WindowFilter", "FOODPANDA filter: ${result.size} products (foodpanda > 0)")
+                result
+            }
+            description.contains("MANILARATE") -> {
+                val result = allProducts.filter { it.manilaprice > 0 }
+                    .map { it.copy(price = it.manilaprice) }
+                Log.d("WindowFilter", "MANILARATE filter: ${result.size} products (manilaprice > 0)")
+                result
+            }
+            description.contains("PARTYCAKES") -> {
+                val result = allProducts.filter {
+                    it.itemGroup.equals("PARTY CAKES", ignoreCase = true)
+                }
+                Log.d("WindowFilter", "PARTYCAKES filter: ${result.size} products (itemGroup = 'PARTY CAKES')")
+                result
+            }
+            description.contains("PURCHASE") -> {
+                // FIXED: Include products that have a regular price > 0, regardless of delivery pricing
+                val result = allProducts.filter { product ->
+                    product.price > 0  // Just check if the product has a price, ignore delivery pricing
+                }
+
+                Log.d("WindowFilter", "PURCHASE filter: ${result.size} products (price > 0)")
+
+                // Debug: Show HOPIA products specifically
+                val hopiaFiltered = result.filter { it.itemGroup.equals("HOPIA", ignoreCase = true) }
+                Log.d("WindowFilter", "HOPIA products after PURCHASE filter: ${hopiaFiltered.size}")
+                hopiaFiltered.forEach {
+                    Log.d("WindowFilter", "  ✅ HOPIA included: '${it.itemName}' (price: ${it.price})")
+                }
+
+                result
+            }
+            else -> {
+                Log.d("WindowFilter", "No specific window filter, using all ${allProducts.size} products")
+                allProducts
+            }
+        }
+
+        return filtered
+    }
+
     private fun updateCategoriesForWindow(
         currentWindow: Window,
         allCategories: List<Category>,
         allProducts: List<Product>
     ) {
         val description = currentWindow.description.uppercase()
+        Log.d("CategorySetup", "======= SETTING UP CATEGORIES =======")
+        Log.d("CategorySetup", "Window: '$description'")
 
-        // Filter products based on window type
-        val windowProducts = when {
-            description.contains("GRABFOOD") -> {
-                allProducts.filter { it.grabfood > 0 }
-            }
-            description.contains("FOODPANDA") -> {
-                allProducts.filter { it.foodpanda > 0 }
-            }
-            description.contains("MANILARATE") -> {
-                allProducts.filter { it.manilaprice > 0 }
-            }
-            description.contains("PARTYCAKES") -> {
-                allProducts.filter {
-                    it.itemGroup.equals("PARTY CAKES", ignoreCase = true)
-                }
-            }
-            description.contains("PURCHASE") -> {
-                allProducts.filter {
-                    it.grabfood == 0.0 && it.foodpanda == 0.0 &&
-                            it.manilaprice == 0.0 && it.price > 0
-                }
-            }
-            else -> allProducts
-        }
+        // Filter products based on window type using the same logic
+        val windowProducts = getWindowFilteredProducts(allProducts, description)
+        Log.d("CategorySetup", "Window products count: ${windowProducts.size}")
 
         // Get unique categories from filtered products
         val categoriesInWindow = windowProducts
-            .map { it.itemGroup.uppercase() }
+            .map { it.itemGroup }
             .distinct()
+            .filter { it.isNotBlank() }
             .mapNotNull { itemGroup ->
-                allCategories.find { it.name.uppercase() == itemGroup }
+                allCategories.find { it.name.equals(itemGroup, ignoreCase = true) }
             }
             .sortedBy { it.name }
+
+        Log.d("CategorySetup", "Categories found in window products:")
+        categoriesInWindow.forEach { category ->
+            val count = windowProducts.count { it.itemGroup.equals(category.name, ignoreCase = true) }
+            Log.d("CategorySetup", "  - '${category.name}': $count products")
+        }
 
         // Always include "All" and "Mix & Match" categories
         val displayCategories = listOf(
@@ -3925,8 +3923,14 @@ private fun setupCategoryRecyclerView() {
             Category(-2, "Mix & Match")
         ) + categoriesInWindow
 
+        Log.d("CategorySetup", "Final categories for display: ${displayCategories.map { it.name }}")
+
         // Update category adapter
-        categoryAdapter.setCategories(displayCategories)
+        runOnUiThread {
+            categoryAdapter.setCategories(displayCategories)
+            Log.d("CategorySetup", "✅ Set ${displayCategories.size} categories in adapter")
+        }
+        Log.d("CategorySetup", "=====================================")
     }
     private fun hasInternetConnection(): Boolean {
         val connectivityManager =
@@ -4001,70 +4005,176 @@ private fun setupCategoryRecyclerView() {
     }
 
 
+//private fun performXRead() {
+//    if (!checkBluetoothPermissions()) {
+//        Toast.makeText(this, "Bluetooth permission is required to print X-Read", Toast.LENGTH_LONG).show()
+//        return
+//    }
+//
+//    val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle)
+//        .setTitle("Confirm X-Read")
+//        .setMessage("Are you sure you want to perform an X-Read?")
+//        .setPositiveButton("Yes") { _, _ ->
+//            lifecycleScope.launch {
+//                try {
+//                    // Get unprocessed transactions
+//                    val transactions = transactionDao.getAllUnprocessedTransactions()
+//                    val currentTenderDeclaration = tenderDeclarationDao.getLatestTenderDeclaration()
+//
+//                    // Always create transaction logger for BIR purposes
+//                    val transactionLogger = TransactionLogger(this@Window1)
+//                    transactionLogger.logXRead(
+//                        transactions = transactions,
+//                        tenderDeclaration = currentTenderDeclaration
+//                    )
+//
+//                    // Always print report regardless of transactions
+//                    printXReadWithBluetoothPrinter(transactions, currentTenderDeclaration)
+//
+//                    withContext(Dispatchers.Main) {
+//                        if (transactions.isEmpty()) {
+//                            Toast.makeText(
+//                                this@Window1,
+//                                "X-Read completed. No transactions in this period.",
+//                                Toast.LENGTH_SHORT
+//                            ).show()
+//                        } else {
+//                            Toast.makeText(
+//                                this@Window1,
+//                                "X-Read completed successfully",
+//                                Toast.LENGTH_SHORT
+//                            ).show()
+//                        }
+//                    }
+//
+//                } catch (e: Exception) {
+//                    Log.e("XRead", "Error performing X-Read", e)
+//                    withContext(Dispatchers.Main) {
+//                        Toast.makeText(
+//                            this@Window1,
+//                            "Error performing X-Read: ${e.message}",
+//                            Toast.LENGTH_LONG
+//                        ).show()
+//                    }
+//                }
+//            }
+//        }
+//        .setNegativeButton("No") { dialog, _ ->
+//            dialog.dismiss()
+//        }
+//        .create()
+//
+//    dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+//    dialog.show()
+//}
 private fun performXRead() {
     if (!checkBluetoothPermissions()) {
         Toast.makeText(this, "Bluetooth permission is required to print X-Read", Toast.LENGTH_LONG).show()
         return
     }
 
-    val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle)
-        .setTitle("Confirm X-Read")
-        .setMessage("Are you sure you want to perform an X-Read?")
-        .setPositiveButton("Yes") { _, _ ->
-            lifecycleScope.launch {
-                try {
-                    // Get unprocessed transactions
-                    val transactions = transactionDao.getAllUnprocessedTransactions()
-                    val currentTenderDeclaration = tenderDeclarationDao.getLatestTenderDeclaration()
+    lifecycleScope.launch {
+        try {
+            // Get today's date range
+            val today = Date()
+            val todayStart = Calendar.getInstance().apply {
+                time = today
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.time
 
-                    // Always create transaction logger for BIR purposes
-                    val transactionLogger = TransactionLogger(this@Window1)
-                    transactionLogger.logXRead(
-                        transactions = transactions,
-                        tenderDeclaration = currentTenderDeclaration
-                    )
+            val todayEnd = Calendar.getInstance().apply {
+                time = today
+                set(Calendar.HOUR_OF_DAY, 23)
+                set(Calendar.MINUTE, 59)
+                set(Calendar.SECOND, 59)
+                set(Calendar.MILLISECOND, 999)
+            }.time
 
-                    // Always print report regardless of transactions
-                    printXReadWithBluetoothPrinter(transactions, currentTenderDeclaration)
+            // Always get today's actual transactions
+            val transactions = transactionDao.getTransactionsByDateRange(todayStart, todayEnd)
+            val currentTenderDeclaration = tenderDeclarationDao.getLatestTenderDeclaration()
 
-                    withContext(Dispatchers.Main) {
-                        if (transactions.isEmpty()) {
-                            Toast.makeText(
-                                this@Window1,
-                                "X-Read completed. No transactions in this period.",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        } else {
-                            Toast.makeText(
-                                this@Window1,
-                                "X-Read completed successfully",
-                                Toast.LENGTH_SHORT
-                            ).show()
+            // Check if Z-Read exists for informational purposes
+            val hasZReadToday = hasZReadForToday()
+
+            val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle)
+                .setTitle("Confirm X-Read")
+                .setMessage(
+                    if (hasZReadToday) {
+                        "X-Read will show today's actual sales data.\n(Z-Read completed for today)"
+                    } else {
+                        "X-Read will show current sales data for today."
+                    }
+                )
+                .setPositiveButton("Yes") { _, _ ->
+                    lifecycleScope.launch {
+                        try {
+                            // Always create transaction logger for BIR purposes
+                            val transactionLogger = TransactionLogger(this@Window1)
+                            transactionLogger.logXRead(
+                                transactions = transactions,
+                                tenderDeclaration = currentTenderDeclaration
+                            )
+
+                            // Always print report with actual transaction data
+                            printXReadWithBluetoothPrinter(transactions, currentTenderDeclaration)
+
+                            withContext(Dispatchers.Main) {
+                                val message = when {
+                                    transactions.isEmpty() -> "X-Read completed. No transactions for today."
+                                    hasZReadToday -> "X-Read completed. Showing today's actual sales (Z-Read already done)."
+                                    else -> "X-Read completed successfully"
+                                }
+
+                                Toast.makeText(
+                                    this@Window1,
+                                    message,
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+
+                        } catch (e: Exception) {
+                            Log.e("XRead", "Error performing X-Read", e)
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(
+                                    this@Window1,
+                                    "Error performing X-Read: ${e.message}",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
                         }
                     }
-
-                } catch (e: Exception) {
-                    Log.e("XRead", "Error performing X-Read", e)
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(
-                            this@Window1,
-                            "Error performing X-Read: ${e.message}",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
                 }
-            }
-        }
-        .setNegativeButton("No") { dialog, _ ->
-            dialog.dismiss()
-        }
-        .create()
+                .setNegativeButton("No") { dialog, _ ->
+                    dialog.dismiss()
+                }
+                .create()
 
-    dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-    dialog.show()
+            dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+            dialog.show()
+
+        } catch (e: Exception) {
+            Log.e("XRead", "Error in X-Read setup", e)
+            Toast.makeText(
+                this@Window1,
+                "Error setting up X-Read: ${e.message}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
 }
 
-
+    // Helper function to check if Z-Read exists for today
+    private suspend fun hasZReadForToday(): Boolean {
+        return withContext(Dispatchers.IO) {
+            val currentDateString = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+            val existingZRead = zReadDao.getZReadByDate(currentDateString)
+            existingZRead != null
+        }
+    }
 
 
     private fun performZRead() {
@@ -4737,120 +4847,201 @@ private fun printXReadWithBluetoothPrinter(
     }
 
     private fun showPulloutCashFundDialog() {
-        if (currentCashFund <= 0) {
-            Toast.makeText(this, "No cash fund available to pull out", Toast.LENGTH_SHORT).show()
-            return
+        lifecycleScope.launch {
+            try {
+                // Check if Z-Read has been performed today
+                val hasZReadToday = hasZReadForToday()
+
+                if (hasZReadToday) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            this@Window1,
+                            "Pull-out cash fund operations are disabled. Z-Read completed for today.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    return@launch
+                }
+
+                if (currentCashFund <= 0) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@Window1, "No cash fund available to pull out", Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+
+                withContext(Dispatchers.Main) {
+                    val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle)
+                        .setTitle("Pull Out Cash Fund")
+                        .setMessage("Current Cash Fund: ₱${String.format("%.2f", currentCashFund)}")
+                        .setPositiveButton("Pull Out") { _, _ ->
+                            processPulloutCashFund(currentCashFund)
+                        }
+                        .setNegativeButton("Cancel") { dialog, _ ->
+                            dialog.dismiss()
+                        }
+                        .create()
+
+                    dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+                    dialog.show()
+                }
+            } catch (e: Exception) {
+                Log.e("PulloutCashFund", "Error showing pull-out cash fund dialog", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@Window1,
+                        "Error showing pull-out cash fund dialog: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
         }
-
-        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle)
-            .setTitle("Pull Out Cash Fund")
-            .setMessage("Current Cash Fund: ₱${String.format("%.2f", currentCashFund)}")
-            .setPositiveButton("Pull Out") { _, _ ->
-                processPulloutCashFund(currentCashFund)
-            }
-            .setNegativeButton("Cancel") { dialog, _ ->
-                dialog.dismiss()
-            }
-            .create()
-
-        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-        dialog.show()
     }
 
+
     private fun showTenderDeclarationDialog() {
-        if (!isPulloutCashFundProcessed) {
-            Toast.makeText(this, "Please process pull-out cash fund first", Toast.LENGTH_LONG)
-                .show()
-            return
-        }
-
-        val dialogView = layoutInflater.inflate(R.layout.dialog_tender_declaration, null)
-
-        // Find all EditText views for cash denominations
-        val cashEditTexts = listOf(
-            dialogView.findViewById<EditText>(R.id.editText1000),
-            dialogView.findViewById<EditText>(R.id.editText500),
-            dialogView.findViewById<EditText>(R.id.editText200),
-            dialogView.findViewById<EditText>(R.id.editText100),
-            dialogView.findViewById<EditText>(R.id.editText50),
-            dialogView.findViewById<EditText>(R.id.editText20),
-            dialogView.findViewById<EditText>(R.id.editText10),
-            dialogView.findViewById<EditText>(R.id.editText5),
-            dialogView.findViewById<EditText>(R.id.editText1)
-        )
-
-        val denominations = listOf(1000, 500, 200, 100, 50, 20, 10, 5, 1)
-
-        val textViewTotalCash = dialogView.findViewById<TextView>(R.id.textViewTotalCash)
-        val linearLayoutArTypes = dialogView.findViewById<LinearLayout>(R.id.linearLayoutArTypes)
-        val textViewTotalAr = dialogView.findViewById<TextView>(R.id.textViewTotalAr)
-
-        // Just set hints instead of default text
-        cashEditTexts.forEach { editText ->
-            editText.hint = "0"
-        }
-
-        // Simple text watcher that just calculates total
-        cashEditTexts.forEach { editText ->
-            editText.addTextChangedListener(object : TextWatcher {
-                override fun afterTextChanged(s: Editable?) {
-                    calculateTotalCash(cashEditTexts, denominations, textViewTotalCash)
-                }
-
-                override fun beforeTextChanged(
-                    s: CharSequence?,
-                    start: Int,
-                    count: Int,
-                    after: Int
-                ) {
-                }
-
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            })
-        }
-
-        val arEditTexts = mutableListOf<EditText>()
-
         lifecycleScope.launch {
-            arViewModel.arTypes.collectLatest { arTypes ->
-                linearLayoutArTypes.removeAllViews()
-                arEditTexts.clear()
+            try {
+                // Check if Z-Read has been performed today
+                val hasZReadToday = hasZReadForToday()
 
-                arTypes.forEach { arType ->
-                    if (arType.ar != "Cash") {
-                        addArTypeToLayout(
-                            arType.ar,
-                            linearLayoutArTypes,
-                            arEditTexts,
-                            textViewTotalAr
-                        )
+                if (hasZReadToday) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            this@Window1,
+                            "Tender declaration operations are disabled. Z-Read completed for today.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    return@launch
+                }
+
+                if (!isPulloutCashFundProcessed) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            this@Window1,
+                            "Please process pull-out cash fund first",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    return@launch
+                }
+
+                withContext(Dispatchers.Main) {
+                    val dialogView = layoutInflater.inflate(R.layout.dialog_tender_declaration, null)
+
+                    // Find all EditText views for cash denominations
+                    val cashEditTexts = listOf(
+                        dialogView.findViewById<EditText>(R.id.editText1000),
+                        dialogView.findViewById<EditText>(R.id.editText500),
+                        dialogView.findViewById<EditText>(R.id.editText200),
+                        dialogView.findViewById<EditText>(R.id.editText100),
+                        dialogView.findViewById<EditText>(R.id.editText50),
+                        dialogView.findViewById<EditText>(R.id.editText20),
+                        dialogView.findViewById<EditText>(R.id.editText10),
+                        dialogView.findViewById<EditText>(R.id.editText5),
+                        dialogView.findViewById<EditText>(R.id.editText1)
+                    )
+
+                    val denominations = listOf(1000, 500, 200, 100, 50, 20, 10, 5, 1)
+
+                    val textViewTotalCash = dialogView.findViewById<TextView>(R.id.textViewTotalCash)
+                    val linearLayoutArTypes = dialogView.findViewById<LinearLayout>(R.id.linearLayoutArTypes)
+                    val textViewTotalAr = dialogView.findViewById<TextView>(R.id.textViewTotalAr)
+
+                    // Just set hints instead of default text
+                    cashEditTexts.forEach { editText ->
+                        editText.hint = "0"
+                    }
+
+                    // Simple text watcher that just calculates total
+                    cashEditTexts.forEach { editText ->
+                        editText.addTextChangedListener(object : TextWatcher {
+                            override fun afterTextChanged(s: Editable?) {
+                                calculateTotalCash(cashEditTexts, denominations, textViewTotalCash)
+                            }
+
+                            override fun beforeTextChanged(
+                                s: CharSequence?,
+                                start: Int,
+                                count: Int,
+                                after: Int
+                            ) {
+                            }
+
+                            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                        })
+                    }
+
+                    val arEditTexts = mutableListOf<EditText>()
+
+                    // Setup AR types - collect only once and then show dialog
+                    lifecycleScope.launch {
+                        try {
+                            // Get AR types from ViewModel
+                            arViewModel.arTypes.collect { arTypes ->
+                                linearLayoutArTypes.removeAllViews()
+                                arEditTexts.clear()
+
+                                arTypes.forEach { arType ->
+                                    if (arType.ar != "Cash") {
+                                        addArTypeToLayout(
+                                            arType.ar,
+                                            linearLayoutArTypes,
+                                            arEditTexts,
+                                            textViewTotalAr
+                                        )
+                                    }
+                                }
+                                calculateTotalAr(arEditTexts, textViewTotalAr)
+
+                                // Show dialog after AR types are loaded
+                                val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle)
+                                    .setTitle("Tender Declaration")
+                                    .setView(dialogView)
+                                    .setPositiveButton("Confirm") { _, _ ->
+                                        val totalCash =
+                                            textViewTotalCash.text.toString().replace("Total Cash: ₱", "").toDoubleOrNull()
+                                                ?: 0.0
+                                        val arAmounts = arEditTexts.associate { editText ->
+                                            val arType = editText.tag as? String ?: "Unknown"
+                                            val amount = editText.text.toString().toDoubleOrNull() ?: 0.0
+                                            arType to amount
+                                        }
+                                        processTenderDeclaration(totalCash, arAmounts)
+                                    }
+                                    .setNegativeButton("Cancel") { dialog, _ ->
+                                        dialog.dismiss()
+                                    }
+                                    .create()
+
+                                dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+                                dialog.show()
+
+                                // Break out of collect after first emission
+                                return@collect
+                            }
+                        } catch (e: Exception) {
+                            Log.e("TenderDeclaration", "Error loading AR types", e)
+                            Toast.makeText(
+                                this@Window1,
+                                "Error loading AR types: ${e.message}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
                     }
                 }
-                calculateTotalAr(arEditTexts, textViewTotalAr)
+            } catch (e: Exception) {
+                Log.e("TenderDeclaration", "Error showing tender declaration dialog", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@Window1,
+                        "Error showing tender declaration dialog: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
         }
-
-        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle)
-            .setTitle("Tender Declaration")
-            .setView(dialogView)
-            .setPositiveButton("Confirm") { _, _ ->
-                val totalCash =
-                    textViewTotalCash.text.toString().replace("Total Cash: ₱", "").toDoubleOrNull()
-                        ?: 0.0
-                val arAmounts = arEditTexts.associate { editText ->
-                    val arType = editText.tag as? String ?: "Unknown"
-                    val amount = editText.text.toString().toDoubleOrNull() ?: 0.0
-                    arType to amount
-                }
-                processTenderDeclaration(totalCash, arAmounts)
-            }
-            .setNegativeButton("Cancel") { dialog, _ ->
-                dialog.dismiss()
-            }
-            .create()
-
-        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-        dialog.show()
     }
 
     private fun addArTypeToLayout(
@@ -5023,7 +5214,6 @@ private fun printXReadWithBluetoothPrinter(
             }
         }
     }
-
     private fun generateZReportId(): String {
         val sequentialNumber = getNextSequentialNumber()
         return String.format("%08d", sequentialNumber)
@@ -7198,765 +7388,6 @@ private fun setupCartRecyclerView() {
     }
 
 
-//    private fun showPaymentDialog() {
-//        val dialogView = layoutInflater.inflate(R.layout.dialog_payment, null)
-//        val amountPaidEditText = dialogView.findViewById<EditText>(R.id.amountPaidEditText1)
-//        val paymentMethodSpinner = dialogView.findViewById<Spinner>(R.id.paymentMethodSpinner1)
-//
-//        val purchaseHistoryContainer = dialogView.findViewById<LinearLayout>(R.id.purchaseHistoryContainer)
-//        val purchaseHistoryRecyclerView = dialogView.findViewById<RecyclerView>(R.id.purchaseHistoryRecyclerView)
-//        val frequentlyBoughtHeader = dialogView.findViewById<TextView>(R.id.frequentlyBoughtHeader)
-//
-//
-//
-//                val customNumpadContainer = dialogView.findViewById<GridLayout>(R.id.numpadContainer)
-//        customNumpadContainer.visibility = View.GONE
-//
-//        val purchaseHistoryAdapter = PurchaseHistoryAdapter { product ->
-//            addToCart(product)
-//        }
-//
-//        purchaseHistoryRecyclerView.apply {
-//            layoutManager = LinearLayoutManager(context, LinearLayoutManager.VERTICAL, false)
-//            adapter = purchaseHistoryAdapter
-//            addItemDecoration(DividerItemDecoration(context, LinearLayoutManager.VERTICAL))
-//        }
-//
-//        // Setup available promos
-//        val promoSuggestionsContainer = dialogView.findViewById<LinearLayout>(R.id.promoSuggestionsContainer)
-//        val promoSuggestionsRecyclerView = dialogView.findViewById<RecyclerView>(R.id.promoSuggestionsRecyclerView)
-//        val promoHeader = dialogView.findViewById<TextView>(R.id.promoHeader)
-//
-//        val promoAdapter = PromoSuggestionAdapter { mixMatch ->
-//            showMixMatchProductSelection(mixMatch)
-//        }
-//
-//        promoSuggestionsRecyclerView.apply {
-//            layoutManager = LinearLayoutManager(context, LinearLayoutManager.VERTICAL, false)
-//            adapter = promoAdapter
-//        }
-//
-//        // Show initial available promos
-//        lifecycleScope.launch {
-//            val availablePromos = mixMatchViewModel.getAvailablePromos()
-//            promoAdapter.submitList(availablePromos)
-//            promoSuggestionsContainer.visibility =
-//                if (availablePromos.isEmpty()) View.GONE else View.VISIBLE
-//        }
-//
-//
-//        // Function to update promo suggestions based on cart items
-//        fun updatePromoSuggestions() {
-//            lifecycleScope.launch {
-//                val cartItems = cartViewModel.getAllCartItems(windowId).first()
-//                val suggestions = mixMatchViewModel.findPromoSuggestionsForCart(cartItems)
-//                promoAdapter.submitList(suggestions)
-//                promoSuggestionsContainer.visibility =
-//                    if (suggestions.isEmpty()) View.GONE else View.VISIBLE
-//            }
-//        }
-//
-//        // Update suggestions when cart changes
-//        lifecycleScope.launch {
-//            cartViewModel.getAllCartItems(windowId).collect { cartItems ->
-//                updatePromoSuggestions()
-//            }
-//        }
-//        fun clearPurchaseHistory() {
-//            purchaseHistoryAdapter.submitList(emptyList())
-//            purchaseHistoryContainer.visibility = View.GONE
-//        }
-//
-//        if (paymentMethodSpinner == null) {
-//            Log.e(TAG, "Payment method spinner is null! Check your layout XML.")
-//            Toast.makeText(this, "Error initializing payment dialog", Toast.LENGTH_SHORT).show()
-//            return
-//        }
-//        val paymentMethodSpinner2 = dialogView.findViewById<Spinner>(R.id.paymentMethodSpinner2)
-//        if (paymentMethodSpinner2 == null) {
-//            Log.e(TAG, "Second payment method spinner is null!")
-//        }
-//
-//        val customerAutoComplete = dialogView.findViewById<AutoCompleteTextView>(R.id.customerAutoComplete)
-//        val totalAmountTextView = dialogView.findViewById<TextView>(R.id.totalAmountTextView)
-//
-//        // Split payment components
-//        val splitPaymentSwitch = dialogView.findViewById<Switch>(R.id.splitPaymentSwitch)
-//        val secondPaymentLayout = dialogView.findViewById<LinearLayout>(R.id.secondPaymentLayout)
-//        val amountPaidEditText2 = dialogView.findViewById<EditText>(R.id.amountPaidEditText2)
-//
-//
-//
-//        val defaultPaymentMethods = listOf("Cash")
-//        val paymentMethods = mutableListOf<String>()
-//
-//        var totalAmount = 0.0
-//        var discountType = "No Discount"
-//        var discountValue = 0.0
-//        var partialPayment = 0.0
-//
-//        val quickPaymentButtons = listOf(
-//            dialogView.findViewById<Button>(R.id.btn1000),
-//            dialogView.findViewById<Button>(R.id.btn500),
-//            dialogView.findViewById<Button>(R.id.btn200),
-//            dialogView.findViewById<Button>(R.id.btn100),
-//            dialogView.findViewById<Button>(R.id.btn50),
-//            dialogView.findViewById<Button>(R.id.btn20)
-//        )
-//        val smartPayButton = dialogView.findViewById<Button>(R.id.btnSmartPay)
-//        val quickPaymentScrollView = dialogView.findViewById<HorizontalScrollView>(R.id.quickPaymentScrollView)
-//        fun updateSmartPayButton(totalAmount: Double) {
-//            val smartPayAmount = calculateSmartPayAmount(totalAmount)
-//            smartPayButton.text = "₱${String.format("%.0f", smartPayAmount)}"
-//
-//            // Only enable if smart pay amount is greater than or equal to total amount
-//            smartPayButton.isEnabled = smartPayAmount >= totalAmount
-//
-//            // Update button color based on state
-//            smartPayButton.backgroundTintList = ColorStateList.valueOf(
-//                if (smartPayButton.isEnabled)
-//                    ContextCompat.getColor(this, R.color.smart_pay_enabled)
-//                else
-//                    ContextCompat.getColor(this, R.color.smart_pay_disabled)
-//            )
-//        }
-//        // Set up number buttons and backspace
-//        val numberButtons = listOf(
-//            dialogView.findViewById<Button>(R.id.button0),
-//            dialogView.findViewById<Button>(R.id.button1),
-//            dialogView.findViewById<Button>(R.id.button2),
-//            dialogView.findViewById<Button>(R.id.button3),
-//            dialogView.findViewById<Button>(R.id.button4),
-//            dialogView.findViewById<Button>(R.id.button5),
-//            dialogView.findViewById<Button>(R.id.button6),
-//            dialogView.findViewById<Button>(R.id.button7),
-//            dialogView.findViewById<Button>(R.id.button8),
-//            dialogView.findViewById<Button>(R.id.button9),
-//            dialogView.findViewById<Button>(R.id.buttonDot)
-//        )
-//
-//
-//        val backspaceButton = dialogView.findViewById<Button>(R.id.buttonBackspace)
-//        var currentFocusedEditText: EditText = amountPaidEditText
-//
-//        // Focus change listeners
-//        amountPaidEditText.setOnFocusChangeListener { _, hasFocus ->
-//            if (hasFocus) {
-//                currentFocusedEditText = amountPaidEditText
-//            }
-//        }
-//
-//        amountPaidEditText2.setOnFocusChangeListener { _, hasFocus ->
-//            if (hasFocus) {
-//                currentFocusedEditText = amountPaidEditText2
-//            }
-//        }
-//
-//        // Text change listener for second payment amount
-//        amountPaidEditText2.addTextChangedListener(object : TextWatcher {
-//            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-//            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-//            override fun afterTextChanged(s: Editable?) {
-//                if (splitPaymentSwitch.isChecked) {
-//                    val secondAmount = s?.toString()?.toDoubleOrNull() ?: 0.0
-//
-//                    // Check if second amount exceeds total
-//                    if (secondAmount > totalAmount) {
-//                        // Disable split payment and consolidate to single payment
-//                        splitPaymentSwitch.isChecked = false
-//                        amountPaidEditText.setText(String.format("%.2f", totalAmount))
-//                        Toast.makeText(
-//                            this@Window1,
-//                            "Split payment disabled - amount exceeds total",
-//                            Toast.LENGTH_SHORT
-//                        ).show()
-//                        return
-//                    }
-//
-//                    val remainingAmount = totalAmount - secondAmount
-//                    if (currentFocusedEditText == amountPaidEditText2) {
-//                        amountPaidEditText.setText(String.format("%.2f", remainingAmount.coerceAtLeast(0.0)))
-//                    }
-//                }
-//            }
-//        })
-//
-//// Add listener for first payment method spinner
-//        paymentMethodSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-//            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-//                if (splitPaymentSwitch.isChecked) {
-//                    val selectedMethod = parent?.getItemAtPosition(position).toString()
-//                    updateSecondPaymentMethods(selectedMethod, paymentMethodSpinner2, paymentMethods)
-//                }
-//            }
-//
-//            override fun onNothingSelected(parent: AdapterView<*>?) {}
-//        }
-//
-//
-//        // Disable system keyboard for both EditTexts
-//        fun setupEditText(editText: EditText) {
-//            editText.apply {
-//                showSoftInputOnFocus = false
-//                isFocusable = true
-//                isFocusableInTouchMode = true
-//
-//                setOnClickListener {
-//                    val inputMethodManager = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-//                    inputMethodManager.hideSoftInputFromWindow(windowToken, 0)
-//
-//                    // Show numpad when EditText is clicked
-//                    customNumpadContainer.visibility = View.VISIBLE
-//                    currentFocusedEditText = editText
-//                }
-//            }
-//        }
-//
-//
-//        setupEditText(amountPaidEditText)
-//        setupEditText(amountPaidEditText2)
-//
-//        fun handleEditTextFocus() {
-//            amountPaidEditText.setOnFocusChangeListener { _, hasFocus ->
-//                if (hasFocus) {
-//                    customNumpadContainer.visibility = View.VISIBLE
-//                    currentFocusedEditText = amountPaidEditText
-//                }
-//            }
-//
-//            amountPaidEditText2.setOnFocusChangeListener { _, hasFocus ->
-//                if (hasFocus) {
-//                    customNumpadContainer.visibility = View.VISIBLE
-//                    currentFocusedEditText = amountPaidEditText2
-//                }
-//            }
-//        }
-//        // Number button click listener
-//        val numberButtonClickListener = View.OnClickListener { view ->
-//            val buttonText = (view as Button).text.toString()
-//            val currentText = currentFocusedEditText.text.toString()
-//
-//            when (buttonText) {
-//                "." -> {
-//                    if (!currentText.contains(".")) {
-//                        currentFocusedEditText.setText(currentText + buttonText)
-//                        currentFocusedEditText.setSelection(currentFocusedEditText.text.length)
-//                    }
-//                }
-//                else -> {
-//                    // Limit input to 2 decimal places
-//                    val parts = currentText.split(".")
-//                    if (parts.size == 2 && parts[1].length >= 2) {
-//                        return@OnClickListener
-//                    }
-//
-//                    currentFocusedEditText.setText(currentText + buttonText)
-//                    currentFocusedEditText.setSelection(currentFocusedEditText.text.length)
-//                }
-//            }
-//        }
-//
-//        // Apply click listener to all number buttons
-//        numberButtons.forEach { button ->
-//            button.setOnClickListener(numberButtonClickListener)
-//        }
-//
-//        // Backspace button logic
-//        backspaceButton.setOnClickListener {
-//            val currentText = currentFocusedEditText.text.toString()
-//            if (currentText.isNotEmpty()) {
-//                currentFocusedEditText.setText(currentText.substring(0, currentText.length - 1))
-//                currentFocusedEditText.setSelection(currentFocusedEditText.text.length)
-//            }
-//        }
-//
-//        backspaceButton.setOnLongClickListener {
-//            currentFocusedEditText.setText("")
-//            true
-//        }
-//        var firstPaymentMethod: String? = null
-//
-//
-//        splitPaymentSwitch.setOnCheckedChangeListener { buttonView, isChecked ->
-//            val currentPaymentMethod = paymentMethodSpinner.selectedItem?.toString() ?: ""
-//
-//            // Prevent split payment if charge payment is selected
-//            if (isChecked && isChargePayment(currentPaymentMethod)) {
-//                buttonView.isChecked = false
-//                Toast.makeText(
-//                    this@Window1,
-//                    "Split payment not allowed with charge payment",
-//                    Toast.LENGTH_SHORT
-//                ).show()
-//                return@setOnCheckedChangeListener
-//            }
-//
-//            // Rest of the existing split payment switch logic remains the same
-//            if (isChecked) {
-//                if (totalAmount <= 0) {
-//                    smartPayButton.isEnabled = false
-//                    buttonView.isChecked = false
-//                    Toast.makeText(this@Window1, "Split payment not available - no remaining balance", Toast.LENGTH_SHORT).show()
-//                    return@setOnCheckedChangeListener
-//                }
-//
-//                secondPaymentLayout.visibility = View.VISIBLE
-//                quickPaymentScrollView.visibility = View.GONE
-//                quickPaymentButtons.forEach { it.isEnabled = false }
-//
-//                // Set default split
-//                amountPaidEditText.setText(String.format("%.2f", totalAmount))
-//                amountPaidEditText2.setText("")
-//
-//                // Update second payment methods
-//                val firstPaymentMethod = paymentMethodSpinner.selectedItem?.toString()
-//                if (firstPaymentMethod != null) {
-//                    updateSecondPaymentMethods(firstPaymentMethod, paymentMethodSpinner2, paymentMethods)
-//                }
-//
-//                setupEditText(amountPaidEditText2)
-//                amountPaidEditText2.requestFocus()
-//            } else {
-//                updateSmartPayButton(totalAmount)
-//                secondPaymentLayout.visibility = View.GONE
-//                amountPaidEditText2.setText("")
-//                amountPaidEditText.setText(String.format("%.2f", totalAmount))
-//                quickPaymentScrollView.visibility = View.VISIBLE
-//                quickPaymentButtons.forEach { it.isEnabled = true }
-//            }
-//        }
-//        // Cart items collection and total calculation
-//        lifecycleScope.launch {
-//            cartViewModel.getAllCartItems(windowId).collect { cartItems ->
-//                var gross = 0.0
-//                var totalDiscount = 0.0
-//                var vatAmount = 0.0
-//                var priceOverrideTotal = 0.0
-//                var bundleDiscount = 0.0
-//
-//                cartItems.forEach { cartItem ->
-//                    val effectivePrice = cartItem.overriddenPrice ?: cartItem.price
-//                    val itemTotal = effectivePrice * cartItem.quantity
-//                    gross += itemTotal
-//                    partialPayment = cartItem.partialPayment
-//
-//                    // Existing discount and calculation logic remains the same
-//                    when (cartItem.discountType.toUpperCase()) {
-//                        "PERCENTAGE", "PWD", "SC" -> {
-//                            totalDiscount += itemTotal * (cartItem.discount / 100)
-//                            discountType = cartItem.discountType
-//                            discountValue = cartItem.discount
-//                        }
-//                        "FIXED" -> {
-//                            totalDiscount += cartItem.discount * cartItem.quantity
-//                            discountType = "FIXED"
-//                            discountValue = cartItem.discount
-//                        }
-//                        "FIXEDTOTAL", "FIXED TOTAL" -> {
-//                            totalDiscount += cartItem.discount
-//                            discountType = "FIXEDTOTAL"
-//                            discountValue = cartItem.discount
-//                        }
-//                        "DEAL", "PERCENTAGE", "FIXEDTOTAL" -> {
-//                            // Handle bundle discounts
-//                            if (cartItem.bundleId != null) {
-//                                bundleDiscount += when (cartItem.discountType.toUpperCase()) {
-//                                    "DEAL" -> cartItem.discount
-//                                    "PERCENTAGE" -> itemTotal * (cartItem.discount / 100)
-//                                    "FIXEDTOTAL" -> cartItem.discount
-//                                    else -> 0.0
-//                                }
-//                            }
-//                        }
-//                    }
-//
-//                    vatAmount += itemTotal * 0.12 / 1.12
-//                }
-//
-//                // Add bundle discount to total discount
-//                totalDiscount += bundleDiscount
-//
-//                val discountedTotal = gross - totalDiscount
-//                totalAmount = discountedTotal - partialPayment
-//
-//                amountPaidEditText.setText(String.format("%.2f", totalAmount))
-//                updateSmartPayButton(totalAmount)
-//
-//                // Update UI elements
-//                if (totalAmount <= 0) {
-//                    splitPaymentSwitch.isChecked = false
-//                    splitPaymentSwitch.isEnabled = false
-//                } else {
-//                    splitPaymentSwitch.isEnabled = true
-//                }
-//
-//                // Update total amount display
-//                val formattedText = StringBuilder().apply {
-//                    append(String.format("Gross Amount: ₱%.2f", gross))
-//                    if (priceOverrideTotal != 0.0) {
-//                        append(String.format("\nPrice Override Adjustment: ₱%.2f", priceOverrideTotal))
-//                    }
-//                    append(String.format("\nVAT Amount: ₱%.2f", vatAmount))
-//                    if (totalDiscount > 0) {
-//                        append(String.format("\nTotal Discount: ₱%.2f", totalDiscount))
-//                        if (bundleDiscount > 0) {
-//                            append(String.format("\n  Bundle Discount: ₱%.2f", bundleDiscount))
-//                        }
-//                    }
-//                    append(String.format("\nDiscounted Total: ₱%.2f", discountedTotal))
-//                    if (partialPayment > 0) {
-//                        append(String.format("\nPartial Payment: ₱%.2f", partialPayment))
-//                        append(String.format("\nRemaining Balance: ₱%.2f", totalAmount))
-//                    }
-//                    if (transactionComment.isNotEmpty()) {
-//                        append("\nComment: $transactionComment")
-//                    }
-//                }.toString()
-//
-//                totalAmountTextView.text = formattedText
-//            }
-//        }
-//
-//        // Setup for payment methods spinner
-//        lifecycleScope.launch {
-//            arViewModel.arTypes.collectLatest { arTypes ->
-//                // Use withContext(Dispatchers.Main) if UI updates are needed
-//                withContext(Dispatchers.Main) {
-//                    paymentMethods.clear()
-//                    paymentMethods.addAll(defaultPaymentMethods)
-//                    if (arTypes.isNotEmpty()) {
-//                        paymentMethods.addAll(arTypes.map { it.ar })
-//                    }
-//
-//                    // Update spinners on main thread
-//                    updatePaymentMethodSpinner(paymentMethodSpinner, paymentMethods, customerAutoComplete)
-//                    updatePaymentMethodSpinner(paymentMethodSpinner2, paymentMethods, customerAutoComplete)
-//                }
-//            }
-//
-//
-//            launch {
-//                arViewModel.error.collectLatest { errorMessage ->
-//                    if (errorMessage != null) {
-//                        Log.e(TAG, "Error in AR ViewModel: $errorMessage")
-//                        paymentMethods.clear()
-//                        paymentMethods.addAll(defaultPaymentMethods)
-//                        updatePaymentMethodSpinner(paymentMethodSpinner, paymentMethods, customerAutoComplete)
-//                        updatePaymentMethodSpinner(paymentMethodSpinner2, paymentMethods, customerAutoComplete)
-//                    }
-//                }
-//            }
-//        }
-//
-//        arViewModel.refreshARTypes()
-//
-//        // Setup for customer selection (existing code remains the same)
-//        val customers = mutableListOf<Customer>()
-//        customers.add(selectedCustomer)
-//
-//        val customerAdapter = ArrayAdapter(
-//            this,
-//            android.R.layout.simple_dropdown_item_1line,
-//            customers.map { it.name }
-//        )
-//        customerAutoComplete.setAdapter(customerAdapter)
-//        customerAutoComplete.setText("Walk-in Customer", false)
-//
-//        lifecycleScope.launch {
-//            try {
-//                customerViewModel.refreshCustomers()
-//                customerViewModel.customers.collectLatest { customerList ->
-//                    updateCustomerList(customers, customerList, customerAdapter)
-//                }
-//            } catch (e: Exception) {
-//                Log.e(TAG, "Error fetching customers: ${e.message}")
-//                updateCustomerList(customers, emptyList(), customerAdapter)
-//            }
-//        }
-//
-//        // Create and show the dialog
-//        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle)
-//            .setTitle("Payment")
-//            .setView(dialogView)
-//            .setPositiveButton("Pay", null)
-//            .setNegativeButton("Cancel") { dialog, _ -> dialog.cancel() }
-//            .create()
-//
-//        // Set custom background
-//        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-//
-//        // Handle dialog show and payment processing
-//        dialog.setOnShowListener {
-//            val payButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-//            val smartPayCard = dialogView.findViewById<CardView>(R.id.cardSmartPay)
-//            val initialElevation = smartPayCard.elevation
-//
-//
-//                        dialog.window?.decorView?.setOnTouchListener { _, event ->
-//                if (event.action == MotionEvent.ACTION_DOWN) {
-//                    if (customNumpadContainer.visibility == View.VISIBLE) {
-//                        val numpadRect = Rect()
-//                        customNumpadContainer.getGlobalVisibleRect(numpadRect)
-//
-//                        if (!numpadRect.contains(event.rawX.toInt(), event.rawY.toInt())) {
-//                            val editText1Rect = Rect()
-//                            val editText2Rect = Rect()
-//                            amountPaidEditText.getGlobalVisibleRect(editText1Rect)
-//                            amountPaidEditText2.getGlobalVisibleRect(editText2Rect)
-//
-//                            if (!editText1Rect.contains(event.rawX.toInt(), event.rawY.toInt()) &&
-//                                !editText2Rect.contains(event.rawX.toInt(), event.rawY.toInt())) {
-//                                customNumpadContainer.visibility = View.GONE
-//                            }
-//                        }
-//                    }
-//                }
-//                false
-//            }
-//            // Create multiple animations
-//            val elevationAnimator = ValueAnimator.ofFloat(initialElevation, initialElevation + 8f).apply {
-//                duration =8500
-//                repeatMode = ValueAnimator.REVERSE
-//                repeatCount = ValueAnimator.INFINITE
-//                interpolator = AccelerateDecelerateInterpolator()
-//            }
-//
-//            val scaleAnimator = ValueAnimator.ofFloat(1f, 1.05f).apply {
-//                duration = 800
-//                repeatMode = ValueAnimator.REVERSE
-//                repeatCount = ValueAnimator.INFINITE
-//                interpolator = AccelerateDecelerateInterpolator()
-//            }
-//
-//            // Combine animations
-//            elevationAnimator.addUpdateListener { animation ->
-//                smartPayCard.elevation = animation.animatedValue as Float
-//            }
-//
-//            scaleAnimator.addUpdateListener { animation ->
-//                val scale = animation.animatedValue as Float
-//                smartPayCard.scaleX = scale
-//                smartPayCard.scaleY = scale
-//            }
-//
-//            elevationAnimator.start()
-//            scaleAnimator.start()
-//            // Quick payment buttons setup
-//            val quickPaymentAmounts = listOf(1000.0, 500.0, 200.0, 100.0, 50.0, 20.0)
-//            quickPaymentButtons.forEachIndexed { index, button ->
-//                button.setOnClickListener {
-//                    val amount = quickPaymentAmounts[index]
-//                    val paymentMethod = paymentMethodSpinner.selectedItem.toString()
-//
-//                    // Check if it's a charge payment and validate customer
-//                    if (isChargePayment(paymentMethod)) {
-//                        if (!isValidCustomerForCharge(selectedCustomer)) {
-//                            Toast.makeText(
-//                                this@Window1,
-//                                "Select a valid customer for charge payment",
-//                                Toast.LENGTH_SHORT
-//                            ).show()
-//                            customerAutoComplete.error = "Customer required for charge"
-//                            return@setOnClickListener
-//                        }
-//                    }
-//
-//                    if (amount < totalAmount) {
-//                        Toast.makeText(
-//                            this@Window1,
-//                            "Insufficient payment amount: ₱$amount. Required: ₱${String.format("%.2f", totalAmount)}",
-//                            Toast.LENGTH_SHORT
-//                        ).show()
-//                        return@setOnClickListener
-//                    }
-//
-//                    amountPaidEditText.setText(String.format("%.2f", amount))
-//
-//                    val change = amount - totalAmount
-//                    if (change > 0) {
-//                        Toast.makeText(
-//                            this@Window1,
-//                            "Change: ₱${String.format("%.2f", change)}",
-//                            Toast.LENGTH_SHORT
-//                        ).show()
-//                    }
-//
-//                    processPayment(
-//                        amount,
-//                        paymentMethod,
-//                        1.12, // VAT rate
-//                        discountType,
-//                        discountValue,
-//                        selectedCustomer,
-//                        totalAmount
-//                    )
-//
-//                    dialog.dismiss()
-//                }
-//            }
-//
-//            // Smart pay button setup
-//            smartPayButton.setOnClickListener {
-//                val smartPayAmount = calculateSmartPayAmount(totalAmount)
-//                val paymentMethod = paymentMethodSpinner.selectedItem.toString()
-//
-//                // Check if it's a charge payment and validate customer
-//                if (isChargePayment(paymentMethod)) {
-//                    if (!isValidCustomerForCharge(selectedCustomer)) {
-//                        Toast.makeText(
-//                            this@Window1,
-//                            "Select a valid customer for charge payment",
-//                            Toast.LENGTH_SHORT
-//                        ).show()
-//                        customerAutoComplete.error = "Customer required for charge"
-//                        return@setOnClickListener
-//                    }
-//                }
-//
-//                amountPaidEditText.setText(String.format("%.2f", smartPayAmount))
-//
-//                val change = smartPayAmount - totalAmount
-//                if (change > 0) {
-//                    Toast.makeText(
-//                        this@Window1,
-//                        "Change: ₱${String.format("%.2f", change)}",
-//                        Toast.LENGTH_SHORT
-//                    ).show()
-//                }
-//
-//                processPayment(
-//                    smartPayAmount,
-//                    paymentMethod,
-//                    1.12, // VAT rate
-//                    discountType,
-//                    discountValue,
-//                    selectedCustomer,
-//                    totalAmount
-//                )
-//
-//                dialog.dismiss()
-//            }
-//            // Update spinner initialization to include the pay button
-//            updatePaymentMethodSpinner(paymentMethodSpinner, paymentMethods, customerAutoComplete, payButton)
-//            updatePaymentMethodSpinner(paymentMethodSpinner2, paymentMethods, customerAutoComplete, payButton)
-//
-//            // Update customer selection setup
-//            setupCustomerSelection(
-//                customerAutoComplete,
-//                customers,
-//                customerAdapter,
-//                paymentMethodSpinner,
-//                paymentMethodSpinner2,
-//                payButton
-//            ) { customer ->
-//                selectedCustomer = customer
-//
-//                if (customer.accountNum == "WALK-IN") {
-//                    purchaseHistoryContainer.visibility = View.GONE
-//                    customerViewModel.clearPurchaseHistory()
-//                } else {
-//                    purchaseHistoryContainer.visibility = View.VISIBLE
-//                    customerViewModel.loadCustomerPurchaseHistory(customer.name)
-//                    frequentlyBoughtHeader.text = "Frequently Bought by ${customer.name}"
-//                }
-//            }
-//
-//            // Observe purchase history changes
-//            lifecycleScope.launch {
-//                customerViewModel.purchaseHistory.collect { history ->
-//                    purchaseHistoryAdapter.submitList(history)
-//                    purchaseHistoryContainer.visibility =
-//                        if (history.isEmpty()) View.GONE else View.VISIBLE
-//                }
-//            }
-//            payButton.setOnClickListener {
-//                val isSplitPayment = splitPaymentSwitch.isChecked
-//
-//                // Collect payment methods and amounts
-//                val paymentMethods = mutableListOf<String>()
-//                val paymentAmounts = mutableListOf<Double>()
-//
-//                // First payment method
-//                val paymentMethod1 = paymentMethodSpinner?.selectedItem?.toString() ?: run {
-//                    Toast.makeText(this, "Payment method not selected", Toast.LENGTH_SHORT).show()
-//                    return@setOnClickListener
-//                }
-//
-//                // Check if payment method is CHARGE and validate customer
-//                val isCharge = isChargePayment(paymentMethod1) ||
-//                        (isSplitPayment && isChargePayment(paymentMethodSpinner2?.selectedItem?.toString() ?: ""))
-//
-//                if (isCharge && !isValidCustomerForCharge(selectedCustomer)) {
-//                    Toast.makeText(
-//                        this,
-//                        "Please select a valid customer for charge payment",
-//                        Toast.LENGTH_SHORT
-//                    ).show()
-//                    customerAutoComplete.error = "Customer required for charge"
-//                    return@setOnClickListener
-//                }
-//
-//                val amountPaid1 = amountPaidEditText?.text.toString().toDoubleOrNull() ?: run {
-//                    Toast.makeText(this, "Invalid payment amount", Toast.LENGTH_SHORT).show()
-//                    return@setOnClickListener
-//                }
-//                paymentMethods.add(paymentMethod1)
-//                paymentAmounts.add(amountPaid1)
-//
-//                // Second payment method if split payment
-//                if (isSplitPayment) {
-//                    val paymentMethod2 = paymentMethodSpinner2.selectedItem.toString()
-//
-//                    // Explicitly prevent charge payment in split payment
-//                    if (isChargePayment(paymentMethod2)) {
-//                        Toast.makeText(this, "Charge payment is not allowed in split payment", Toast.LENGTH_SHORT).show()
-//                        return@setOnClickListener
-//                    }
-//
-//                    val amountPaid2 = amountPaidEditText2.text.toString().toDoubleOrNull() ?: 0.0
-//
-//                    if (amountPaid2 > 0) {
-//                        paymentMethods.add(paymentMethod2)
-//                        paymentAmounts.add(amountPaid2)
-//                    }
-//                }
-//
-//                // Validate total payment
-//                val totalPaid = paymentAmounts.sum()
-//
-//                // Check if total paid is sufficient
-//                if (totalPaid < totalAmount) {
-//                    Toast.makeText(this, "Insufficient payment amount", Toast.LENGTH_SHORT).show()
-//                    return@setOnClickListener
-//                }
-//
-//                val change = if (totalPaid > totalAmount) totalPaid - totalAmount else 0.0
-//
-//                // Process the payment
-//                processPayment(
-//                    paymentAmounts[0],
-//                    paymentMethods[0],
-//                    1.12, // VAT rate
-//                    discountType,
-//                    discountValue,
-//                    selectedCustomer,
-//                    totalAmount,
-//                    // Pass other payment methods and amounts if split
-//                    otherPaymentMethods = if (paymentMethods.size > 1) paymentMethods.slice(1 until paymentMethods.size) else emptyList(),
-//                    otherPaymentAmounts = if (paymentAmounts.size > 1) paymentAmounts.slice(1 until paymentAmounts.size) else emptyList()
-//                )
-//
-//                // Show change if applicable
-//                if (change > 0) {
-//                    Toast.makeText(this, "Change: ₱${String.format("%.2f", change)}", Toast.LENGTH_SHORT).show()
-//                }
-//
-//                dialog.dismiss()
-//            }
-//        }
-//
-//        dialog.show()
-//    }
 private fun showPointsRedemptionDialog(
     loyaltyCard: LoyaltyCard,
     totalAmount: Double,
@@ -8442,15 +7873,15 @@ private fun showPointsRedemptionDialog(
         splitPaymentSwitch.setOnCheckedChangeListener { buttonView, isChecked ->
             val currentPaymentMethod = paymentMethodSpinner.selectedItem?.toString() ?: ""
 
-            if (isChecked && isChargePayment(currentPaymentMethod)) {
-                buttonView.isChecked = false
-                Toast.makeText(
-                    this@Window1,
-                    "Split payment not allowed with charge payment",
-                    Toast.LENGTH_SHORT
-                ).show()
-                return@setOnCheckedChangeListener
-            }
+//            if (isChecked && isChargePayment(currentPaymentMethod)) {
+//                buttonView.isChecked = false
+//                Toast.makeText(
+//                    this@Window1,
+//                    "Split payment not allowed with charge payment",
+//                    Toast.LENGTH_SHORT
+//                ).show()
+//                return@setOnCheckedChangeListener
+//            }
 
             if (isChecked) {
                 if (totalAmount <= 0) {
@@ -8473,7 +7904,6 @@ private fun showPointsRedemptionDialog(
                     amountPaidEditText2.isEnabled = false  // Lock second amount for loyalty card payments
                 }
 
-
                 val firstPaymentMethod = paymentMethodSpinner.selectedItem?.toString()
                 if (firstPaymentMethod != null) {
                     updateSecondPaymentMethods(firstPaymentMethod, paymentMethodSpinner2, paymentMethods)
@@ -8490,6 +7920,7 @@ private fun showPointsRedemptionDialog(
                 quickPaymentButtons.forEach { it.isEnabled = true }
             }
         }
+
         // Cart items collection and total calculation
         lifecycleScope.launch {
             cartViewModel.getAllCartItems(windowId).collect { cartItems ->
@@ -8859,11 +8290,19 @@ private fun showPointsRedemptionDialog(
                     return@setOnClickListener
                 }
 
-                // Check if payment method is CHARGE and validate customer
-                val isCharge = isChargePayment(paymentMethod1) ||
-                        (isSplitPayment && isChargePayment(paymentMethodSpinner2?.selectedItem?.toString() ?: ""))
+                // Check if any payment method is CHARGE and validate customer
+                val isFirstCharge = isChargePayment(paymentMethod1)
+                var isSecondCharge = false
 
-                if (isCharge && !isValidCustomerForCharge(selectedCustomer)) {
+                if (isSplitPayment) {
+                    val paymentMethod2 = paymentMethodSpinner2?.selectedItem?.toString() ?: ""
+                    isSecondCharge = isChargePayment(paymentMethod2)
+                }
+
+                val hasChargePayment = isFirstCharge || isSecondCharge
+
+                // Validate customer for any charge payment
+                if (hasChargePayment && !isValidCustomerForCharge(selectedCustomer)) {
                     Toast.makeText(
                         this,
                         "Please select a valid customer for charge payment",
@@ -8883,13 +8322,6 @@ private fun showPointsRedemptionDialog(
                 // Second payment method if split payment
                 if (isSplitPayment) {
                     val paymentMethod2 = paymentMethodSpinner2.selectedItem.toString()
-
-                    // Explicitly prevent charge payment in split payment
-                    if (isChargePayment(paymentMethod2)) {
-                        Toast.makeText(this, "Charge payment is not allowed in split payment", Toast.LENGTH_SHORT).show()
-                        return@setOnClickListener
-                    }
-
                     val amountPaid2 = amountPaidEditText2.text.toString().toDoubleOrNull() ?: 0.0
 
                     if (amountPaid2 > 0) {
@@ -8923,9 +8355,11 @@ private fun showPointsRedemptionDialog(
                     otherPaymentAmounts = if (paymentAmounts.size > 1) paymentAmounts.slice(1 until paymentAmounts.size) else emptyList()
                 )
 
-                // Show change if applicable
-                if (change > 0) {
+                // Show change if applicable (only for non-charge payments)
+                if (change > 0 && !hasChargePayment) {
                     Toast.makeText(this, "Change: ₱${String.format("%.2f", change)}", Toast.LENGTH_SHORT).show()
+                } else if (hasChargePayment) {
+                    Toast.makeText(this, "Payment processed successfully", Toast.LENGTH_SHORT).show()
                 }
 
                 dialog.dismiss()
@@ -9164,8 +8598,10 @@ private fun showPointsRedemptionDialog(
         paymentMethodSpinner2: Spinner,
         paymentMethods: List<String>
     ) {
+        // Allow all payment methods except LOYALTYCARD in second payment
+        // Remove the restriction on charge payments
         val filteredMethods = paymentMethods.filter {
-            it != firstPaymentMethod && it != "LOYALTYCARD" // Always exclude LOYALTYCARD from second payment
+            it != firstPaymentMethod && it != "LOYALTYCARD" // Only exclude LOYALTYCARD from second payment
         }
         val adapter = ArrayAdapter(
             this,
@@ -9177,6 +8613,7 @@ private fun showPointsRedemptionDialog(
         paymentMethodSpinner2.adapter = adapter
         paymentMethodSpinner2.setSelection(0) // Default to first available method
     }
+
 
     private fun setupCustomerSelection(
         customerAutoComplete: AutoCompleteTextView,
@@ -9947,11 +9384,11 @@ private suspend fun performAutomaticZRead() {
         Log.e(TAG, "Error performing automatic Z-Read", e)
     }
 }
-
-    private suspend fun hasZReadForToday(): Boolean {
-        val today = getCurrentDate()
-        return zReadDao.getZReadByDate(today) != null
-    }
+//
+//    private suspend fun hasZReadForToday(): Boolean {
+//        val today = getCurrentDate()
+//        return zReadDao.getZReadByDate(today) != null
+//    }
 
     // Add this method to check if it's past midnight
     private fun isAfterMidnight(): Boolean {
@@ -10189,140 +9626,277 @@ private suspend fun performAutomaticZRead() {
 //        }
 //    }
 //}
-private fun addToCart(product: Product) {
-    // First check if transactions are disabled after Z-Read
-    if (isTransactionDisabledAfterZRead) {
-        Toast.makeText(
-            this,
-            "Transactions are disabled. Z-Read completed for today. Please wait until next day.",
-            Toast.LENGTH_LONG
-        ).show()
-        return
-    }
 
-    checkStaffAndProceed {
-        if (currentCashFund <= 0) {
+//private fun addToCart(product: Product) {
+//    // First check if transactions are disabled after Z-Read
+//    if (isTransactionDisabledAfterZRead) {
+//        Toast.makeText(
+//            this,
+//            "Transactions are disabled. Z-Read completed for today. Please wait until next day.",
+//            Toast.LENGTH_LONG
+//        ).show()
+//        return
+//    }
+//
+//    checkStaffAndProceed {
+//        if (currentCashFund <= 0) {
+//            Toast.makeText(
+//                this,
+//                "Cannot perform transactions. Please set a cash fund.",
+//                Toast.LENGTH_LONG
+//            ).show()
+//            return@checkStaffAndProceed
+//        }
+//
+//        lifecycleScope.launch {
+//            // Check Z-Read status before allowing transaction
+//            val hasZReadToday = hasZReadForToday()
+//            if (hasZReadToday && isAfterMidnight()) {
+//                withContext(Dispatchers.Main) {
+//                    Toast.makeText(
+//                        this@Window1,
+//                        "Cannot add items. Z-Read completed for today.",
+//                        Toast.LENGTH_LONG
+//                    ).show()
+//                }
+//                return@launch
+//            }
+//
+//            // Your existing addToCart logic here...
+//            val existingItems = cartViewModel.getAllCartItems(windowId).first()
+//            val partialPayment = existingItems.firstOrNull()?.partialPayment ?: 0.0
+//
+//            // Log the product we're trying to add
+//            Log.d(TAG, "Adding product: ${product.itemName} (${product.itemid})")
+//
+//            // Check if we have the "PULLMAN X 2" product and apply discount directly
+//            var matchingDiscount: Discount? = null
+//
+//            // Handle special case for PULLMAN X 2 product
+//            if (product.itemName.trim().equals("PULLMAN X 2", ignoreCase = true)) {
+//                // Check if discounts are loaded
+//                val loadedDiscounts = discountViewModel.discounts.value
+//
+//                if (!loadedDiscounts.isNullOrEmpty()) {
+//                    // Try to find matching discount
+//                    matchingDiscount = loadedDiscounts.find { discount ->
+//                        discount.DISCOFFERNAME.trim().equals(product.itemName.trim(), ignoreCase = true)
+//                    }
+//
+//                    if (matchingDiscount != null) {
+//                        Log.d(TAG, "Found matching discount: ${matchingDiscount.DISCOFFERNAME}")
+//                    } else {
+//                        Log.d(TAG, "No matching discount found in loaded discounts")
+//                    }
+//                } else {
+//                    // If discounts aren't loaded, create a hardcoded one for PULLMAN X 2
+//                    Log.d(TAG, "Creating hardcoded discount for PULLMAN X 2")
+//                    matchingDiscount = Discount(
+//                        id = 27,
+//                        DISCOFFERNAME = "PULLMAN X 2",
+//                        PARAMETER = 29,
+//                        DISCOUNTTYPE = "fixed"
+//                    )
+//                }
+//            }
+//
+//            // Find matching items in cart
+//            val existingNonDiscountedItem = existingItems.find { item ->
+//                item.productId == product.id &&
+//                        item.discount == 0.0 &&
+//                        item.discountType.isEmpty() &&
+//                        item.bundleId == null
+//            }
+//
+//            val existingDiscountedItem = existingItems.find { item ->
+//                item.productId == product.id &&
+//                        (item.discount > 0.0 ||
+//                                item.discountType.isNotEmpty() ||
+//                                item.bundleId != null)
+//            }
+//
+//            // If there's a matching discount, apply it to a new cart item
+//            if (matchingDiscount != null) {
+//                Log.d(TAG, "Applying discount: ${matchingDiscount.DISCOFFERNAME} (${matchingDiscount.PARAMETER} ${matchingDiscount.DISCOUNTTYPE})")
+//
+//                // Show toast to confirm discount application
+//                withContext(Dispatchers.Main) {
+//                    Toast.makeText(
+//                        this@Window1,
+//                        "Applied discount: ${matchingDiscount.DISCOFFERNAME} (${matchingDiscount.PARAMETER} ${matchingDiscount.DISCOUNTTYPE})",
+//                        Toast.LENGTH_SHORT
+//                    ).show()
+//                }
+//
+//                // Create new item with discount applied
+//                cartViewModel.insert(
+//                    CartItem(
+//                        productId = product.id,
+//                        quantity = 1,
+//                        windowId = windowId,
+//                        productName = product.itemName,
+//                        price = product.price,
+//                        partialPayment = partialPayment,
+//                        vatAmount = 0.0,
+//                        vatExemptAmount = 0.0,
+//                        itemGroup = product.itemGroup,
+//                        itemId = product.itemid,
+//                        discount = matchingDiscount.PARAMETER.toDouble(),
+//                        discountType = matchingDiscount.DISCOUNTTYPE,
+//                        discountName = matchingDiscount.DISCOFFERNAME
+//                    )
+//                )
+//
+//            } else when {
+//                // If clicking a non-discounted item
+//                existingNonDiscountedItem != null -> {
+//                    // Update quantity of existing non-discounted item
+//                    cartViewModel.update(
+//                        existingNonDiscountedItem.copy(
+//                            quantity = existingNonDiscountedItem.quantity + 1,
+//                            partialPayment = partialPayment
+//                        )
+//                    )
+//                }
+//                // If the product exists but only as a discounted item, create new non-discounted entry
+//                existingDiscountedItem != null -> {
+//                    // Create new cart item without discount
+//                    cartViewModel.insert(
+//                        CartItem(
+//                            productId = product.id,
+//                            quantity = 1,
+//                            windowId = windowId,
+//                            productName = product.itemName,
+//                            price = product.price,
+//                            partialPayment = partialPayment,
+//                            vatAmount = 0.0,
+//                            vatExemptAmount = 0.0,
+//                            itemGroup = product.itemGroup,
+//                            itemId = product.itemid,
+//                            discount = 0.0,
+//                            discountType = ""
+//                        )
+//                    )
+//                }
+//                // If the product doesn't exist in cart at all
+//                else -> {
+//                    cartViewModel.insert(
+//                        CartItem(
+//                            productId = product.id,
+//                            quantity = 1,
+//                            windowId = windowId,
+//                            productName = product.itemName,
+//                            price = product.price,
+//                            partialPayment = partialPayment,
+//                            vatAmount = 0.0,
+//                            vatExemptAmount = 0.0,
+//                            itemGroup = product.itemGroup,
+//                            itemId = product.itemid,
+//                            discount = 0.0,
+//                            discountType = ""
+//                        )
+//                    )
+//                }
+//            }
+//
+//            Log.d(TAG, "Added/Updated cart item for product ${product.id} in window $windowId")
+//            updateTotalAmount(cartViewModel.getAllCartItems(windowId).first())
+//        }
+//    }
+//}
+
+    private fun addToCart(product: Product) {
+        // First check if transactions are disabled after Z-Read
+        if (isTransactionDisabledAfterZRead) {
             Toast.makeText(
                 this,
-                "Cannot perform transactions. Please set a cash fund.",
+                "Transactions are disabled. Z-Read completed for today. Please wait until next day.",
                 Toast.LENGTH_LONG
             ).show()
-            return@checkStaffAndProceed
+            return
         }
 
-        lifecycleScope.launch {
-            // Check Z-Read status before allowing transaction
-            val hasZReadToday = hasZReadForToday()
-            if (hasZReadToday && isAfterMidnight()) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(
-                        this@Window1,
-                        "Cannot add items. Z-Read completed for today.",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-                return@launch
+        checkStaffAndProceed {
+            if (currentCashFund <= 0) {
+                Toast.makeText(
+                    this,
+                    "Cannot perform transactions. Please set a cash fund.",
+                    Toast.LENGTH_LONG
+                ).show()
+                return@checkStaffAndProceed
             }
 
-            // Your existing addToCart logic here...
-            val existingItems = cartViewModel.getAllCartItems(windowId).first()
-            val partialPayment = existingItems.firstOrNull()?.partialPayment ?: 0.0
+            lifecycleScope.launch {
+                // Check Z-Read status before allowing transaction
+                val hasZReadToday = hasZReadForToday()
+                if (hasZReadToday && isAfterMidnight()) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            this@Window1,
+                            "Cannot add items. Z-Read completed for today.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    return@launch
+                }
 
-            // Log the product we're trying to add
-            Log.d(TAG, "Adding product: ${product.itemName} (${product.itemid})")
+                // Your existing addToCart logic here...
+                val existingItems = cartViewModel.getAllCartItems(windowId).first()
+                val partialPayment = existingItems.firstOrNull()?.partialPayment ?: 0.0
 
-            // Check if we have the "PULLMAN X 2" product and apply discount directly
-            var matchingDiscount: Discount? = null
+                // Log the product we're trying to add
+                Log.d(TAG, "Adding product: ${product.itemName} (${product.itemid})")
 
-            // Handle special case for PULLMAN X 2 product
-            if (product.itemName.trim().equals("PULLMAN X 2", ignoreCase = true)) {
-                // Check if discounts are loaded
+                // Check if there's a matching discount for this product
+                var matchingDiscount: Discount? = null
+
+                // Get loaded discounts
                 val loadedDiscounts = discountViewModel.discounts.value
 
                 if (!loadedDiscounts.isNullOrEmpty()) {
-                    // Try to find matching discount
+                    // Try to find matching discount by comparing product name with discount offer name
                     matchingDiscount = loadedDiscounts.find { discount ->
                         discount.DISCOFFERNAME.trim().equals(product.itemName.trim(), ignoreCase = true)
                     }
 
                     if (matchingDiscount != null) {
-                        Log.d(TAG, "Found matching discount: ${matchingDiscount.DISCOFFERNAME}")
+                        Log.d(TAG, "Found matching discount: ${matchingDiscount.DISCOFFERNAME} for product: ${product.itemName}")
                     } else {
-                        Log.d(TAG, "No matching discount found in loaded discounts")
+                        Log.d(TAG, "No matching discount found for product: ${product.itemName}")
                     }
                 } else {
-                    // If discounts aren't loaded, create a hardcoded one for PULLMAN X 2
-                    Log.d(TAG, "Creating hardcoded discount for PULLMAN X 2")
-                    matchingDiscount = Discount(
-                        id = 27,
-                        DISCOFFERNAME = "PULLMAN X 2",
-                        PARAMETER = 29,
-                        DISCOUNTTYPE = "fixed"
-                    )
-                }
-            }
-
-            // Find matching items in cart
-            val existingNonDiscountedItem = existingItems.find { item ->
-                item.productId == product.id &&
-                        item.discount == 0.0 &&
-                        item.discountType.isEmpty() &&
-                        item.bundleId == null
-            }
-
-            val existingDiscountedItem = existingItems.find { item ->
-                item.productId == product.id &&
-                        (item.discount > 0.0 ||
-                                item.discountType.isNotEmpty() ||
-                                item.bundleId != null)
-            }
-
-            // If there's a matching discount, apply it to a new cart item
-            if (matchingDiscount != null) {
-                Log.d(TAG, "Applying discount: ${matchingDiscount.DISCOFFERNAME} (${matchingDiscount.PARAMETER} ${matchingDiscount.DISCOUNTTYPE})")
-
-                // Show toast to confirm discount application
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(
-                        this@Window1,
-                        "Applied discount: ${matchingDiscount.DISCOFFERNAME} (${matchingDiscount.PARAMETER} ${matchingDiscount.DISCOUNTTYPE})",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    Log.d(TAG, "No discounts loaded")
                 }
 
-                // Create new item with discount applied
-                cartViewModel.insert(
-                    CartItem(
-                        productId = product.id,
-                        quantity = 1,
-                        windowId = windowId,
-                        productName = product.itemName,
-                        price = product.price,
-                        partialPayment = partialPayment,
-                        vatAmount = 0.0,
-                        vatExemptAmount = 0.0,
-                        itemGroup = product.itemGroup,
-                        itemId = product.itemid,
-                        discount = matchingDiscount.PARAMETER.toDouble(),
-                        discountType = matchingDiscount.DISCOUNTTYPE,
-                        discountName = matchingDiscount.DISCOFFERNAME
-                    )
-                )
-
-            } else when {
-                // If clicking a non-discounted item
-                existingNonDiscountedItem != null -> {
-                    // Update quantity of existing non-discounted item
-                    cartViewModel.update(
-                        existingNonDiscountedItem.copy(
-                            quantity = existingNonDiscountedItem.quantity + 1,
-                            partialPayment = partialPayment
-                        )
-                    )
+                // Find matching items in cart
+                val existingNonDiscountedItem = existingItems.find { item ->
+                    item.productId == product.id &&
+                            item.discount == 0.0 &&
+                            item.discountType.isEmpty() &&
+                            item.bundleId == null
                 }
-                // If the product exists but only as a discounted item, create new non-discounted entry
-                existingDiscountedItem != null -> {
-                    // Create new cart item without discount
+
+                val existingDiscountedItem = existingItems.find { item ->
+                    item.productId == product.id &&
+                            (item.discount > 0.0 ||
+                                    item.discountType.isNotEmpty() ||
+                                    item.bundleId != null)
+                }
+
+                // If there's a matching discount, apply it to a new cart item
+                if (matchingDiscount != null) {
+                    Log.d(TAG, "Applying discount: ${matchingDiscount.DISCOFFERNAME} (${matchingDiscount.PARAMETER} ${matchingDiscount.DISCOUNTTYPE})")
+
+                    // Show toast to confirm discount application
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            this@Window1,
+                            "Applied discount: ${matchingDiscount.DISCOFFERNAME} (${matchingDiscount.PARAMETER} ${matchingDiscount.DISCOUNTTYPE})",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+
+                    // Create new item with discount applied
                     cartViewModel.insert(
                         CartItem(
                             productId = product.id,
@@ -10335,37 +9909,69 @@ private fun addToCart(product: Product) {
                             vatExemptAmount = 0.0,
                             itemGroup = product.itemGroup,
                             itemId = product.itemid,
-                            discount = 0.0,
-                            discountType = ""
+                            discount = matchingDiscount.PARAMETER.toDouble(),
+                            discountType = matchingDiscount.DISCOUNTTYPE,
+                            discountName = matchingDiscount.DISCOFFERNAME
                         )
                     )
-                }
-                // If the product doesn't exist in cart at all
-                else -> {
-                    cartViewModel.insert(
-                        CartItem(
-                            productId = product.id,
-                            quantity = 1,
-                            windowId = windowId,
-                            productName = product.itemName,
-                            price = product.price,
-                            partialPayment = partialPayment,
-                            vatAmount = 0.0,
-                            vatExemptAmount = 0.0,
-                            itemGroup = product.itemGroup,
-                            itemId = product.itemid,
-                            discount = 0.0,
-                            discountType = ""
-                        )
-                    )
-                }
-            }
 
-            Log.d(TAG, "Added/Updated cart item for product ${product.id} in window $windowId")
-            updateTotalAmount(cartViewModel.getAllCartItems(windowId).first())
+                } else when {
+                    // If clicking a non-discounted item
+                    existingNonDiscountedItem != null -> {
+                        // Update quantity of existing non-discounted item
+                        cartViewModel.update(
+                            existingNonDiscountedItem.copy(
+                                quantity = existingNonDiscountedItem.quantity + 1,
+                                partialPayment = partialPayment
+                            )
+                        )
+                    }
+                    // If the product exists but only as a discounted item, create new non-discounted entry
+                    existingDiscountedItem != null -> {
+                        // Create new cart item without discount
+                        cartViewModel.insert(
+                            CartItem(
+                                productId = product.id,
+                                quantity = 1,
+                                windowId = windowId,
+                                productName = product.itemName,
+                                price = product.price,
+                                partialPayment = partialPayment,
+                                vatAmount = 0.0,
+                                vatExemptAmount = 0.0,
+                                itemGroup = product.itemGroup,
+                                itemId = product.itemid,
+                                discount = 0.0,
+                                discountType = ""
+                            )
+                        )
+                    }
+                    // If the product doesn't exist in cart at all
+                    else -> {
+                        cartViewModel.insert(
+                            CartItem(
+                                productId = product.id,
+                                quantity = 1,
+                                windowId = windowId,
+                                productName = product.itemName,
+                                price = product.price,
+                                partialPayment = partialPayment,
+                                vatAmount = 0.0,
+                                vatExemptAmount = 0.0,
+                                itemGroup = product.itemGroup,
+                                itemId = product.itemid,
+                                discount = 0.0,
+                                discountType = ""
+                            )
+                        )
+                    }
+                }
+
+                Log.d(TAG, "Added/Updated cart item for product ${product.id} in window $windowId")
+                updateTotalAmount(cartViewModel.getAllCartItems(windowId).first())
+            }
         }
     }
-}
 
     private fun initializeTransactionNumber() {
         loadLastTransactionNumber()

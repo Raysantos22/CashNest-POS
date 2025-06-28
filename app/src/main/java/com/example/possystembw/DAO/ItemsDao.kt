@@ -18,4 +18,6 @@ interface ItemsDao {
 
     @Query("DELETE FROM items")
     suspend fun deleteAll()
+
+
 }

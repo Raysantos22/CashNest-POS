@@ -33,6 +33,8 @@ import java.util.Locale
 
 import android.bluetooth.BluetoothDevice
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.IntentFilter
 import android.content.res.ColorStateList
@@ -105,6 +107,10 @@ class PrinterSettingsActivity : AppCompatActivity() {
     private lateinit var expenseRecyclerView: RecyclerView
     private lateinit var repository: TransactionRepository
 
+    private lateinit var localDataManager: LocalDataManager
+    private var serverUrl: String? = null
+
+
     companion object {
         private const val REQUEST_ENABLE_BT = 100
         private const val BLUETOOTH_PERMISSION_REQUEST_CODE = 101
@@ -121,6 +127,8 @@ class PrinterSettingsActivity : AppCompatActivity() {
         bluetoothPrinterHelper = BluetoothPrinterHelper(this)
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
+
+        localDataManager = LocalDataManager(this)
 
 
         if (bluetoothAdapter == null) {
@@ -142,6 +150,10 @@ class PrinterSettingsActivity : AppCompatActivity() {
 
         setupEmergencyResync()
 
+
+        findViewById<Button>(R.id.btnViewLocalData).setOnClickListener {
+            toggleLocalDataServer()
+        }
         findViewById<Button>(R.id.btnEmergencyResync).setOnClickListener {
             showEmergencyResyncDialog()
         }
@@ -181,6 +193,47 @@ data class TransactionData(
     val records: List<TransactionRecord>,
     var isSelected: Boolean = false
 )
+    private fun toggleLocalDataServer() {
+        if (localDataManager.isServerRunning()) {
+            localDataManager.stopServer()
+            showServerStatus("Server stopped")
+        } else {
+            serverUrl = localDataManager.startServer()
+            if (serverUrl != null) {
+                showServerStatus("Server running at: $serverUrl")
+                // Optionally copy URL to clipboard
+                copyToClipboard(serverUrl!!)
+            } else {
+                showServerStatus("Failed to start server")
+            }
+        }
+    }
+
+    private fun showServerStatus(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        Log.d("MainActivity", message)
+
+        // Show dialog with URL and instructions
+        if (serverUrl != null && localDataManager.isServerRunning()) {
+            AlertDialog.Builder(this)
+                .setTitle("Local Data Server")
+                .setMessage("Server is running at:\n$serverUrl\n\nYou can access this URL from any device on the same network to view your tablet data.\n\nEndpoints:\n• / - Web interface\n• /transactions - All transaction records\n• /transaction-summaries - Transaction summaries\n• /stats - Database statistics")
+                .setPositiveButton("Copy URL") { _, _ ->
+                    copyToClipboard(serverUrl!!)
+                }
+                .setNegativeButton("Stop Server") { _, _ ->
+                    localDataManager.stopServer()
+                }
+                .show()
+        }
+    }
+
+    private fun copyToClipboard(text: String) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("Server URL", text)
+        clipboard.setPrimaryClip(clip)
+        Toast.makeText(this, "URL copied to clipboard", Toast.LENGTH_SHORT).show()
+    }
 
     private fun setupEmergencyResync() {
         // Initialize repository with proper dependencies
@@ -688,8 +741,7 @@ data class TransactionData(
 
     private fun setupSidebarButtons() {
         findViewById<ImageButton>(R.id.button2).setOnClickListener {
-            val intent = Intent(this, MainActivity::class.java)
-            intent.putExtra("web_url", "https://eljin.org/dashboard")
+            val intent = Intent(this, ReportsActivity::class.java)
             startActivity(intent)
         }
 
@@ -1618,6 +1670,8 @@ data class TransactionData(
     override fun onDestroy() {
         super.onDestroy()
         connectionStatusTimer?.cancel()
+        localDataManager.stopServer()
+
         // Don't disconnect the printer when leaving the activity
         // This allows the connection to persist for Window1
     }

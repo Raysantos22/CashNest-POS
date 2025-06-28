@@ -1,400 +1,3 @@
-//package com.example.possystembw.adapter
-//
-//import android.text.Editable
-//import android.text.TextWatcher
-//import android.util.Log
-//import android.view.LayoutInflater
-//import android.view.MotionEvent
-//import android.view.View
-//import android.view.ViewGroup
-//import android.widget.AdapterView
-//import android.widget.ArrayAdapter
-//import android.widget.EditText
-//import android.widget.Spinner
-//import android.widget.TextView
-//import android.widget.Toast
-//import androidx.core.content.ContextCompat
-//import androidx.recyclerview.widget.RecyclerView
-//import com.example.possystembw.DAO.LineTransaction
-//import com.example.possystembw.R
-//import java.util.Calendar
-//
-//class LineAdapter : RecyclerView.Adapter<LineAdapter.LineViewHolder>() {
-//    private var items: List<LineTransaction> = emptyList()
-//    private val modifiedItems = HashMap<Int, LineTransaction>()
-//    private val successfullySentItems = HashSet<String>()  // Add this at class level
-//    private var onItemModified: ((List<LineTransaction>) -> Unit)? = null
-//    private val inputCache = mutableMapOf<String, InputValues>()
-//    private var originalItems: List<LineTransaction> = emptyList()
-//    private var filteredItems: List<LineTransaction> = emptyList()
-//
-//
-//
-//    fun setItems(newItems: List<LineTransaction>) {
-//        originalItems = newItems
-//        filteredItems = newItems
-//        notifyDataSetChanged()
-//    }
-//    fun filterItems(query: String) {
-//        filteredItems = if (query.isEmpty()) {
-//            originalItems
-//        } else {
-//            originalItems.filter {
-//                (it.itemId?.contains(query, ignoreCase = true) == true) ||
-//                        (it.itemName?.contains(query, ignoreCase = true) == true) ||
-//                        (it.itemDepartment?.contains(query, ignoreCase = true) == true)
-//            }
-//        }
-//        notifyDataSetChanged()
-//    }
-//    data class InputValues(
-//        var adjustment: String = "",
-//        var receivedCount: String = "",
-//        var transferCount: String = "",
-//        var wasteCount: String = "",
-//        var counted: String = "",
-//        var wasteType: String? = null
-//    )
-//    companion object {
-//        private const val TAG = "LineAdapter"
-//    }
-//
-//    fun updateItems(newItems: List<LineTransaction>) {
-//        items = newItems
-//        modifiedItems.clear()
-//        inputCache.clear()
-//        notifyDataSetChanged()
-//    }
-//    fun setOnItemModifiedListener(listener: (List<LineTransaction>) -> Unit) {
-//        onItemModified = listener
-//    }
-////    fun getAllItems(): List<LineTransaction> = items
-//    fun getAllItems(): List<LineTransaction> = originalItems
-//    fun getCurrentList(): List<LineTransaction> = items
-//
-//    fun getUpdatedItems(): List<LineTransaction> {
-//        // Merge modifications back to original list
-//        return originalItems.map { original ->
-//            val itemId = original.itemId
-//            val cachedInput = inputCache[itemId]
-//            if (cachedInput != null) {
-//                original.copy(
-//                    adjustment = cachedInput.adjustment,
-//                    receivedCount = cachedInput.receivedCount,
-//                    transferCount = cachedInput.transferCount,
-//                    wasteCount = cachedInput.wasteCount,
-//                    counted = cachedInput.counted,
-//                    wasteType = cachedInput.wasteType,
-//                    syncStatus = 0
-//                )
-//            } else {
-//                original
-//            }
-//        }
-//    }
-//    fun hasModifications(): Boolean = modifiedItems.isNotEmpty()
-//
-//    fun markItemAsSent(itemId: String) {
-//        if (!itemId.isNullOrEmpty()) {
-//            successfullySentItems.add(itemId)
-//            notifyDataSetChanged()
-//        }
-//    }
-//    fun refreshItem(position: Int) {
-//        notifyItemChanged(position)
-//    }
-//    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): LineViewHolder {
-//        val view = LayoutInflater.from(parent.context)
-//            .inflate(R.layout.item_line_detail, parent, false)
-//        return LineViewHolder(
-//            view,
-//            { position, item ->
-//                modifiedItems[position] = item
-//                onItemModified?.invoke(getUpdatedItems())
-//            },
-//            { itemId -> inputCache[itemId] },
-//            { itemId, values -> inputCache[itemId] = values }
-//        )
-//    }
-//
-//
-//    override fun onBindViewHolder(holder: LineViewHolder, position: Int) {
-//        holder.bind(filteredItems[position], position)
-//    }
-//
-//    override fun getItemCount(): Int = filteredItems.size
-//
-//    class LineViewHolder(
-//        view: View,
-//        private val onItemUpdated: (position: Int, item: LineTransaction) -> Unit,
-//        private val getInputCache: (String) -> InputValues?,
-//        private val saveToInputCache: (String, InputValues) -> Unit
-//    ) : RecyclerView.ViewHolder(view) {
-//        private val tvItemId: TextView = view.findViewById(R.id.tvItemId)
-//        private val tvItemName: TextView = view.findViewById(R.id.tvItemName)
-//        private val tvCategory: TextView = view.findViewById(R.id.tvCategory)
-//        private val etOrder: EditText = view.findViewById(R.id.etOrder)
-//        private val etActualReceived: EditText = view.findViewById(R.id.etActualReceived)
-//        private val tvVariance: TextView = view.findViewById(R.id.tvVariance)
-//        private val etTransfer: EditText = view.findViewById(R.id.etTransfer)
-//        private val etWasteCount: EditText = view.findViewById(R.id.etWasteCount)
-//        private val spinnerWasteType: Spinner = view.findViewById(R.id.spinnerWasteType)
-//        private val etActualCount: EditText = view.findViewById(R.id.etActualCount)
-//        private val tvSyncStatus: TextView = view.findViewById(R.id.tvSyncStatus)
-//
-//        private var currentItem: LineTransaction? = null
-//        private var currentPosition: Int = -1
-//        private var textWatchersEnabled = true
-//
-//        private val textWatcher = object : TextWatcher {
-//            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-//            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-//            override fun afterTextChanged(s: Editable?) {
-//                if (textWatchersEnabled) {
-//                    saveCurrentValues()
-//                    updateItemValues()
-//                }
-//            }
-//        }
-//        private fun isAfterNoonTime(): Boolean {
-//            val calendar = Calendar.getInstance()
-//            val hour = calendar.get(Calendar.HOUR_OF_DAY) // 24-hour format
-//
-//            // Return true if time is between 12 PM (12) and 12 AM (0)
-//            // This means edit is disabled from 12 PM to 11:59 PM
-//            return hour >= 12
-//        }
-//        init {
-//            etOrder.addTextChangedListener(textWatcher)
-//            etActualReceived.addTextChangedListener(textWatcher)
-//            etTransfer.addTextChangedListener(textWatcher)
-//            etWasteCount.addTextChangedListener(textWatcher)
-//            etActualCount.addTextChangedListener(textWatcher)
-//            etActualReceived.setOnTouchListener { _, event ->
-//                if (event.action == MotionEvent.ACTION_DOWN && isAfterNoonTime()) {
-//                    Toast.makeText(itemView.context, "Editing disabled after 12:00 PM", Toast.LENGTH_SHORT).show()
-//                    true // consume the touch event
-//                } else {
-//                    false // allow the touch event to be handled normally
-//                }
-//            }
-//            spinnerWasteType.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-//                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-//                    if (position > 0) {
-//                        saveCurrentValues()
-//                        updateItemValues()
-//                    }
-//                }
-//                override fun onNothingSelected(parent: AdapterView<*>?) {}
-//            }
-//        }
-//
-//
-//        private fun saveCurrentValues() {
-//            currentItem?.itemId?.let { itemId ->
-//                saveToInputCache(itemId, InputValues(
-//                    adjustment = etOrder.text.toString(),
-//                    receivedCount = etActualReceived.text.toString(),
-//                    transferCount = etTransfer.text.toString(),
-//                    wasteCount = etWasteCount.text.toString(),
-//                    counted = etActualCount.text.toString(),
-//                    wasteType = if (spinnerWasteType.selectedItemPosition > 0)
-//                        spinnerWasteType.selectedItem.toString() else null
-//                ))
-//            }
-//        }
-//
-//        fun bind(item: LineTransaction, position: Int) {
-//            textWatchersEnabled = false
-//            currentItem = item
-//            currentPosition = position
-//
-//            // Check if current time is after 12 noon
-//            val isAfterNoon = isAfterNoonTime()
-//
-//            // Configure ActualReceived EditText based on time
-//            etActualReceived.apply {
-//                // First set up the touch listener that will always work
-//                setOnTouchListener { _, event ->
-//                    if (isAfterNoonTime() && (event.action == MotionEvent.ACTION_UP || event.action == MotionEvent.ACTION_DOWN)) {
-//                        Toast.makeText(
-//                            context,
-//                            "Actual Received cannot be edited between 12:00 PM - 12:00 AM",
-//                            Toast.LENGTH_SHORT
-//                        ).show()
-//                        true // consume the touch event
-//                    } else {
-//                        false // allow normal handling
-//                    }
-//                }
-//
-//                if (isAfterNoon) {
-//                    isEnabled = false
-//                    isFocusable = false
-//                    isFocusableInTouchMode = false
-//                    setBackgroundResource(R.drawable.edit_text_background)
-//                    removeTextChangedListener(textWatcher)
-//
-//                    // Make sure the EditText is clickable even when disabled
-//                    isClickable = true
-//                    setOnClickListener {
-//                        Toast.makeText(
-//                            context,
-//                            "Actual Received cannot be edited between 12:00 PM - 12:00 AM",
-//                            Toast.LENGTH_SHORT
-//                        ).show()
-//                    }
-//                } else {
-//                    isEnabled = true
-//                    isClickable = true
-//                    isFocusable = true
-//                    isFocusableInTouchMode = true
-//                    setBackgroundResource(R.drawable.rounded_search_view)
-//                    addTextChangedListener(textWatcher)
-//                    setOnClickListener(null)
-//                }
-//            }
-//            // Set basic info
-//            tvItemId.text = item.itemId.orEmpty()
-//            tvItemName.text = item.itemName.orEmpty()
-//            tvCategory.text = item.itemDepartment.orEmpty()
-//
-//            // Get cached values or use item values
-//            val cachedValues = getInputCache(item.itemId.orEmpty())
-//            if (cachedValues != null) {
-//                etOrder.setText(cachedValues.adjustment)
-//                etActualReceived.setText(cachedValues.receivedCount)
-//                etTransfer.setText(cachedValues.transferCount)
-//                etWasteCount.setText(cachedValues.wasteCount)
-//                etActualCount.setText(cachedValues.counted)
-//
-//                // Calculate variance from cached values
-//                val orderValue = cachedValues.adjustment.toIntOrNull() ?: 0
-//                val receivedValue = cachedValues.receivedCount.toIntOrNull() ?: 0
-//                tvVariance.text = (orderValue - receivedValue).toString()
-//            } else {
-//                etOrder.setText(formatNumber(item.adjustment))
-//                etActualReceived.setText(formatNumber(item.receivedCount))
-//                etTransfer.setText(formatNumber(item.transferCount))
-//                etWasteCount.setText(formatNumber(item.wasteCount))
-//                etActualCount.setText(formatNumber(item.counted))
-//
-//                // Calculate initial variance
-//                val orderValue = formatNumber(item.adjustment).toIntOrNull() ?: 0
-//                val receivedValue = formatNumber(item.receivedCount).toIntOrNull() ?: 0
-//                tvVariance.text = (orderValue - receivedValue).toString()
-//            }
-//
-//            // Setup waste type spinner
-//            val adapter = ArrayAdapter(
-//                itemView.context,
-//                R.layout.spinner_item_black_text,  // Custom layout for selected item
-//                itemView.context.resources.getStringArray(R.array.waste_types)
-//            ).apply {
-//                setDropDownViewResource(R.layout.spinner_dropdown_item_black_text)  // Custom layout for dropdown items
-//            }
-//            spinnerWasteType.adapter = adapter
-//
-//            // Set waste type
-//            val wasteType = cachedValues?.wasteType ?: item.wasteType
-//            if (!wasteType.isNullOrEmpty() && wasteType != "Select type") {
-//                val wasteTypes = itemView.context.resources.getStringArray(R.array.waste_types)
-//                val position = wasteTypes.indexOf(wasteType)
-//                if (position >= 0) {
-//                    spinnerWasteType.setSelection(position)
-//                }
-//            }
-//
-//            // Update sync status dot
-//            when {
-//                item.syncStatus == 0 -> {
-//                    tvSyncStatus.text = "●"
-//                    tvSyncStatus.setTextColor(ContextCompat.getColor(itemView.context, R.color.orange))
-//                }
-//                else -> {
-//                    tvSyncStatus.text = "●"
-//                    tvSyncStatus.setTextColor(ContextCompat.getColor(itemView.context, R.color.green))
-//                }
-//            }
-//
-//            textWatchersEnabled = true
-//        }
-//
-//
-//
-//        private fun updateItemValues() {
-//            currentItem?.let { item ->
-//                val newAdjustment = etOrder.text.toString()
-//                val newReceivedCount = etActualReceived.text.toString()
-//                val newTransferCount = etTransfer.text.toString()
-//                val newWasteCount = etWasteCount.text.toString()
-//                val newCounted = etActualCount.text.toString()
-//                val newWasteType = if (spinnerWasteType.selectedItemPosition > 0)
-//                    spinnerWasteType.selectedItem.toString() else null
-//
-//                // Calculate variance (Order - Actual Received)
-//                val orderValue = newAdjustment.toIntOrNull() ?: 0
-//                val receivedValue = newReceivedCount.toIntOrNull() ?: 0
-//                val variance = orderValue - receivedValue
-//                tvVariance.text = variance.toString()
-//
-//                // Validate waste count and type
-//                val wasteCountValue = newWasteCount.toIntOrNull() ?: 0
-//                if (wasteCountValue > 0 && newWasteType == null) {
-//                    // Show error if waste count is entered but no type selected
-//                    etWasteCount.error = "Please select waste type"
-//                    return
-//                } else if (wasteCountValue == 0 && newWasteType != null) {
-//                    // Show error if waste type is selected but no count entered
-//                    etWasteCount.error = "Please enter waste count"
-//                    return
-//                } else {
-//                    etWasteCount.error = null
-//                }
-//
-//                val hasChanged = newAdjustment != formatNumber(item.adjustment) ||
-//                        newReceivedCount != formatNumber(item.receivedCount) ||
-//                        newTransferCount != formatNumber(item.transferCount) ||
-//                        newWasteCount != formatNumber(item.wasteCount) ||
-//                        newCounted != formatNumber(item.counted) ||
-//                        newWasteType != item.wasteType
-//
-//                if (hasChanged) {
-//                    val updatedItem = item.copy(
-//                        adjustment = newAdjustment,
-//                        receivedCount = newReceivedCount,
-//                        transferCount = newTransferCount,
-//                        wasteCount = newWasteCount,
-//                        counted = newCounted,
-//                        wasteType = newWasteType,
-//                        variantId = variance.toString(),  // Update variance in the item
-//                        syncStatus = 0
-//                    )
-//                    onItemUpdated(currentPosition, updatedItem)
-//                    // Update dot immediately
-//                    tvSyncStatus.text = "●"
-//                    tvSyncStatus.setTextColor(ContextCompat.getColor(itemView.context, R.color.orange))
-//                }
-//            }
-//        }
-//
-//
-//
-//
-//
-//
-//        private fun formatNumber(value: String?): String {
-//            if (value.isNullOrEmpty()) return "0"
-//            return try {
-//                val number = value.toDouble()
-//                number.toInt().toString()
-//            } catch (e: NumberFormatException) {
-//                "0"
-//            }
-//        }
-//    }
-//}
-//
 package com.example.possystembw.adapter
 
 import android.text.Editable
@@ -487,6 +90,7 @@ class LineAdapter : RecyclerView.Adapter<LineAdapter.LineViewHolder>() {
             }
         }
     }
+
     fun hasModifications(): Boolean {
         // Check if there are any changes in the input cache
         for ((itemId, cachedValues) in inputCache) {
@@ -517,7 +121,6 @@ class LineAdapter : RecyclerView.Adapter<LineAdapter.LineViewHolder>() {
             "0"
         }
     }
-//    fun hasModifications(): Boolean = modifiedItems.isNotEmpty()
 
     fun markItemAsSent(itemId: String) {
         if (!itemId.isNullOrEmpty()) {
@@ -595,6 +198,35 @@ class LineAdapter : RecyclerView.Adapter<LineAdapter.LineViewHolder>() {
             etTransfer.addTextChangedListener(textWatcher)
             etWasteCount.addTextChangedListener(textWatcher)
             etActualCount.addTextChangedListener(textWatcher)
+
+            // Add OnFocusChangeListener to automatically set "0" when clicked
+            etActualReceived.setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) {
+                    etActualReceived.setText("0")
+                    etActualReceived.selectAll() // This will select the "0" so user can immediately type over it
+                }
+            }
+
+            etTransfer.setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) {
+                    etTransfer.setText("0")
+                    etTransfer.selectAll()
+                }
+            }
+
+            etWasteCount.setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) {
+                    etWasteCount.setText("0")
+                    etWasteCount.selectAll()
+                }
+            }
+
+            etActualCount.setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) {
+                    etActualCount.setText("0")
+                    etActualCount.selectAll()
+                }
+            }
 
             spinnerWasteType.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                 override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {

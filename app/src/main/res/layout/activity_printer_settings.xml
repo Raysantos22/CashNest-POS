@@ -497,7 +497,7 @@
                             android:padding="12dp"
                             android:text="Store Expense"
                             android:textColor="#FFFFFF"
-                            android:textSize="16sp" />
+                            android:textSize="10sp" />
 
                         <!-- Emergency Resync Button -->
                         <Button
@@ -510,7 +510,7 @@
                             android:padding="12dp"
                             android:text="Emergency Resync"
                             android:textColor="#FFFFFF"
-                            android:textSize="12sp" />
+                            android:textSize="10sp" />
                         <Button
                             android:id="@+id/btnCreateRequest"
                             android:layout_width="0dp"
@@ -521,7 +521,18 @@
                             android:padding="12dp"
                             android:text="Create Request"
                             android:textColor="#FFFFFF"
-                            android:textSize="14sp" />
+                            android:textSize="10sp" />
+                        <Button
+                            android:id="@+id/btnViewLocalData"
+                            android:layout_width="0dp"
+                            android:layout_height="match_parent"
+                            android:layout_weight="1"
+                            android:layout_marginStart="4dp"
+                            android:background="@drawable/badge_background"
+                            android:padding="12dp"
+                            android:text="View local Data"
+                            android:textColor="#FFFFFF"
+                            android:textSize="10sp" />
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>
                 <!-- Add Store Expense List Label -->
@@ -542,6 +553,7 @@
                     android:layout_marginTop="8dp"
                     android:layout_weight="1"
                     android:clipToPadding="false"
+                    android:background="#E8EAF6"
                     android:paddingBottom="8dp" />
 
             </LinearLayout>

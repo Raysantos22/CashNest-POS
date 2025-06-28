@@ -12,6 +12,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.lifecycleScope
+import com.example.possystembw.DAO.TransactionDao
 import com.example.possystembw.database.CartItem
 import com.example.possystembw.database.Customer
 import com.example.possystembw.database.TenderDeclaration
@@ -21,6 +22,7 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.io.OutputStream
@@ -41,6 +43,13 @@ class BluetoothPrinterHelper(private val context: Context) {
     private val prefs =
         context.applicationContext.getSharedPreferences("BluetoothPrinter", Context.MODE_PRIVATE)
     private var disconnectRequested = false
+
+    private lateinit var transactionDao: TransactionDao
+
+    // Add method to inject transactionDao
+    fun setTransactionDao(dao: TransactionDao) {
+        this.transactionDao = dao
+    }
 
     enum class ReceiptType {
         ORIGINAL,
@@ -372,43 +381,127 @@ class BluetoothPrinterHelper(private val context: Context) {
         return printGenericReceipt(receiptContent)
     }
 
+    data class ItemCalculationResult(
+        val totalGross: Double,
+        val totalQuantity: Int,
+        val itemSales: List<ItemSalesSummary>
+    )
+
+    data class ItemSalesSummary(
+        val name: String,
+        val quantity: Int,
+        val totalAmount: Double
+    )
+
+    // Calculate item totals using the same logic as ReportsActivity
+    private suspend fun calculateItemTotals(transactions: List<TransactionSummary>): ItemCalculationResult {
+        return withContext(Dispatchers.IO) {
+            val itemSales = mutableMapOf<String, ItemSalesSummary>()
+            var totalGross = 0.0
+            var totalQuantity = 0
+
+            transactions.forEach { transaction ->
+                val items = transactionDao.getTransactionRecordsByTransactionId(transaction.transactionId)
+                items.forEach { item ->
+                    val key = item.name
+
+                    // Use consistent pricing logic (same as ReportsActivity)
+                    val effectivePrice = if (item.priceOverride != null && item.priceOverride > 0.0) {
+                        item.priceOverride
+                    } else {
+                        item.price
+                    }
+
+                    val itemTotal = effectivePrice * item.quantity
+
+                    // Add to gross total
+                    totalGross += itemTotal
+                    totalQuantity += item.quantity
+
+                    // Update item sales summary
+                    val currentSummary = itemSales.getOrDefault(key, ItemSalesSummary(
+                        name = item.name,
+                        quantity = 0,
+                        totalAmount = 0.0
+                    ))
+
+                    itemSales[key] = currentSummary.copy(
+                        quantity = currentSummary.quantity + item.quantity,
+                        totalAmount = currentSummary.totalAmount + itemTotal
+                    )
+                }
+            }
+
+            ItemCalculationResult(
+                totalGross = totalGross,
+                totalQuantity = totalQuantity,
+                itemSales = itemSales.values.sortedByDescending { it.totalAmount }
+            )
+        }
+    }
+
+    // Count void transactions using the same logic as ReportsActivity
+    private fun getVoidedTransactionsCount(transactions: List<TransactionSummary>): Int {
+        // Count transactions with return comments (same logic as ReportsActivity)
+        return transactions.count { transaction ->
+            transaction.comment.contains("Returned:", ignoreCase = true) ||
+                    transaction.comment.contains("Return processed:", ignoreCase = true)
+        }
+    }
     fun buildReadReport(
         transactions: List<TransactionSummary>,
         isZRead: Boolean,
         zReportId: String = "",
         tenderDeclaration: TenderDeclaration? = null
-    ): String {
+    ): String = runBlocking {
 
-        // Calculate all totals from TransactionSummary records
-        val totalSales = transactions.sumOf { it.netAmount }
-        val totalGross = transactions.sumOf { it.grossAmount }
-        val totalVat = transactions.sumOf { it.taxIncludedInPrice }
-        val totalDiscount = transactions.sumOf { it.totalDiscountAmount }
-        val vatableSales = transactions.sumOf { it.vatableSales }
-        val vatExemptSales = transactions.sumOf { it.vatExemptAmount }
+        // Filter only completed transactions (same as ReportsActivity)
+        val validTransactions = transactions.filter { it.transactionStatus == 1 }
+        val returnTransactions = transactions.filter { it.type == 2 } // Return transactions
+
+        // Calculate item totals using the same method as ReportsActivity
+        val itemCalculations = calculateItemTotals(validTransactions)
+
+        // Use calculated totals instead of transaction summary totals
+        val totalGross = itemCalculations.totalGross  // From item calculations
+        val totalSales = validTransactions.sumOf { it.netAmount }  // Net sales from transactions
+        val totalVat = validTransactions.sumOf { it.taxIncludedInPrice }
+        val totalDiscount = validTransactions.sumOf { it.totalDiscountAmount }
+        val vatableSales = validTransactions.sumOf { it.vatableSales }
+        val vatExemptSales = validTransactions.sumOf { it.vatExemptAmount }
 
         // Payment method totals using specific fields
-        val cashTotal = transactions.sumOf { it.cash }
-        val cardTotal = transactions.sumOf { it.card }
-        val gCashTotal = transactions.sumOf { it.gCash }
-        val payMayaTotal = transactions.sumOf { it.payMaya }
-        val loyaltyCardTotal = transactions.sumOf { it.loyaltyCard }
-        val chargeTotal = transactions.sumOf { it.charge }
-        val foodPandaTotal = transactions.sumOf { it.foodpanda }
-        val grabFoodTotal = transactions.sumOf { it.grabfood }
-        val representationTotal = transactions.sumOf { it.representation }
-        val arSales = transactions.filter { it.type == 3 }.sumOf { it.netAmount }
+        val cashTotal = validTransactions.sumOf { it.cash }
+        val cardTotal = validTransactions.sumOf { it.card }
+        val gCashTotal = validTransactions.sumOf { it.gCash }
+        val payMayaTotal = validTransactions.sumOf { it.payMaya }
+        val loyaltyCardTotal = validTransactions.sumOf { it.loyaltyCard }
+        val chargeTotal = validTransactions.sumOf { it.charge }
+        val foodPandaTotal = validTransactions.sumOf { it.foodpanda }
+        val grabFoodTotal = validTransactions.sumOf { it.grabfood }
+        val representationTotal = validTransactions.sumOf { it.representation }
+        val arSales = validTransactions.filter { it.type == 3 }.sumOf { it.netAmount }
 
-        // Transaction statistics
-        val totalReturns = transactions.filter { it.type == 2 }.sumOf { it.netAmount }
-        val totalItemsSold = transactions.filter { it.type != 2 }.sumOf { it.numberOfItems.toInt() }
-        val totalItemsReturned =
-            transactions.filter { it.type == 2 }.sumOf { it.numberOfItems.toInt() }
-        val voidedTransactions = transactions.count { it.transactionStatus == 0 }
-        val returnTransactions = transactions.count { it.type == 2 }
+        // Transaction statistics using consistent logic
+        val totalReturns = returnTransactions.sumOf { it.netAmount }
+        val totalItemsSold = itemCalculations.totalQuantity  // From item calculations
+        val totalItemsReturned = returnTransactions.sumOf { it.numberOfItems.toInt() }
+        val returnTransactionCount = returnTransactions.size
         val customerTransactions = transactions.count { it.customerAccount.isNotBlank() }
 
-        return buildString {
+        // Use consistent void transaction counting
+        val voidedTransactions = getVoidedTransactionsCount(transactions)
+
+        // Get OR numbers for starting and ending
+        val startingOR = if (validTransactions.isNotEmpty()) {
+            validTransactions.minByOrNull { it.transactionId }?.transactionId?.toString()?.filter { it.isDigit() } ?: "N/A"
+        } else "N/A"
+
+        val endingOR = if (validTransactions.isNotEmpty()) {
+            validTransactions.maxByOrNull { it.transactionId }?.transactionId?.toString()?.filter { it.isDigit() } ?: "N/A"
+        } else "N/A"
+
+        return@runBlocking buildString {
             append(0x1B.toChar()) // ESC
             append('!'.toChar())  // Select print mode
             append(0x01.toChar()) // Smallest text size
@@ -431,67 +524,69 @@ class BluetoothPrinterHelper(private val context: Context) {
 
             if (isZRead) {
                 appendLine("Z-READ ID: $zReportId")
+                appendLine("-".repeat(46))
                 appendLine("Zreading")
+                appendLine("-".repeat(46))
+                appendLine("Starting OR: $startingOR")
+                appendLine("Ending   OR: $endingOR")
             } else {
                 appendLine("Xreading")
             }
 
-            appendLine("_".repeat(35))
+            appendLine("_".repeat(46))
             appendLine("SALES REPORT AMT INC                  AMOUNT")
-            appendLine("Gross sales                           ${"%.2f".format(totalGross)}")
-            appendLine("Purchase                              ${"%.2f".format(totalSales)}")
-            /*
-            appendLine("Returns/refund                        ${"%.2f".format(totalReturns)}")
-*/
-            appendLine("Total Discount                        ${"%.2f".format(totalDiscount)}") // Total discount
-            appendLine("Total netsales                        ${"%.2f".format(totalSales)}")
+            appendLine("Gross sales                           ${"%.2f".format(totalGross)}")  // Now uses calculated gross
+            appendLine("Total netsales                        ${"%.2f".format(totalGross - totalDiscount)}")
+            appendLine("Total Discount                        ${"%.2f".format(totalDiscount)}")
+
+
 
             appendLine("-".repeat(46))
-            appendLine("Statistics                                  qty")
+            appendLine("Statistics                            qty")
             appendLine("-".repeat(46))
-            appendLine("No. of sales trans                    ${transactions.size}")
-            appendLine("No. of items sold                     $totalItemsSold")
+            appendLine("No. of sales trans                    ${validTransactions.size}")  // Only valid transactions
+            appendLine("No. of items sold                     $totalItemsSold")  // From item calculations
+//            appendLine("No. of void trans                     $voidedTransactions")  // Consistent counting
 
-            val returnCommentsCount = transactions.count { transaction ->
-                transaction.comment.contains("Returned:", ignoreCase = true) ||
-                        transaction.comment.contains("Return processed:", ignoreCase = true)
+            // Add return information like in ReportsActivity
+            if (returnTransactionCount > 0) {
+                appendLine("No. of return trans                   $returnTransactionCount")
+//                appendLine("No. of items returned                 $totalItemsReturned")
             }
-
-            appendLine("No. of void trans                     $returnCommentsCount") // Adjusted label
 
             appendLine("-".repeat(46))
             appendLine("Tender reports")
             appendLine("-".repeat(46))
             appendLine("Tender name                          amount")
-            appendLine("_".repeat(35))
+            appendLine("_".repeat(46))
 
             if (cashTotal > 0) appendLine("CASH".padEnd(38) + "%.2f".format(cashTotal))
             if (cardTotal > 0) appendLine("CARD".padEnd(38) + "%.2f".format(cardTotal))
             if (gCashTotal > 0) appendLine("GCASH".padEnd(38) + "%.2f".format(gCashTotal))
             if (payMayaTotal > 0) appendLine("PAYMAYA".padEnd(38) + "%.2f".format(payMayaTotal))
             if (loyaltyCardTotal > 0) appendLine(
-                "LOYALTY CARD".padEnd(38) + "%.2f".format(
-                    loyaltyCardTotal
-                )
+                "LOYALTY CARD".padEnd(38) + "%.2f".format(loyaltyCardTotal)
             )
             if (chargeTotal > 0) appendLine("CHARGE".padEnd(38) + "%.2f".format(chargeTotal))
             if (foodPandaTotal > 0) appendLine("FOODPANDA".padEnd(38) + "%.2f".format(foodPandaTotal))
             if (grabFoodTotal > 0) appendLine("GRABFOOD".padEnd(38) + "%.2f".format(grabFoodTotal))
             if (representationTotal > 0) appendLine(
-                "REPRESENTATION".padEnd(38) + "%.2f".format(
-                    representationTotal
-                )
+                "REPRESENTATION".padEnd(38) + "%.2f".format(representationTotal)
             )
             if (arSales > 0) appendLine("AR".padEnd(38) + "%.2f".format(arSales))
 
             appendLine()
-            appendLine("total amount                          ${"%.2f".format(totalSales)}")
+            appendLine("total amount                          ${"%.2f".format(totalGross - totalDiscount)}")
 
             appendLine("-".repeat(46))
             appendLine("Tax report")
             appendLine("-".repeat(46))
-            appendLine("Vatable sales                         ${"%.2f".format(vatableSales)}")
-            appendLine("vat amount                            ${"%.2f".format(totalVat)}")
+            val vatRate = 0.12
+            val vatableSalesManual = (totalGross - totalDiscount) / (1 + vatRate)
+            val vatAmountManual = (totalGross - totalDiscount) - vatableSalesManual
+
+            appendLine("Vatable sales                         ${"%.2f".format(vatableSalesManual)}")
+            appendLine("VAT amount                            ${"%.2f".format(vatAmountManual)}")
             appendLine("vat exempt sales                      ${"%.2f".format(vatExemptSales)}")
             appendLine("zero Rated sales                      ${"%.2f".format(0.0)}")
 
@@ -546,7 +641,7 @@ class BluetoothPrinterHelper(private val context: Context) {
                 appendLine(formatAmountEntry("Short/Over", totalDeclared - totalSales))
             }
 
-            appendLine("-".repeat(45))
+            appendLine("-".repeat(46))
             appendLine("Pos Provider: IT WARRIOR")
             appendLine("ELJIN CORP")
             appendLine("tin: ${getPosProviderTin()}")
@@ -558,7 +653,7 @@ class BluetoothPrinterHelper(private val context: Context) {
 
             if (isZRead) {
                 appendLine()
-                appendLine("-".repeat(32))
+                appendLine("-".repeat(46))
                 appendLine("End of Z-Read Report")
                 append(0x1B.toChar()) // ESC
                 append('!'.toChar())  // Select print mode
@@ -566,11 +661,9 @@ class BluetoothPrinterHelper(private val context: Context) {
 
                 append(0x1B.toChar()) // ESC
                 append('2'.toChar())
-
             }
         }
     }
-
 
     // Helper functions for calculations
     private fun getSeniorCitizenDiscount(transactions: List<TransactionSummary>): Double {
@@ -589,9 +682,9 @@ class BluetoothPrinterHelper(private val context: Context) {
         ))
     }
 
-    private fun getVoidedTransactionsCount(transactions: List<TransactionSummary>): Int {
-        return transactions.count { it.transactionStatus == 0 } // Assuming 0 represents voided transactions
-    }
+//    private fun getVoidedTransactionsCount(transactions: List<TransactionSummary>): Int {
+//        return transactions.count { it.transactionStatus == 0 } // Assuming 0 represents voided transactions
+//    }
 
     private fun getReturnTransactionsCount(transactions: List<TransactionSummary>): Int {
         return transactions.count { it.type == 2 } // Assuming type 2 represents return transactions

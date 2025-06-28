@@ -71,6 +71,7 @@ dependencies {
 //    implementation(libs.play.services.mlkit.barcode.scanning)
 //    implementation(libs.androidx.camera.lifecycle)
 //    implementation(libs.androidx.camera.view)
+    implementation  ("org.nanohttpd:nanohttpd:2.3.1")
 
     implementation ("de.hdodenhof:circleimageview:3.1.0")
     // ML Kit for barcode scanning

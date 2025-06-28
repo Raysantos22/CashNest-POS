@@ -24,11 +24,22 @@ class LineRepository(
     companion object {
         private const val TAG = "LineRepository"
         private const val MAX_RETRIES = 3
-        private const val RETRY_DELAY_MS = 1000L // 1 second
+        private const val RETRY_DELAY_MS = 1000L // Base delay
+        private const val MAX_DELAY_MS = 10000L // Maximum delay cap
     }
 
     suspend fun getUnsyncedTransactions(journalId: String): List<LineTransaction> {
         return dao.getUnsyncedTransactions(journalId).map { it.toModel() }
+    }
+
+    private suspend fun isNetworkAvailable(): Boolean {
+        return try {
+            // You can implement actual network connectivity check here
+            // For now, we'll assume network is available
+            true
+        } catch (e: Exception) {
+            false
+        }
     }
 
     suspend fun hasUnsynced(journalId: String): Boolean {
@@ -112,45 +123,248 @@ class LineRepository(
 
     suspend fun getLineDetails(storeId: String, journalId: String): Result<List<LineTransaction>> =
         runCatching {
+            // Validate input parameters
+            if (storeId.isBlank() || journalId.isBlank()) {
+                Log.e(TAG, "Invalid parameters - storeId: '$storeId', journalId: '$journalId'")
+                throw IllegalArgumentException("StoreId and JournalId cannot be blank")
+            }
+
             // Try to get from local database first
             val localData = dao.getLineTransactionsByJournal(journalId)
             if (localData.isNotEmpty()) {
-                Log.d(TAG, "Found ${localData.size} records in local database")
+                Log.d(
+                    TAG,
+                    "Found ${localData.size} records in local database for journal: $journalId"
+                )
                 return@runCatching localData.map { it.toModel() }
             }
 
-            // If no local data, try API with retries
+            Log.d(TAG, "No local data found for journal: $journalId, attempting API fetch")
+
+            var lastException: Exception? = null
+
             for (attempt in 1..MAX_RETRIES) {
                 try {
-                    Log.d(TAG, "API attempt $attempt for storeId: $storeId, journalId: $journalId")
-                    val response = api.getLineDetails(storeId, journalId)
+                    Log.d(
+                        TAG,
+                        "API attempt $attempt/$MAX_RETRIES for storeId: '$storeId', journalId: '$journalId'"
+                    )
 
-                    if (response.isSuccessful) {
-                        val responseBody = response.body()
-                        if (responseBody != null && responseBody.transactions.isNotEmpty()) {
-                            val transactions = responseBody.transactions
-                            Log.d(
-                                TAG,
-                                "Successfully retrieved ${transactions.size} transactions from API"
-                            )
+                    val response = withContext(Dispatchers.IO) {
+                        api.getLineDetails(storeId, journalId)
+                    }
 
-                            // Save to local database with syncStatus = 1
-                            val entities = transactions.map { it.toEntity().copy(syncStatus = 1) }
-                            dao.saveLineTransactionsWithTransaction(journalId, entities)
-                            Log.d(TAG, "Saved ${entities.size} transactions to database")
+                    Log.d(
+                        TAG,
+                        "API Response - Code: ${response.code()}, Success: ${response.isSuccessful}, Message: ${response.message()}"
+                    )
 
-                            return@runCatching transactions
+                    when {
+                        response.isSuccessful -> {
+                            val responseBody = response.body()
+                            Log.d(TAG, "Response body is null: ${responseBody == null}")
+
+                            when {
+                                responseBody == null -> {
+                                    Log.e(
+                                        TAG,
+                                        "Response body is null despite successful HTTP response"
+                                    )
+                                    lastException = Exception("Server returned null response body")
+                                }
+
+                                responseBody.transactions.isEmpty() -> {
+                                    Log.i(
+                                        TAG,
+                                        "API returned empty transactions list for journal: $journalId"
+                                    )
+                                    // Return empty list instead of null
+                                    return@runCatching emptyList<LineTransaction>()
+                                }
+
+                                else -> {
+                                    val transactions = responseBody.transactions
+                                    Log.d(
+                                        TAG,
+                                        "Successfully retrieved ${transactions.size} transactions from API"
+                                    )
+
+                                    // Validate transaction data before saving
+                                    val validTransactions = transactions.filter { transaction ->
+                                        val isValid = !transaction.itemId.isNullOrBlank()
+                                        if (!isValid) {
+                                            Log.w(
+                                                TAG,
+                                                "Filtering out invalid transaction with null/blank itemId"
+                                            )
+                                        }
+                                        isValid
+                                    }
+
+                                    if (validTransactions.size != transactions.size) {
+                                        Log.w(
+                                            TAG,
+                                            "Filtered out ${transactions.size - validTransactions.size} invalid transactions"
+                                        )
+                                    }
+
+                                    // Save to local database with syncStatus = 1
+                                    try {
+                                        val entities = validTransactions.map {
+                                            it.toEntity().copy(syncStatus = 1)
+                                        }
+                                        dao.saveLineTransactionsWithTransaction(journalId, entities)
+                                        Log.d(
+                                            TAG,
+                                            "Successfully saved ${entities.size} transactions to database"
+                                        )
+                                    } catch (dbException: Exception) {
+                                        Log.e(
+                                            TAG,
+                                            "Failed to save to database, but returning API data",
+                                            dbException
+                                        )
+                                        // Continue and return the data even if saving fails
+                                    }
+
+                                    // Always return non-null list
+                                    return@runCatching validTransactions
+                                }
+                            }
+                        }
+
+                        response.code() in 400..499 -> {
+                            // Client errors (4xx) - don't retry these
+                            val errorBody = try {
+                                response.errorBody()?.string() ?: "No error details"
+                            } catch (e: Exception) {
+                                "Error reading error body: ${e.message}"
+                            }
+                            val errorMsg =
+                                "Client error ${response.code()}: ${response.message()}. Details: $errorBody"
+                            Log.e(TAG, errorMsg)
+                            throw Exception(errorMsg)
+                        }
+
+                        response.code() in 500..599 -> {
+                            // Server errors (5xx) - retry these
+                            val errorBody = try {
+                                response.errorBody()?.string() ?: "No error details"
+                            } catch (e: Exception) {
+                                "Error reading error body: ${e.message}"
+                            }
+                            val errorMsg =
+                                "Server error ${response.code()}: ${response.message()}. Details: $errorBody"
+                            Log.e(TAG, "Server error (will retry): $errorMsg")
+                            lastException = Exception(errorMsg)
+                        }
+
+                        else -> {
+                            val errorMsg =
+                                "Unexpected response ${response.code()}: ${response.message()}"
+                            Log.e(TAG, errorMsg)
+                            lastException = Exception(errorMsg)
                         }
                     }
+
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error in attempt $attempt", e)
-                    if (attempt == MAX_RETRIES) throw e
-                    delay(RETRY_DELAY_MS)
+                    Log.e(
+                        TAG,
+                        "Exception in API attempt $attempt: ${e.javaClass.simpleName} - ${e.message}"
+                    )
+                    lastException = e
+
+                    // Categorize exceptions for better retry logic
+                    val shouldRetry = when (e) {
+                        is java.net.UnknownHostException -> {
+                            Log.d(TAG, "Network host not found - will retry if attempts remaining")
+                            true
+                        }
+
+                        is java.net.SocketTimeoutException -> {
+                            Log.d(TAG, "Socket timeout - will retry if attempts remaining")
+                            true
+                        }
+
+                        is java.net.ConnectException -> {
+                            Log.d(TAG, "Connection failed - will retry if attempts remaining")
+                            true
+                        }
+
+                        is java.io.IOException -> {
+                            Log.d(TAG, "IO Exception - will retry if attempts remaining")
+                            true
+                        }
+
+                        is kotlinx.coroutines.TimeoutCancellationException -> {
+                            Log.d(TAG, "Coroutine timeout - will retry if attempts remaining")
+                            true
+                        }
+
+                        is retrofit2.HttpException -> {
+                            Log.d(TAG, "HTTP Exception - will retry if attempts remaining")
+                            true
+                        }
+
+                        else -> {
+                            Log.d(TAG, "Non-retryable error: ${e.javaClass.simpleName}")
+                            false
+                        }
+                    }
+
+                    // If it's the last attempt or non-retryable error, throw immediately
+                    if (attempt == MAX_RETRIES || !shouldRetry) {
+                        throw e
+                    }
+                }
+
+                // Calculate delay with exponential backoff
+                if (attempt < MAX_RETRIES) {
+                    val delayTime = RETRY_DELAY_MS * attempt // Exponential backoff
+                    Log.d(TAG, "Waiting ${delayTime}ms before attempt ${attempt + 1}...")
+                    delay(delayTime)
                 }
             }
-            throw Exception("Failed to get data after $MAX_RETRIES attempts")
+
+            // If we reach here, all attempts failed
+            val finalErrorMessage =
+                "Failed to get data after $MAX_RETRIES attempts. Last error: ${lastException?.message ?: "Unknown error"}"
+            Log.e(TAG, finalErrorMessage)
+            throw Exception(finalErrorMessage)
         }
 
+    // Add this debugging function to your LineRepository class
+    suspend fun testApiConnectivity(storeId: String, journalId: String): String {
+        return try {
+            Log.d(TAG, "Testing API connectivity for storeId: $storeId, journalId: $journalId")
+            val response = api.getLineDetails(storeId, journalId)
+
+            buildString {
+                appendLine("API Test Results:")
+                appendLine("- Response Code: ${response.code()}")
+                appendLine("- Is Successful: ${response.isSuccessful}")
+                appendLine("- Message: ${response.message()}")
+                appendLine("- Body is null: ${response.body() == null}")
+                if (response.body() != null) {
+                    appendLine("- Transactions count: ${response.body()?.transactions?.size ?: 0}")
+                }
+                appendLine("- Raw URL: ${response.raw().request.url}")
+                appendLine("- Content-Type: ${response.headers()["Content-Type"]}")
+
+                if (!response.isSuccessful) {
+                    try {
+                        val errorBody = response.errorBody()?.string()
+                        appendLine("- Error Body: $errorBody")
+                    } catch (e: Exception) {
+                        appendLine("- Error reading error body: ${e.message}")
+                    }
+                }
+            }
+
+        } catch (e: Exception) {
+            "API Test Failed: ${e.javaClass.simpleName} - ${e.message}\nStack trace: ${e.stackTraceToString()}"
+        }
+    }
 
     private suspend fun fetchFromLocalDatabase(journalId: String): List<LineTransaction> {
         Log.d(TAG, "Attempting to fetch from local database for journal: $journalId")
@@ -235,7 +449,135 @@ class LineRepository(
             throw e
         }
     }
+    suspend fun forceApiCall(storeId: String, journalId: String): Result<List<LineTransaction>> =
+        runCatching {
+            // Validate input parameters
+            if (storeId.isBlank() || journalId.isBlank()) {
+                Log.e(TAG, "Invalid parameters - storeId: '$storeId', journalId: '$journalId'")
+                throw IllegalArgumentException("StoreId and JournalId cannot be blank")
+            }
 
+            Log.d(TAG, "Force API call - bypassing local data for journal: $journalId")
+
+            var lastException: Exception? = null
+
+            for (attempt in 1..MAX_RETRIES) {
+                try {
+                    Log.d(TAG, "Force API attempt $attempt/$MAX_RETRIES for storeId: '$storeId', journalId: '$journalId'")
+
+                    val response = withContext(Dispatchers.IO) {
+                        api.getLineDetails(storeId, journalId)
+                    }
+
+                    Log.d(TAG, "Force API Response - Code: ${response.code()}, Success: ${response.isSuccessful}")
+
+                    when {
+                        response.isSuccessful -> {
+                            val responseBody = response.body()
+
+                            when {
+                                responseBody == null -> {
+                                    Log.e(TAG, "Force API: Response body is null despite successful HTTP response")
+                                    lastException = Exception("Server returned null response body")
+                                }
+                                responseBody.transactions.isEmpty() -> {
+                                    Log.i(TAG, "Force API: Server returned empty transactions list for journal: $journalId")
+                                    return@runCatching emptyList<LineTransaction>()
+                                }
+                                else -> {
+                                    val transactions = responseBody.transactions
+                                    Log.d(TAG, "Force API: Successfully retrieved ${transactions.size} transactions")
+
+                                    // Validate transaction data
+                                    val validTransactions = transactions.filter { transaction ->
+                                        val isValid = !transaction.itemId.isNullOrBlank()
+                                        if (!isValid) {
+                                            Log.w(TAG, "Force API: Filtering out invalid transaction with null/blank itemId")
+                                        }
+                                        isValid
+                                    }
+
+                                    if (validTransactions.size != transactions.size) {
+                                        Log.w(TAG, "Force API: Filtered out ${transactions.size - validTransactions.size} invalid transactions")
+                                    }
+
+                                    // Save fresh data to local database with syncStatus = 1
+                                    try {
+                                        val entities = validTransactions.map { it.toEntity().copy(syncStatus = 1) }
+                                        dao.saveLineTransactionsWithTransaction(journalId, entities)
+                                        Log.d(TAG, "Force API: Successfully saved ${entities.size} fresh transactions to database")
+                                    } catch (dbException: Exception) {
+                                        Log.e(TAG, "Force API: Failed to save to database, but returning API data", dbException)
+                                        // Continue and return the data even if saving fails
+                                    }
+
+                                    return@runCatching validTransactions
+                                }
+                            }
+                        }
+                        response.code() in 400..499 -> {
+                            val errorBody = try {
+                                response.errorBody()?.string() ?: "No error details"
+                            } catch (e: Exception) {
+                                "Error reading error body: ${e.message}"
+                            }
+                            val errorMsg = "Force API: Client error ${response.code()}: ${response.message()}. Details: $errorBody"
+                            Log.e(TAG, errorMsg)
+                            throw Exception(errorMsg)
+                        }
+                        response.code() in 500..599 -> {
+                            val errorBody = try {
+                                response.errorBody()?.string() ?: "No error details"
+                            } catch (e: Exception) {
+                                "Error reading error body: ${e.message}"
+                            }
+                            val errorMsg = "Force API: Server error ${response.code()}: ${response.message()}. Details: $errorBody"
+                            Log.e(TAG, "Force API: Server error (will retry): $errorMsg")
+                            lastException = Exception(errorMsg)
+                        }
+                        else -> {
+                            val errorMsg = "Force API: Unexpected response ${response.code()}: ${response.message()}"
+                            Log.e(TAG, errorMsg)
+                            lastException = Exception(errorMsg)
+                        }
+                    }
+
+                } catch (e: Exception) {
+                    Log.e(TAG, "Force API: Exception in attempt $attempt: ${e.javaClass.simpleName} - ${e.message}")
+                    lastException = e
+
+                    val shouldRetry = when (e) {
+                        is java.net.UnknownHostException,
+                        is java.net.SocketTimeoutException,
+                        is java.net.ConnectException,
+                        is java.io.IOException,
+                        is kotlinx.coroutines.TimeoutCancellationException,
+                        is retrofit2.HttpException -> {
+                            Log.d(TAG, "Force API: Retryable error - will retry if attempts remaining")
+                            true
+                        }
+                        else -> {
+                            Log.d(TAG, "Force API: Non-retryable error: ${e.javaClass.simpleName}")
+                            false
+                        }
+                    }
+
+                    if (attempt == MAX_RETRIES || !shouldRetry) {
+                        throw e
+                    }
+                }
+
+                if (attempt < MAX_RETRIES) {
+                    val delayTime = RETRY_DELAY_MS * attempt
+                    Log.d(TAG, "Force API: Waiting ${delayTime}ms before attempt ${attempt + 1}...")
+                    delay(delayTime)
+                }
+            }
+
+            val finalErrorMessage = "Force API: Failed to get fresh data after $MAX_RETRIES attempts. Last error: ${lastException?.message ?: "Unknown error"}"
+            Log.e(TAG, finalErrorMessage)
+            throw Exception(finalErrorMessage)
+        }
     suspend fun postStockCounting(storeId: String, journalId: String): Response<Unit> {
         return stockCountingApi.postStockCounting(storeId, "1", journalId)  // Pass "1" as String
     }
@@ -243,52 +585,49 @@ class LineRepository(
     suspend fun getLocalLineDetails(journalId: String): Result<List<LineTransaction>> =
         runCatching {
             val localData = dao.getLineTransactionsByJournal(journalId)
-            if (localData.isNotEmpty()) {
-                localData.map { it.toModel() }
-            } else {
-                emptyList()
-            }
+            // Always return non-null list, even if empty
+            localData.map { it.toModel() }
         }
 }
 
 
 fun LineTransaction.toEntity() = LineTransactionEntity(
-    journalId = journalId.orEmpty(),
+    journalId = journalId ?: "",  // Use safe call with default
     lineNum = lineNum,
-    transDate = transDate.orEmpty(),
-    itemId = itemId.orEmpty(),
-    itemDepartment = itemDepartment.orEmpty(),
-    storeName = storeName.orEmpty(),
-    adjustment = adjustment.orEmpty(),
+    transDate = transDate ?: "",
+    itemId = itemId ?: "",
+    itemDepartment = itemDepartment ?: "",
+    storeName = storeName ?: "",
+    adjustment = adjustment ?: "",
     costPrice = costPrice,
     priceUnit = priceUnit,
     salesAmount = salesAmount,
     inventOnHand = inventOnHand,
-    counted = counted.orEmpty(),
+    counted = counted ?: "",
     reasonRefRecId = reasonRefRecId,
     variantId = variantId,
     posted = posted ?: 0,
     postedDateTime = postedDateTime,
     createdAt = createdAt,
     updatedAt = updatedAt,
-    wasteCount = wasteCount.orEmpty(),
-    receivedCount = receivedCount.orEmpty(),
+    wasteCount = wasteCount ?: "",
+    receivedCount = receivedCount ?: "",
     wasteType = wasteType,
     transferCount = transferCount,
-    wasteDate = transDate.orEmpty(),
-    itemGroupId = itemGroupId.orEmpty(),
-    itemName = itemName.orEmpty(),
+    wasteDate = transDate ?: "",
+    itemGroupId = itemGroupId ?: "",
+    itemName = itemName ?: "",
     itemType = itemType ?: 0,
-    nameAlias = nameAlias.orEmpty(),  // Provide default empty string for nullable field
-    notes = notes.orEmpty(),          // Provide default empty string for nullable field
-    itemGroup = itemGroup.orEmpty(),
-    itemDepartmentLower = itemDepartmentLower.orEmpty(),
+    nameAlias = nameAlias ?: "",
+    notes = notes ?: "",
+    itemGroup = itemGroup ?: "",
+    itemDepartmentLower = itemDepartmentLower ?: "",
     zeroPriceValid = zeroPriceValid ?: 0,
-    dateBlocked = dateBlocked.orEmpty(),
-    dateToBeBlocked = dateToBeBlocked.orEmpty(),
+    dateBlocked = dateBlocked ?: "",
+    dateToBeBlocked = dateToBeBlocked ?: "",
     blockedOnPos = blockedOnPos ?: 0,
     activeOnDelivery = activeOnDelivery ?: 0,
-    barcode = barcode.orEmpty(),
+    barcode = barcode ?: "",
     dateToActivateItem = dateToActivateItem,
     mustSelectUom = mustSelectUom ?: 0,
     production = production,
@@ -297,13 +636,9 @@ fun LineTransaction.toEntity() = LineTransactionEntity(
     transparentStocks = transparentStocks,
     stocks = stocks,
     postedLower = postedLower ?: 0,
-    syncStatus = syncStatus ?: 1  // Default to 1 if not set
-
-
-
+    syncStatus = syncStatus ?: 1
 )
 
-// Extension function to convert Entity to API model
 fun LineTransactionEntity.toModel() = LineTransaction(
     journalId = journalId,
     lineNum = lineNum,
@@ -327,9 +662,9 @@ fun LineTransactionEntity.toModel() = LineTransaction(
     receivedCount = receivedCount,
     wasteType = wasteType,
     transferCount = transferCount,
-    wasteDate = transDate.orEmpty(),
+    wasteDate = transDate,
     itemGroupId = itemGroupId,
-    itemIdLower = itemId.lowercase(), // Convert itemId to lowercase for itemIdLower
+    itemIdLower = itemId.lowercase(),
     itemName = itemName,
     itemType = itemType,
     nameAlias = nameAlias,
@@ -350,5 +685,5 @@ fun LineTransactionEntity.toModel() = LineTransaction(
     transparentStocks = transparentStocks,
     stocks = stocks,
     postedLower = postedLower,
-
+    syncStatus = syncStatus
 )

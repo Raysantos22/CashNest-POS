@@ -38,6 +38,7 @@ import android.widget.ImageView
 import android.widget.ListView
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
+import androidx.core.content.ContextCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.example.possystembw.DAO.LineTransaction
 import com.example.possystembw.ui.ViewModel.BluetoothPrinterHelper
@@ -73,6 +74,8 @@ class LineActivity : AppCompatActivity() {
 
     private var currentErrorDialog: AlertDialog? = null
     private var isShowingDialog = false  // Add this at class level
+
+    private var isFilterActive = false
 
     companion object {
         private const val EXTRA_STORE_ID = "extra_store_id"
@@ -192,6 +195,36 @@ class LineActivity : AppCompatActivity() {
         Log.d(TAG, "Back handler set up successfully")
     }
 
+    private fun testApiConnection() {
+        lifecycleScope.launch {
+            try {
+                val storeId = intent.getStringExtra(EXTRA_STORE_ID) ?: ""
+                val journalId = intent.getStringExtra(EXTRA_JOURNAL_ID) ?: ""
+
+                Log.d(TAG, "Testing API with storeId: '$storeId', journalId: '$journalId'")
+
+                // Create repository instance to test
+                val testResult = viewModel.repository.testApiConnectivity(storeId, journalId)
+
+                Log.d("API_TEST", testResult)
+
+                // Show result in dialog for immediate feedback
+                runOnUiThread {
+                    AlertDialog.Builder(this@LineActivity)
+                        .setTitle("API Connection Test")
+                        .setMessage(testResult)
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+
+            } catch (e: Exception) {
+                Log.e("API_TEST", "Test failed", e)
+                runOnUiThread {
+                    Toast.makeText(this@LineActivity, "API test failed: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
 
 
     // Update your showBackConfirmationDialog method with improved code
@@ -854,30 +887,73 @@ private fun setupObservers() {
     // Observe loading state
     viewModel.isLoading.observe(this) { isLoading ->
         loadingProgressBar.visibility = if (isLoading) View.VISIBLE else View.GONE
+
+        // Hide empty state while loading to prevent premature messages
+        if (isLoading) {
+            findViewById<TextView>(R.id.tvEmptyState)?.visibility = View.GONE
+        }
     }
 
-    // Observe data result
+    // Enhanced data result observer with refresh feedback
     viewModel.lineDetailsResult.observe(this) { result ->
         loadingProgressBar.visibility = View.GONE
         findViewById<SwipeRefreshLayout>(R.id.swipeRefreshLayout)?.isRefreshing = false
 
         result?.onSuccess { transactions ->
+            Log.d(TAG, "Successfully received ${transactions.size} transactions")
+
             if (transactions.isEmpty()) {
-                // Show empty state
+                // Only show empty state after loading is completely done
                 findViewById<TextView>(R.id.tvEmptyState)?.visibility = View.VISIBLE
                 recyclerView.visibility = View.GONE
             } else {
                 // Show data
                 findViewById<TextView>(R.id.tvEmptyState)?.visibility = View.GONE
                 recyclerView.visibility = View.VISIBLE
+
+                // Check if this is a refresh operation by comparing with current data
+                val isRefreshOperation = originalList.isNotEmpty() && transactions != originalList
+
                 originalList = transactions
                 adapter.setItems(transactions)
+
+                // Show appropriate feedback
+                if (isRefreshOperation) {
+                    Toast.makeText(this, "✅ Data refreshed successfully! Loaded ${transactions.size} items", Toast.LENGTH_SHORT).show()
+                } else if (originalList.isEmpty()) {
+                    // This is initial load
+                    Toast.makeText(this, "Loaded ${transactions.size} items", Toast.LENGTH_SHORT).show()
+                }
             }
         }?.onFailure { exception ->
-            // Show error dialog with retry option
+            Log.e(TAG, "Failed to load data", exception)
+
+            // Show error dialog
+            val errorMessage = when {
+                exception.message?.contains("UnknownHostException") == true ||
+                        exception.message?.contains("ConnectException") == true -> {
+                    "Network connection failed. Please check your internet connection."
+                }
+                exception.message?.contains("SocketTimeoutException") == true -> {
+                    "Request timed out. Please try again."
+                }
+                exception.message?.contains("Client error 4") == true -> {
+                    "Invalid request. Please check your store ID and batch number."
+                }
+                exception.message?.contains("Server error 5") == true -> {
+                    "Server is currently unavailable. Please try again later."
+                }
+                exception.message?.contains("Force API") == true -> {
+                    "Failed to refresh data from server. Please try again."
+                }
+                else -> {
+                    "Failed to load data: ${exception.message}"
+                }
+            }
+
             AlertDialog.Builder(this)
                 .setTitle("Error Loading Data")
-                .setMessage("Failed to load data: ${exception.message}")
+                .setMessage(errorMessage)
                 .setPositiveButton("Retry") { _, _ ->
                     val storeId = intent.getStringExtra(EXTRA_STORE_ID)
                     val journalId = intent.getStringExtra(EXTRA_JOURNAL_ID)
@@ -886,15 +962,18 @@ private fun setupObservers() {
                         viewModel.fetchLineDetails(storeId, journalId, forceRefresh = true)
                     }
                 }
+                .setNeutralButton("Refresh") { _, _ ->
+                    performReget()
+                }
                 .setNegativeButton("Cancel") { _, _ ->
-                    Toast.makeText(this, "Failed to load data", Toast.LENGTH_SHORT).show()
-                    finish()
+                    if (originalList.isEmpty()) {
+                        finish() // Close if no data loaded
+                    }
                 }
                 .show()
         }
     }
 }
-
 private fun setupTableHeaderClicks() {
         findViewById<TextView>(R.id.tvHeaderItemId).setOnClickListener { sortBy("itemId") }
         findViewById<TextView>(R.id.tvHeaderItemName).setOnClickListener { sortBy("itemName") }
@@ -975,10 +1054,168 @@ private fun setupTableHeaderClicks() {
         findViewById<Button>(R.id.btnSave).setOnClickListener {
             saveLineDetails()
         }
+
         findViewById<Button>(R.id.btnSend).setOnClickListener {
             sendData()
         }
+        findViewById<Button>(R.id.btnFilterTransactions).setOnClickListener {
+            toggleTransactionFilter()
+        }
+        // Add the new Reget/Refresh button
+        findViewById<Button>(R.id.btnReget).setOnClickListener {
+            showRegetConfirmationDialog()
+        }
     }
+
+    private fun toggleTransactionFilter() {
+        isFilterActive = !isFilterActive
+
+        val filterButton = findViewById<Button>(R.id.btnFilterTransactions)
+
+        Log.d("LineActivity", "Filter toggled. isFilterActive: $isFilterActive")
+
+        if (isFilterActive) {
+            filterButton.text = "All Item"
+            filterButton.setBackgroundResource(R.drawable.update_button_background)
+            applyTransactionFilter()
+        } else {
+            filterButton.text = "Movement Product"
+            filterButton.setBackgroundResource(R.drawable.update_button_background1)
+            clearTransactionFilter()
+        }
+    }
+
+    // Fixed applyTransactionFilter method with detailed logging
+    private fun applyTransactionFilter() {
+        lifecycleScope.launch {
+            try {
+                val storeId = intent.getStringExtra(EXTRA_STORE_ID) ?: return@launch
+                val journalId = intent.getStringExtra(EXTRA_JOURNAL_ID) ?: return@launch
+
+                Log.d("LineActivity", "Applying filter - StoreId: $storeId, JournalId: $journalId")
+                Log.d("LineActivity", "Original list size: ${originalList.size}")
+
+                // Get filtered items from ViewModel
+                val filteredItems = viewModel.getItemsWithTransactions(storeId, journalId)
+
+                Log.d("LineActivity", "Filtered items returned: ${filteredItems.size}")
+
+                withContext(Dispatchers.Main) {
+                    if (filteredItems.isNotEmpty()) {
+                        adapter.setItems(filteredItems)
+                        Toast.makeText(
+                            this@LineActivity,
+                            "Showing ${filteredItems.size} items with transactions",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        Log.d("LineActivity", "Filter applied successfully - ${filteredItems.size} items")
+                    } else {
+                        Toast.makeText(
+                            this@LineActivity,
+                            "No items found with transactions",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        Log.w("LineActivity", "No items found with transactions after filtering")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("LineActivity", "Error filtering items", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@LineActivity,
+                        "Error filtering items: ${e.message}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+    }
+
+    // Fixed clearTransactionFilter method with logging
+    private fun clearTransactionFilter() {
+        Log.d("LineActivity", "Clearing filter - showing all ${originalList.size} items")
+        adapter.setItems(originalList)
+        Toast.makeText(this, "Showing all ${originalList.size} items", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showRegetConfirmationDialog() {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_message, null)
+        val messageTextView = dialogView.findViewById<TextView>(R.id.tvMessage)
+
+        val message = if (adapter.hasModifications()) {
+            "You have unsaved changes. Getting fresh data will lose your current changes. Do you want to continue?"
+        } else {
+            "This will fetch the latest data from the server. Continue?"
+        }
+
+        messageTextView.text = message
+
+        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle)
+            .setTitle("Refresh Data")
+            .setView(dialogView)
+            .setPositiveButton("Yes, Refresh") { _, _ ->
+                if (adapter.hasModifications()) {
+                    // Show additional warning for unsaved changes
+                    showForceRefreshDialog()
+                } else {
+                    performReget()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+        dialog.show()
+    }
+
+    private fun showForceRefreshDialog() {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_message, null)
+        val messageTextView = dialogView.findViewById<TextView>(R.id.tvMessage)
+        messageTextView.text = "Are you sure? All unsaved changes will be lost!"
+
+        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle)
+            .setTitle("Confirm Refresh")
+            .setView(dialogView)
+            .setPositiveButton("Yes, Lose Changes") { _, _ ->
+                performReget()
+            }
+            .setNegativeButton("No, Keep Changes", null)
+            .create()
+
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+        dialog.show()
+    }
+
+    private fun performReget() {
+        val storeId = intent.getStringExtra(EXTRA_STORE_ID)
+        val journalId = intent.getStringExtra(EXTRA_JOURNAL_ID)
+
+        if (storeId == null || journalId == null) {
+            Toast.makeText(this, "Missing required parameters", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        loadingProgressBar.visibility = View.VISIBLE
+
+        lifecycleScope.launch {
+            try {
+                // Clear local data first to force API call
+                viewModel.clearLocalData(journalId)
+
+                // Force refresh from API
+                viewModel.fetchLineDetails(storeId, journalId, forceRefresh = true)
+
+                Toast.makeText(this@LineActivity, "Refreshing data from server...", Toast.LENGTH_SHORT).show()
+
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    loadingProgressBar.visibility = View.GONE
+                    Toast.makeText(this@LineActivity, "Error refreshing data: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     private fun showCompleteStockDialog(storeId: String, journalId: String) {
         val dialogView = layoutInflater.inflate(R.layout.dialog_message, null)
         val messageTextView = dialogView.findViewById<TextView>(R.id.tvMessage)

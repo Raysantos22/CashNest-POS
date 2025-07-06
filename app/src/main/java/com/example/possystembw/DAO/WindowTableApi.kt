@@ -6,5 +6,8 @@ import retrofit2.http.GET
 
 interface WindowTableApi {
     @GET("api/windowtable/get-all-tables")
-    suspend fun getWindowTables(): Response<List<WindowTable>>
+    suspend fun getWindowTables(): Response<WindowTableResponse> // Change to WindowTableResponse
 }
+data class WindowTableResponse(
+    val windowtables: List<WindowTable>
+)

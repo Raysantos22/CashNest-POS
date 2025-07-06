@@ -290,7 +290,7 @@ fun syncSingleTransaction(transactionId: String) {
                                         unitprice = formatDecimal(record.unitPrice ?: record.price),
                                         taxamount = formatDecimal(record.taxAmount),
                                         createddate = formatDate(record.createdDate ?: Date()),
-                                        remarks = record.remarks ?: "",
+                                        remarks = record.comment ?: "",
                                         taxinclinprice = formatDecimal(record.taxIncludedInPrice),
                                         description = record.description ?: "",
                                         discofferid = record.discountOfferId?.takeIf { it.isNotBlank() } ?:  "",

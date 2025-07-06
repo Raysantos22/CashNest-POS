@@ -16,6 +16,15 @@
         <item name="android:windowMinWidthMajor">50%</item>
         <item name="android:windowMinWidthMinor">50%</item>
     </style>
+
+
+
+
+
+
+
+
+
     <style name="SearchViewDropdown" parent="Widget.AppCompat.ListView.DropDown">
         <item name="android:background">@android:color/white</item>
         <item name="android:divider">@android:color/darker_gray</item>

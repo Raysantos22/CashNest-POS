@@ -10,6 +10,12 @@
     <dimen name="chip_stroke_width">1dp</dimen>
 
 
+
+    <dimen name="dialog_text_size">12sp</dimen>
+    <dimen name="dialog_title_size">5sp</dimen>
+    <dimen name="dialog_button_text_size">11sp</dimen>
+
+
     <dimen name="grid_spacing">5dp</dimen>
     <dimen name="max_text_size">22sp</dimen>
     <dimen name="min_text_size">14sp</dimen>
@@ -50,10 +56,6 @@
     <dimen name="mobile_product_spacing">4dp</dimen>
     <dimen name="mobile_category_spacing">8dp</dimen>
 
-
-        <dimen name="dialog_text_size">15sp</dimen>
-        <dimen name="dialog_title_size">18sp</dimen>
-        <dimen name="dialog_button_text_size">16sp</dimen>
 
     <dimen name="grid_spacing_mobile">8dp</dimen>
     <dimen name="item_spacing_mobile">6dp</dimen>

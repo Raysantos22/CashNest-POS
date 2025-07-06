@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:showIn="navigation_view">
+
+    <group android:checkableBehavior="single">
+
+        <item
+            android:id="@+id/nav_reports"
+            android:icon="@drawable/baseline_dashboard_24"
+            android:title="Dashboard" />
+
+        <item
+            android:id="@+id/nav_stock_counting"
+            android:icon="@drawable/order"
+            android:title="Batch Count" />
+
+        <item
+            android:id="@+id/nav_web_reports"
+            android:icon="@drawable/graph"
+            android:title="Reports" />
+
+        <item
+            android:id="@+id/nav_customers"
+            android:icon="@drawable/baseline_person_24"
+            android:title="Customer" />
+
+        <item
+            android:id="@+id/nav_loyalty_card"
+            android:icon="@drawable/baseline_card_giftcard_24"
+            android:title="Loyalty Card" />
+
+        <item
+            android:id="@+id/nav_stock_transfer"
+            android:icon="@drawable/transfer_solid_svgrepo_com"
+            android:title="Stock Transfer" />
+
+        <item
+            android:id="@+id/nav_attendance"
+            android:icon="@drawable/baseline_person_24"
+            android:title="Attendance" />
+
+        <item
+            android:id="@+id/nav_printer_settings"
+            android:icon="@drawable/baseline_settings_24"
+            android:title="Settings" />
+
+    </group>
+
+    <item android:title="Account">
+        <menu>
+            <item
+                android:id="@+id/nav_cash_drawer"
+                android:icon="@drawable/button_warning"
+                android:title="Cash Drawer" />
+
+            <item
+                android:id="@+id/nav_daily_journal"
+                android:icon="@drawable/button_warning"
+                android:title="Daily Journal" />
+
+            <item
+                android:id="@+id/nav_logout"
+                android:icon="@drawable/baseline_keyboard_backspace_24"
+                android:title="Back to Main" />
+        </menu>
+    </item>
+
+</menu>

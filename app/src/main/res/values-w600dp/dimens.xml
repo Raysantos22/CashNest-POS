@@ -51,10 +51,6 @@
     <dimen name="mobile_category_spacing">8dp</dimen>
 
 
-        <dimen name="dialog_text_size">15sp</dimen>
-        <dimen name="dialog_title_size">18sp</dimen>
-        <dimen name="dialog_button_text_size">16sp</dimen>
-
     <dimen name="grid_spacing_mobile">8dp</dimen>
     <dimen name="item_spacing_mobile">6dp</dimen>
 
@@ -66,4 +62,9 @@
     <!-- Mobile item heights -->
     <dimen name="mobile_window_item_height">120dp</dimen>
     <dimen name="mobile_table_item_height">48dp</dimen>
+
+
+        <dimen name="dialog_text_size">15sp</dimen>
+        <dimen name="dialog_title_size">18sp</dimen>
+        <dimen name="dialog_button_text_size">16sp</dimen>
 </resources>

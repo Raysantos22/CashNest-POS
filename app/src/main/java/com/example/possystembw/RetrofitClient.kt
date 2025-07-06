@@ -350,13 +350,16 @@ import com.example.possystembw.DAO.WindowTableApi
 import com.example.possystembw.database.CartItem
 import com.example.possystembw.database.Product
 import com.example.possystembw.database.TransactionRecord
+import com.example.possystembw.database.WindowTable
 import com.example.possystembw.ui.RequestApiService
 import com.example.possystembw.ui.ViewModel.CustomDateAdapter
+import com.example.possystembw.ui.ViewModel.WindowTableListDeserializer
 import com.google.gson.FieldNamingPolicy
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonDeserializationContext
 import com.google.gson.JsonDeserializer
 import com.google.gson.JsonElement
+import com.google.gson.reflect.TypeToken
 import okhttp3.OkHttpClient
 import okhttp3.ResponseBody
 import okhttp3.logging.HttpLoggingInterceptor
@@ -382,13 +385,19 @@ object RetrofitClient {
     //   local
 //       private const val BASE_URL = "http://10.151.5.145:3000/"
 
-    private const val BASE_URL = "https://ecposmiddleware-aj1882pz3-progenxs-projects.vercel.app/"
+//    private const val BASE_URL = "https://ecposmiddleware-aj1882pz3-progenxs-projects.vercel.app/"
+
+    private const val BASE_URL = "https://mwaremiddleware.vercel.app/"
     private const val WORLD_TIME_API = "http://worldtimeapi.org/api/"
 
     private const val TAG = "RetrofitClient"
 
     private val gson = GsonBuilder()
         .registerTypeAdapter(Date::class.java, CustomDateAdapter())
+        .registerTypeAdapter(
+            object : TypeToken<List<WindowTable>>() {}.type,
+            WindowTableListDeserializer()
+        )
         .setLenient()
         .create()
 
@@ -489,6 +498,7 @@ object RetrofitClient {
     val mixMatchApi: MixMatchApi by lazy {
         retrofit.create(MixMatchApi::class.java)
     }
+
 
     // Customized Product API with additional logging
     val instance: ProductApi by lazy {

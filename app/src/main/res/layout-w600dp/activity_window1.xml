@@ -8,6 +8,10 @@
     tools:context=".ui.Window1">
 
     <!-- Add this inside your main layout -->
+
+
+
+
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/sidebarLayout"
         android:layout_width="100dp"

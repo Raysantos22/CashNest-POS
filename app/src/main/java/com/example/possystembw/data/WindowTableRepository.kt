@@ -16,7 +16,8 @@ class WindowTableRepository(
         try {
             val response = windowTableApi.getWindowTables()
             if (response.isSuccessful) {
-                response.body()?.let { windowTables ->
+                response.body()?.let { windowTableResponse ->
+                    val windowTables = windowTableResponse.windowtables // Extract the array from the wrapper
                     Log.d(
                         "WindowTableRepository",
                         "Received ${windowTables.size} window tables from API"
@@ -44,7 +45,6 @@ class WindowTableRepository(
     suspend fun loadFromLocalDatabase() {
         try {
             Log.d("WindowTableRepository", "Loading window tables from local database")
-            // This will trigger the Flow to emit the latest data from the local database
             val localTables = windowTableDao.getAllWindowTablesOneShot()
             Log.d("WindowTableRepository", "Loaded ${localTables.size} window tables from local database")
 

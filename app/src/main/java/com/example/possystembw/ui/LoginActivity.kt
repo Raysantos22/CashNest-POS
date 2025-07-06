@@ -29,6 +29,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.cardview.widget.CardView
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import com.example.possystembw.DeviceUtils
 import com.example.possystembw.MainActivity
 import com.example.possystembw.R
 import com.example.possystembw.data.AppDatabase
@@ -64,6 +65,7 @@ class LoginActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        DeviceUtils.setOrientationBasedOnDevice(this)
 
         SessionManager.init(applicationContext)
 

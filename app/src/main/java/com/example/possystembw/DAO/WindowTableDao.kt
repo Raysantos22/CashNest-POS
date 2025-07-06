@@ -26,6 +26,8 @@ interface WindowTableDao {
 
     @Query("DELETE FROM windowtable")
     suspend fun deleteAll()
+
+
 }
 
 

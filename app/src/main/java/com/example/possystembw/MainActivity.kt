@@ -90,8 +90,14 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import androidx.drawerlayout.widget.DrawerLayout
+import com.google.android.material.navigation.NavigationView
+import androidx.core.view.GravityCompat
+import android.view.MenuItem
+import com.example.possystembw.ui.GridSpacingItemDecoration
+import com.example.possystembw.ui.HorizontalSpacingItemDecoration
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
     private lateinit var windowViewModel: WindowViewModel
     private lateinit var windowTableViewModel: WindowTableViewModel
     private lateinit var windowAdapter: WindowAdapter
@@ -135,111 +141,411 @@ class MainActivity : AppCompatActivity() {
     // Add to your existing properties
     private var staffRefreshJob: Job? = null
 
+
+
+
     private lateinit var loyaltyCardViewModel: LoyaltyCardViewModel
     private var loyaltyCardRefreshJob: Job? = null
+
+    private var drawerLayout: DrawerLayout? = null
+    private var navigationView: NavigationView? = null
+    private var hamburgerButton: ImageButton? = null
+    private var isMobileLayout = false
+
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Set orientation FIRST
+        DeviceUtils.setOrientationBasedOnDevice(this)
+
         setContentView(R.layout.activity_main)
 
-        val loyaltyCardDao = AppDatabase.getDatabase(application).loyaltyCardDao()
-        val loyaltyCardApi = RetrofitClient.loyaltyCardApi
-        val loyaltyCardRepository = LoyaltyCardRepository(loyaltyCardDao, loyaltyCardApi)
-        val loyaltyCardFactory = LoyaltyCardViewModelFactory(loyaltyCardRepository)
-        loyaltyCardViewModel = ViewModelProvider(this, loyaltyCardFactory)[LoyaltyCardViewModel::class.java]
-
-        val staffDao = AppDatabase.getDatabase(application).staffDao()
-        val staffApi = RetrofitClient.staffApi
-        val staffRepository = StaffRepository(staffApi, staffDao)
-        staffViewModel = ViewModelProvider(
-            this,
-            StaffViewModel.StaffViewModelFactory(staffRepository)
-        )[StaffViewModel::class.java]
-
-        // Initialize ViewModels and Adapters
-        val windowFactory = WindowViewModelFactory(application)
-        windowViewModel = ViewModelProvider(this, windowFactory).get(WindowViewModel::class.java)
-
-        val windowTableDao = AppDatabase.getDatabase(application).windowTableDao()
-        val windowTableApi = RetrofitClient.windowTableApi
-        val windowTableRepository = WindowTableRepository(windowTableDao, windowTableApi)
-        val windowTableFactory = WindowTableViewModelFactory(windowTableRepository)
-        windowTableViewModel =
-            ViewModelProvider(this, windowTableFactory).get(WindowTableViewModel::class.java)
-
-        val cartRepository = CartRepository(AppDatabase.getDatabase(application).cartDao())
-        val cartViewModelFactory = CartViewModelFactory(cartRepository)  // Use the separate factory class
-        cartViewModel = ViewModelProvider(this, cartViewModelFactory)[CartViewModel::class.java]
-
-        windowAdapter = WindowAdapter(
-            onClick = { window -> openWindow(window) },
-            cartViewModel = cartViewModel
-        )
-        windowTableAdapter = WindowTableAdapter { windowTable -> showAlignedWindows(windowTable) }
-
-        val database = AppDatabase.getDatabase(application)
-        numberSequenceRemoteDao = AppDatabase.getDatabase(application).numberSequenceRemoteDao()
-        val numberSequenceApi = RetrofitClient.numberSequenceApi
-        numberSequenceRemoteRepository =
-            NumberSequenceRemoteRepository(numberSequenceApi, numberSequenceRemoteDao)
-
-
-        val transactionDao = AppDatabase.getDatabase(application).transactionDao()
-//        val numberSequenceApi = RetrofitClient.numberSequenceApi
-        val numberSequenceRemoteDao = AppDatabase.getDatabase(application).numberSequenceRemoteDao()
-        val numberSequenceRemoteRepository =
-            NumberSequenceRemoteRepository(numberSequenceApi, numberSequenceRemoteDao)
-
-        val factory = TransactionViewModel.TransactionViewModelFactory(
-            TransactionRepository(transactionDao, numberSequenceRemoteRepository),
-            numberSequenceRemoteRepository
-        )
-        transactionViewModel =
-            ViewModelProvider(this, factory).get(TransactionViewModel::class.java)
-        // Initialize loading dialog
+        // Initialize loading dialog EARLY
         initLoadingDialog()
-        // Initialize all views
-        initializeViews()
+
+        // Detect layout type with improved logic
+        detectLayoutTypeFixed()
+
+        // Initialize views based on what was actually loaded
+        initializeViewsFixed()
+
+        // Initialize database and repositories BEFORE ViewModels
+        initializeDatabase()
+
+        // Initialize ViewModels with proper order
+        initializeViewModelsFixed()
+
+        // Initialize adapters AFTER ViewModels
+        initializeAdapters()
 
         // Setup UI components
-        setupRefreshButton()
-        setupSwipeRefreshLayout()
-        setupWindowRecyclerView()
-        setupWindowTableRecyclerView()
-        initializeSidebarComponents()
-        setupSidebar()
-        setupWebView()
-        setupToggleViewFab()
-        webView = findViewById(R.id.webView)
-        // Setup observers
-        setupObservers()
+        setupUIComponents()
 
-        // Start periodic refresh
+        // Setup observers and start services
+        setupObservers()
         startPeriodicRefresh()
 
+        // Additional setup
+        initializeWebViewComponents()
+        handleIncomingIntent(intent)
+        updateStoreInfo()
+        observeCartChanges()
+        startStaffRefresh()
+        startLoyaltyCardRefresh()
+
+        // Start transaction sync service
         val repository = TransactionRepository(
-            database.transactionDao(),
+            AppDatabase.getDatabase(application).transactionDao(),
             numberSequenceRemoteRepository
         )
         transactionSyncService = TransactionSyncService(repository)
-
-        // Start sync service
         transactionSyncService?.startSyncService(lifecycleScope)
+    }
 
-        initializeWebViewComponents()
-        setupWebView()
+    private fun detectLayoutTypeFixed() {
+        try {
+            // Check what views actually exist in the loaded layout
+            val drawerLayoutView = findViewById<DrawerLayout>(R.id.drawer_layout)
+            val sidebarLayoutView = findViewById<ConstraintLayout>(R.id.sidebarLayout)
 
-        handleIncomingIntent(intent)
+            val isTabletDevice = DeviceUtils.isTablet(this)
+            val hasDrawer = drawerLayoutView != null
+            val hasSidebar = sidebarLayoutView != null
 
-        updateStoreInfo()
-        observeCartChanges()
+            Log.d("MainActivity", "=== LAYOUT DETECTION ===")
+            Log.d("MainActivity", "Device type: ${if (isTabletDevice) "Tablet" else "Phone"}")
+            Log.d("MainActivity", "Has DrawerLayout: $hasDrawer")
+            Log.d("MainActivity", "Has SidebarLayout: $hasSidebar")
+            Log.d("MainActivity", "Screen: ${DeviceUtils.getScreenInfo(this)}")
 
-        startStaffRefresh()
+            // Determine layout type
+            when {
+                // Perfect case: Tablet device with tablet layout
+                isTabletDevice && hasSidebar && !hasDrawer -> {
+                    isMobileLayout = false
+                    Log.d("MainActivity", "✅ Correct: Tablet device with tablet layout")
+                }
 
-        startLoyaltyCardRefresh()
+                // Perfect case: Phone device with mobile layout
+                !isTabletDevice && hasDrawer && !hasSidebar -> {
+                    isMobileLayout = true
+                    drawerLayout = drawerLayoutView
+                    navigationView = findViewById(R.id.nav_view)
+                    hamburgerButton = findViewById(R.id.hamburgerButton)
+                    Log.d("MainActivity", "✅ Correct: Phone device with mobile layout")
+                }
 
+                // Problem case: Tablet with mobile layout
+                isTabletDevice && hasDrawer && !hasSidebar -> {
+                    Log.e("MainActivity", "❌ PROBLEM: Tablet device loaded mobile layout!")
+                    Log.e("MainActivity", "Check if res/layout-sw600dp/activity_main.xml exists")
+                    Log.e("MainActivity", "Your default layout might be mobile instead of tablet")
 
+                    // Force tablet mode anyway since it's a tablet device
+                    isMobileLayout = false
+                    showLayoutWarning("Tablet device loaded mobile layout. Check your layout files.")
+                }
+
+                // Problem case: Phone with tablet layout (less critical)
+                !isTabletDevice && hasSidebar && !hasDrawer -> {
+                    Log.w("MainActivity", "⚠️ Phone device loaded tablet layout - using it anyway")
+                    isMobileLayout = false
+                }
+
+                // Edge case: Has both (shouldn't happen)
+                hasDrawer && hasSidebar -> {
+                    Log.e("MainActivity", "❌ CRITICAL: Layout has both drawer and sidebar!")
+                    isMobileLayout = !isTabletDevice // Use device type
+                }
+
+                // Edge case: Has neither (broken layout)
+                !hasDrawer && !hasSidebar -> {
+                    Log.e("MainActivity", "❌ CRITICAL: Layout missing both drawer and sidebar!")
+                    isMobileLayout = !isTabletDevice
+                }
+
+                else -> {
+                    Log.w("MainActivity", "⚠️ Unexpected layout state, using device type")
+                    isMobileLayout = !isTabletDevice
+                }
+            }
+
+            Log.d("MainActivity", "Final decision: ${if (isMobileLayout) "Mobile" else "Tablet"} mode")
+
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error in layout detection", e)
+            isMobileLayout = !DeviceUtils.isTablet(this)
+        }
+    }
+
+    private fun initializeViewsFixed() {
+        try {
+            Log.d("MainActivity", "Initializing views for ${if (isMobileLayout) "mobile" else "tablet"} layout")
+
+            // Core views that should exist in both layouts
+            webView = findViewById(R.id.webView)
+            mainRecyclerViewContent = findViewById(R.id.mainRecyclerViewContent)
+            refreshLayout = findViewById(R.id.swipeRefreshLayout)
+            windowRecyclerView = findViewById(R.id.windowRecyclerView)
+            windowTableRecyclerView = findViewById(R.id.windowTableRecyclerView)
+            webViewContainer = findViewById(R.id.webViewContainer)
+
+            // Store name text view (should exist in both layouts)
+            try {
+                val storeNameTextView = findViewById<TextView>(R.id.storeNameTextView)
+                Log.d("MainActivity", "✅ Found storeNameTextView")
+            } catch (e: Exception) {
+                Log.w("MainActivity", "⚠️ storeNameTextView not found")
+            }
+
+            // Refresh button and FAB (might be in different locations)
+            try {
+                refreshButton = findViewById(R.id.refreshButton)
+            } catch (e: Exception) {
+                Log.d("MainActivity", "refreshButton not found - that's ok")
+            }
+
+            try {
+                toggleViewFab = findViewById(R.id.toggleViewFab)
+            } catch (e: Exception) {
+                Log.d("MainActivity", "toggleViewFab not found - that's ok")
+            }
+
+            // Optional views
+            try {
+                imageView1 = findViewById(R.id.imageView1)
+            } catch (e: Exception) {
+                Log.d("MainActivity", "imageView1 not found - that's ok")
+            }
+
+            // Initialize layout-specific views
+            if (!isMobileLayout) {
+                // Tablet-specific views - these MUST exist for tablet layout
+                try {
+                    sidebarLayout = findViewById(R.id.sidebarLayout)
+                    toggleButton = findViewById(R.id.toggleButton)
+                    buttonContainer = findViewById(R.id.buttonContainer)
+
+                    if (::sidebarLayout.isInitialized && ::toggleButton.isInitialized && ::buttonContainer.isInitialized) {
+                        Log.d("MainActivity", "✅ All tablet sidebar views found")
+                    } else {
+                        throw Exception("Some tablet views are null")
+                    }
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "❌ CRITICAL: Missing tablet sidebar views!", e)
+                    throw Exception("Tablet layout is missing required sidebar components. Check your layout file.")
+                }
+            }
+
+            Log.d("MainActivity", "✅ Views initialized successfully")
+
+        } catch (e: Exception) {
+            Log.e("MainActivity", "❌ CRITICAL: Failed to initialize views", e)
+            showCriticalError("Failed to initialize UI components: ${e.message}")
+            throw e
+        }
+    }
+
+    private fun initializeDatabase() {
+        try {
+            val database = AppDatabase.getDatabase(application)
+            numberSequenceRemoteDao = database.numberSequenceRemoteDao()
+            val numberSequenceApi = RetrofitClient.numberSequenceApi
+            numberSequenceRemoteRepository = NumberSequenceRemoteRepository(numberSequenceApi, numberSequenceRemoteDao)
+
+            Log.d("MainActivity", "✅ Database initialized")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "❌ Database initialization failed", e)
+            throw e
+        }
+    }
+
+    private fun initializeViewModelsFixed() {
+        try {
+            Log.d("MainActivity", "Initializing ViewModels...")
+
+            // 1. Loyalty Card ViewModel
+            val loyaltyCardDao = AppDatabase.getDatabase(application).loyaltyCardDao()
+            val loyaltyCardApi = RetrofitClient.loyaltyCardApi
+            val loyaltyCardRepository = LoyaltyCardRepository(loyaltyCardDao, loyaltyCardApi)
+            val loyaltyCardFactory = LoyaltyCardViewModelFactory(loyaltyCardRepository)
+            loyaltyCardViewModel = ViewModelProvider(this, loyaltyCardFactory)[LoyaltyCardViewModel::class.java]
+
+            // 2. Staff ViewModel
+            val staffDao = AppDatabase.getDatabase(application).staffDao()
+            val staffApi = RetrofitClient.staffApi
+            val staffRepository = StaffRepository(staffApi, staffDao)
+            staffViewModel = ViewModelProvider(
+                this,
+                StaffViewModel.StaffViewModelFactory(staffRepository)
+            )[StaffViewModel::class.java]
+
+            // 3. Window ViewModel
+            val windowFactory = WindowViewModelFactory(application)
+            windowViewModel = ViewModelProvider(this, windowFactory).get(WindowViewModel::class.java)
+
+            // 4. Window Table ViewModel
+            val windowTableDao = AppDatabase.getDatabase(application).windowTableDao()
+            val windowTableApi = RetrofitClient.windowTableApi
+            val windowTableRepository = WindowTableRepository(windowTableDao, windowTableApi)
+            val windowTableFactory = WindowTableViewModelFactory(windowTableRepository)
+            windowTableViewModel = ViewModelProvider(this, windowTableFactory).get(WindowTableViewModel::class.java)
+
+            // 5. Cart ViewModel - FIXED initialization
+            val cartDao = AppDatabase.getDatabase(application).cartDao()
+            val cartRepository = CartRepository(cartDao)
+            val cartViewModelFactory = CartViewModelFactory(cartRepository)
+            cartViewModel = ViewModelProvider(this, cartViewModelFactory)[CartViewModel::class.java]
+
+            // 6. Transaction ViewModel
+            val transactionDao = AppDatabase.getDatabase(application).transactionDao()
+            val factory = TransactionViewModel.TransactionViewModelFactory(
+                TransactionRepository(transactionDao, numberSequenceRemoteRepository),
+                numberSequenceRemoteRepository
+            )
+            transactionViewModel = ViewModelProvider(this, factory).get(TransactionViewModel::class.java)
+
+            Log.d("MainActivity", "✅ All ViewModels initialized successfully")
+
+        } catch (e: Exception) {
+            Log.e("MainActivity", "❌ CRITICAL: ViewModels initialization failed", e)
+            throw e
+        }
+    }
+
+    private fun initializeAdapters() {
+        try {
+            windowAdapter = WindowAdapter(
+                onClick = { window -> openWindow(window) },
+                cartViewModel = cartViewModel
+            )
+            windowTableAdapter = WindowTableAdapter { windowTable -> showAlignedWindows(windowTable) }
+
+            Log.d("MainActivity", "✅ Adapters initialized")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "❌ Adapters initialization failed", e)
+            throw e
+        }
+    }
+
+    private fun setupUIComponents() {
+        try {
+            // Setup based on layout type
+            if (isMobileLayout) {
+                setupMobileNavigation()
+            } else {
+                setupSidebar()
+            }
+
+            // Common setup
+            setupRefreshButton()
+            setupSwipeRefreshLayout()
+            setupWindowRecyclerView()
+            setupWindowTableRecyclerView()
+            setupWebView()
+            setupToggleViewFab()
+
+            Log.d("MainActivity", "✅ UI components setup complete")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "❌ UI setup failed", e)
+            throw e
+        }
+    }
+
+    private fun setupMobileNavigation() {
+        try {
+            navigationView?.setNavigationItemSelectedListener(this)
+
+            navigationView?.getHeaderView(0)?.let { headerView ->
+                val navStoreName = headerView.findViewById<TextView>(R.id.nav_store_name)
+                val currentStore = SessionManager.getCurrentUser()?.storeid ?: "Unknown Store"
+                navStoreName?.text = "Store: $currentStore"
+            }
+
+            hamburgerButton?.setOnClickListener {
+                drawerLayout?.openDrawer(GravityCompat.START)
+            }
+
+            Log.d("MainActivity", "✅ Mobile navigation setup complete")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "❌ Mobile navigation setup failed", e)
+        }
+    }
+
+    private fun setupSidebar() {
+        try {
+            if (::sidebarLayout.isInitialized && ::toggleButton.isInitialized) {
+                toggleButton.setOnClickListener {
+                    if (isSidebarExpanded) {
+                        collapseSidebar()
+                    } else {
+                        expandSidebar()
+                    }
+                }
+                setupSidebarButtons()
+                Log.d("MainActivity", "✅ Tablet sidebar setup complete")
+            } else {
+                Log.e("MainActivity", "❌ Sidebar views not properly initialized")
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "❌ Sidebar setup failed", e)
+            throw e
+        }
+    }
+
+    // Handle navigation menu item clicks (for mobile)
+//    override fun onNavigationItemSelected(item: MenuItem): Boolean {
+//        // Your existing navigation handling code
+//        drawerLayout?.closeDrawer(GravityCompat.START)
+//        return true
+//    }
+
+    private fun showLayoutWarning(message: String) {
+        runOnUiThread {
+            Log.w("MainActivity", message)
+            // Could show a toast or dialog here if needed
+        }
+    }
+
+    private fun showCriticalError(message: String) {
+        runOnUiThread {
+            AlertDialog.Builder(this)
+                .setTitle("Critical Layout Error")
+                .setMessage(message)
+                .setPositiveButton("OK") { _, _ ->
+                    finish()
+                }
+                .setCancelable(false)
+                .show()
+        }
+    }
+
+    // Update onBackPressed to handle drawer safely
+    override fun onBackPressed() {
+        when {
+            isMobileLayout && drawerLayout?.isDrawerOpen(GravityCompat.START) == true -> {
+                drawerLayout?.closeDrawer(GravityCompat.START)
+            }
+            webViewLoadingOverlay.visibility == View.VISIBLE -> {
+                return
+            }
+            webView.visibility == View.VISIBLE && webView.canGoBack() -> {
+                webView.goBack()
+            }
+            webView.visibility == View.VISIBLE -> {
+                webViewContainer.visibility = View.GONE
+                refreshLayout.visibility = View.VISIBLE
+                windowRecyclerView.visibility = View.VISIBLE
+                windowTableRecyclerView.visibility = View.VISIBLE
+                imageView1?.visibility = View.VISIBLE
+                toggleViewFab?.setImageResource(R.drawable.ic_web)
+            }
+            else -> {
+                super.onBackPressed()
+            }
+        }
     }
     private fun initializeWebViewComponents() {
         webViewLoadingOverlay = findViewById(R.id.webViewLoadingOverlay)
@@ -247,6 +553,121 @@ class MainActivity : AppCompatActivity() {
 
         // Prevent touch events from passing through the overlay
         webViewLoadingOverlay.setOnTouchListener { _, _ -> true }
+    }
+    private fun detectLayoutTypeImproved() {
+        // Method 1: Check actual device type first
+        val isTabletDevice = DeviceUtils.isTablet(this)
+
+        // Method 2: Check if mobile-specific views exist
+        val hasDrawerLayout = findViewById<DrawerLayout>(R.id.drawer_layout) != null
+        val hasSidebar = findViewById<ConstraintLayout>(R.id.sidebarLayout) != null
+
+        Log.d("MainActivity", "Device detection - isTablet: $isTabletDevice, hasDrawer: $hasDrawerLayout, hasSidebar: $hasSidebar")
+
+        // Determine layout type with priority to device type
+        isMobileLayout = when {
+            // If it's definitely a tablet device, prefer tablet layout
+            isTabletDevice && hasSidebar -> {
+                Log.d("MainActivity", "Using tablet layout (device is tablet + has sidebar)")
+                false
+            }
+            // If it's definitely a phone device, prefer mobile layout
+            !isTabletDevice && hasDrawerLayout -> {
+                Log.d("MainActivity", "Using mobile layout (device is phone + has drawer)")
+                true
+            }
+            // If device and layout don't match, log warning and use device type
+            isTabletDevice && hasDrawerLayout -> {
+                Log.w("MainActivity", "Tablet device but mobile layout loaded - forcing tablet mode")
+                false
+            }
+            !isTabletDevice && hasSidebar -> {
+                Log.w("MainActivity", "Phone device but tablet layout loaded - using tablet layout")
+                false
+            }
+            // Fallback: use device detection
+            else -> {
+                Log.d("MainActivity", "Using device detection fallback: ${if (isTabletDevice) "tablet" else "mobile"}")
+                !isTabletDevice
+            }
+        }
+
+        // Initialize mobile-specific views only if mobile layout
+        if (isMobileLayout) {
+            try {
+                drawerLayout = findViewById(R.id.drawer_layout)
+                navigationView = findViewById(R.id.nav_view)
+                hamburgerButton = findViewById(R.id.hamburgerButton)
+                Log.d("MainActivity", "Mobile views initialized successfully")
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Failed to initialize mobile views", e)
+                isMobileLayout = false // Fall back to tablet
+            }
+        }
+    }
+
+//    private fun setupMobileNavigation() {
+//        navigationView?.setNavigationItemSelectedListener(this)
+//
+//        // Update store name in navigation header
+//        navigationView?.getHeaderView(0)?.let { headerView ->
+//            val navStoreName = headerView.findViewById<TextView>(R.id.nav_store_name)
+//            val currentStore = SessionManager.getCurrentUser()?.storeid ?: "Unknown Store"
+//            navStoreName?.text = "Store: $currentStore"
+//        }
+//
+//        // Setup hamburger button
+//        hamburgerButton?.setOnClickListener {
+//            drawerLayout?.openDrawer(GravityCompat.START)
+//        }
+//    }
+
+    // Handle navigation menu item clicks
+    override fun onNavigationItemSelected(item: MenuItem): Boolean {
+        when (item.itemId) {
+            R.id.nav_reports -> {
+                val intent = Intent(this, ReportsActivity::class.java)
+                startActivity(intent)
+                showToast("Reports")
+            }
+            R.id.nav_stock_counting -> {
+                val intent = Intent(this, StockCountingActivity::class.java)
+                startActivity(intent)
+                showToast("Stock Counting")
+            }
+            R.id.nav_web_reports -> {
+                showToast("REPORTS")
+                loadWebContent("https://eljin.org/reports")
+            }
+            R.id.nav_customers -> {
+                showToast("CUSTOMER")
+                loadDirectContent("https://eljin.org/customers")
+            }
+            R.id.nav_loyalty_card -> {
+                showToast("Loyalty Card")
+                loadDirectContent("https://eljin.org/loyalty-cards")
+            }
+            R.id.nav_stock_transfer -> {
+                showToast("Stock Transfer")
+                loadDirectContent("https://eljin.org/StockTransfer")
+            }
+            R.id.nav_attendance -> {
+                val intent = Intent(this, AttendanceActivity::class.java)
+                startActivity(intent)
+                showToast("ATTENDANCE")
+            }
+            R.id.nav_printer_settings -> {
+                val intent = Intent(this, PrinterSettingsActivity::class.java)
+                startActivity(intent)
+                showToast("PRINTER SETTINGS")
+            }
+            R.id.nav_logout -> {
+                logout()
+            }
+        }
+
+        drawerLayout?.closeDrawer(GravityCompat.START)
+        return true
     }
 
     fun initializeViews() {
@@ -257,14 +678,33 @@ class MainActivity : AppCompatActivity() {
         refreshLayout = findViewById(R.id.swipeRefreshLayout)
         windowRecyclerView = findViewById(R.id.windowRecyclerView)
         windowTableRecyclerView = findViewById(R.id.windowTableRecyclerView)
-        sidebarLayout = findViewById(R.id.sidebarLayout)
-        toggleButton = findViewById(R.id.toggleButton)
-        buttonContainer = findViewById(R.id.buttonContainer)
-        imageView1 = findViewById(R.id.imageView1)
-
         webViewContainer = findViewById(R.id.webViewContainer)
 
+        // Initialize imageView1 (might not exist in all layouts)
+        try {
+            imageView1 = findViewById(R.id.imageView1)
+        } catch (e: Exception) {
+            Log.d("MainActivity", "imageView1 not found in this layout")
+        }
 
+        // Initialize tablet-specific views only if NOT mobile layout
+        if (!isMobileLayout) {
+            try {
+                sidebarLayout = findViewById(R.id.sidebarLayout)
+                toggleButton = findViewById(R.id.toggleButton)
+                buttonContainer = findViewById(R.id.buttonContainer)
+                Log.d("MainActivity", "Tablet sidebar views initialized")
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Failed to find tablet sidebar views", e)
+            }
+        }
+    }
+    private fun forceTabletMode() {
+        Log.w("MainActivity", "Forcing tablet mode")
+        isMobileLayout = false
+        drawerLayout = null
+        navigationView = null
+        hamburgerButton = null
     }
     private fun handleIncomingIntent(intent: Intent?) {
         intent?.getStringExtra("web_url")?.let { url ->
@@ -335,16 +775,19 @@ class MainActivity : AppCompatActivity() {
         buttonContainer = findViewById(R.id.buttonContainer)
     }
 
-    private fun setupSidebar() {
-        toggleButton.setOnClickListener {
-            if (isSidebarExpanded) {
-                collapseSidebar()
-            } else {
-                expandSidebar()
-            }
-        }
-        setupSidebarButtons()
-    }
+//    private fun setupSidebar() {
+//        if (::sidebarLayout.isInitialized && ::toggleButton.isInitialized) {
+//            toggleButton.setOnClickListener {
+//                if (isSidebarExpanded) {
+//                    collapseSidebar()
+//                } else {
+//                    expandSidebar()
+//                }
+//            }
+//            setupSidebarButtons()
+//        }
+//    }
+
 
     private fun setupSidebarButtons() {
         findViewById<ImageButton>(R.id.button2).setOnClickListener {
@@ -459,18 +902,23 @@ class MainActivity : AppCompatActivity() {
         val storeNameTextView = findViewById<TextView>(R.id.storeNameTextView)
         val currentStore = SessionManager.getCurrentUser()?.storeid ?: "Unknown Store"
 
-        // Set initial alpha to 0 for fade-in animation
-        storeNameTextView.alpha = 0f
+        storeNameTextView?.let { textView ->
+            textView.alpha = 0f
+            textView.text = "Store: $currentStore"
+            textView.animate()
+                .alpha(1f)
+                .setDuration(500)
+                .setStartDelay(300)
+                .start()
+        }
 
-        // Update text with store name
-        storeNameTextView.text = "Store: $currentStore"
-
-        // Animate the store name appearance
-        storeNameTextView.animate()
-            .alpha(1f)
-            .setDuration(500)
-            .setStartDelay(300)
-            .start()
+        // Also update mobile navigation header if it exists
+        if (isMobileLayout) {
+            navigationView?.getHeaderView(0)?.let { headerView ->
+                val navStoreName = headerView.findViewById<TextView>(R.id.nav_store_name)
+                navStoreName?.text = "Store: $currentStore"
+            }
+        }
     }
 
 
@@ -768,22 +1216,53 @@ class MainActivity : AppCompatActivity() {
         val windowRecyclerView: RecyclerView = findViewById(R.id.windowRecyclerView)
         windowRecyclerView.adapter = windowAdapter
 
-        // Calculate span count based on screen width
-        val displayMetrics = resources.displayMetrics
-        val screenWidthDp = displayMetrics.widthPixels / displayMetrics.density
-        val spanCount = (screenWidthDp / 400).toInt().coerceAtLeast(2)
+        val spanCount = if (isMobileLayout) {
+            // Mobile: Always use 2 columns for better touch targets
+            1
+        } else {
+            // Tablet: Use dynamic calculation based on screen width
+            val displayMetrics = resources.displayMetrics
+            val screenWidthDp = displayMetrics.widthPixels / displayMetrics.density
+            val availableWidth = screenWidthDp - 120 // Subtract sidebar width
+            (availableWidth / 300).toInt().coerceAtLeast(2) // 300dp per item minimum
+        }
 
-        windowRecyclerView.layoutManager = GridLayoutManager(this, spanCount)
+        val layoutManager = GridLayoutManager(this, spanCount)
+        windowRecyclerView.layoutManager = layoutManager
+
+        // Add spacing for mobile
+        if (isMobileLayout) {
+            val spacing = resources.getDimensionPixelSize(R.dimen.grid_spacing_mobile)
+            windowRecyclerView.addItemDecoration(GridSpacingItemDecoration(spanCount, spacing, true))
+        }
+
+        Log.d("MainActivity", "RecyclerView setup: spanCount=$spanCount, isMobile=$isMobileLayout")
     }
 
     private fun setupWindowTableRecyclerView() {
         Log.d("MainActivity", "Setting up window table RecyclerView")
         val windowTableRecyclerView: RecyclerView = findViewById(R.id.windowTableRecyclerView)
-        windowTableRecyclerView.layoutManager =
-            LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false) // Horizontal layout
+
+        val layoutManager = if (isMobileLayout) {
+            // Mobile: Horizontal scroll with better spacing
+            LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        } else {
+            // Tablet: Keep existing behavior
+            LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        }
+
+        windowTableRecyclerView.layoutManager = layoutManager
         windowTableRecyclerView.adapter = windowTableAdapter
+
+        // Add spacing for mobile
+        if (isMobileLayout) {
+            val spacing = resources.getDimensionPixelSize(R.dimen.item_spacing_mobile)
+            windowTableRecyclerView.addItemDecoration(HorizontalSpacingItemDecoration(spacing))
+        }
+
         Log.d("MainActivity", "Window table RecyclerView set up successfully")
     }
+
 
     private fun startPeriodicRefresh() {
         Log.d("MainActivity", "Starting periodic refresh")
@@ -1120,28 +1599,31 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    override fun onBackPressed() {
-        when {
-            webViewLoadingOverlay.visibility == View.VISIBLE -> {
-                // Do nothing while loading
-                return
-            }
-            webView.visibility == View.VISIBLE && webView.canGoBack() -> {
-                webView.goBack()
-            }
-            webView.visibility == View.VISIBLE -> {
-                webViewContainer.visibility = View.GONE
-                refreshLayout.visibility = View.VISIBLE
-                windowRecyclerView.visibility = View.VISIBLE
-                windowTableRecyclerView.visibility = View.VISIBLE
-                imageView1.visibility = View.VISIBLE
-                toggleViewFab.setImageResource(R.drawable.ic_web)
-            }
-            else -> {
-                super.onBackPressed()
-            }
-        }
-    }
+//    override fun onBackPressed() {
+//        when {
+//            isMobileLayout && drawerLayout?.isDrawerOpen(GravityCompat.START) == true -> {
+//                drawerLayout?.closeDrawer(GravityCompat.START)
+//            }
+//            webViewLoadingOverlay.visibility == View.VISIBLE -> {
+//                // Do nothing while loading
+//                return
+//            }
+//            webView.visibility == View.VISIBLE && webView.canGoBack() -> {
+//                webView.goBack()
+//            }
+//            webView.visibility == View.VISIBLE -> {
+//                webViewContainer.visibility = View.GONE
+//                refreshLayout.visibility = View.VISIBLE
+//                windowRecyclerView.visibility = View.VISIBLE
+//                windowTableRecyclerView.visibility = View.VISIBLE
+//                imageView1.visibility = View.VISIBLE
+//                toggleViewFab.setImageResource(R.drawable.faded_disabled_button_background)
+//            }
+//            else -> {
+//                super.onBackPressed()
+//            }
+//        }
+//    }
 
 
     // Add this method to handle screen rotation or configuration changes

@@ -4234,6 +4234,7 @@ private fun printXReadWithBluetoothPrinter(
 //
 //        Log.d("PrintXRead", "Attempting to print X-Read report")
 //        val xReportId = "X-${System.currentTimeMillis()}"  // Generate X-Read ID
+//        val xReportId = "X-${System.currentTimeMillis()}"  // Generate X-Read ID
 //        val xReadContent = bluetoothPrinterHelper.buildReadReport(
 //            transactions,
 //            isZRead = false,

@@ -100,13 +100,23 @@ class ReportsActivity : AppCompatActivity() {
         val totalTransactions: Int = 0,
         val totalReturns: Int = 0,
         val paymentDistribution: PaymentDistribution = PaymentDistribution(),
-        val itemSales: List<ItemSalesSummary> = emptyList()
+        val itemSales: List<ItemSalesSummary> = emptyList(),
+        val vatAmount: Double = 0.0,
+        val vatableSales: Double = 0.0
     )
+
     data class ItemGroupSummary(
         val groupName: String,
         val items: List<ItemSalesSummary>,
         val totalQuantity: Int,
         val totalAmount: Double
+    )
+
+    // Updated data class to hold item calculation results matching buildReadReport
+    data class ItemCalculationResult(
+        val totalGross: Double,
+        val totalQuantity: Int,
+        val itemSales: List<ItemSalesSummary>
     )
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -1937,7 +1947,7 @@ class ReportsActivity : AppCompatActivity() {
         // Clear existing payment distribution views
         binding.paymentDistributionContainer.removeAllViews()
 
-        // Create payment method views
+        // Create payment method views - only show methods with positive net amounts
         val paymentMethods = listOf(
             "Cash" to paymentDistribution.cash,
             "Card" to paymentDistribution.card,
@@ -1947,9 +1957,9 @@ class ReportsActivity : AppCompatActivity() {
             "Charge" to paymentDistribution.charge,
             "Foodpanda" to paymentDistribution.foodpanda,
             "GrabFood" to paymentDistribution.grabfood,
-            "Representation" to paymentDistribution.representation
+            "Representation" to paymentDistribution.representation,
 //            "AR" to paymentDistribution.ar
-        ).filter { it.second > 0 }
+        ).filter { it.second != 0.0 } // Show all non-zero amounts (positive or negative)
 
         // Group payment methods into rows of 3
         val paymentMethodChunks = paymentMethods.chunked(3)
@@ -2012,10 +2022,10 @@ class ReportsActivity : AppCompatActivity() {
             binding.paymentDistributionContainer.addView(rowLayout)
         }
 
-        // Calculate total payment amount
+        // Calculate total payment amount (net of returns)
         val totalPayments = paymentMethods.sumOf { it.second }
 
-        if (totalPayments > 0.0) {
+        if (totalPayments != 0.0) {
             // Add a divider before total
             val dividerView = View(this).apply {
                 layoutParams = LinearLayout.LayoutParams(
@@ -2038,7 +2048,13 @@ class ReportsActivity : AppCompatActivity() {
                 }
                 radius = 12f
                 cardElevation = 4f
-                setCardBackgroundColor(resources.getColor(android.R.color.darker_gray, null))
+                setCardBackgroundColor(
+                    if (totalPayments >= 0) {
+                        resources.getColor(android.R.color.holo_green_dark, null)
+                    } else {
+                        resources.getColor(android.R.color.holo_red_dark, null)
+                    }
+                )
             }
 
             val totalPaymentLayout = LinearLayout(this).apply {
@@ -2051,7 +2067,7 @@ class ReportsActivity : AppCompatActivity() {
             }
 
             val totalPaymentText = TextView(this).apply {
-                text = "TOTAL PAYMENTS"
+                text = "NET TOTAL PAYMENTS"
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 textSize = 16f
                 setTextColor(resources.getColor(android.R.color.white, null))
@@ -2069,7 +2085,7 @@ class ReportsActivity : AppCompatActivity() {
                 setTextColor(resources.getColor(android.R.color.white, null))
                 setTypeface(null, android.graphics.Typeface.BOLD)
             }
-
+//
 //            totalPaymentLayout.addView(totalPaymentText)
 //            totalPaymentLayout.addView(totalPaymentAmountText)
 //            totalPaymentCard.addView(totalPaymentLayout)
@@ -2383,52 +2399,92 @@ class ReportsActivity : AppCompatActivity() {
     }
 
     private suspend fun calculateSalesReport(transactions: List<TransactionSummary>): SalesReport {
-        val validTransactions = transactions.filter { it.transactionStatus == 1 } // Only completed transactions
-        val returnTransactions = transactions.filter { it.type == 2 } // Assuming type 2 is returns
+        // Separate regular transactions and returns for proper calculation (same as buildReadReport)
+        val regularTransactions = transactions.filter { it.transactionStatus == 1 && it.type != 2 }
+        val returnTransactions = transactions.filter { it.type == 2 }
 
-        // Calculate totals from individual items instead of transaction summaries
-        val itemCalculations = calculateItemTotals(validTransactions)
+        // Calculate item totals using the same method as buildReadReport
+        val regularItemCalculations = calculateItemTotals(regularTransactions)
+        val returnItemCalculations = calculateItemTotals(returnTransactions)
 
-        val totalGross = itemCalculations.totalGross
-        val totalNetSales = itemCalculations.totalGross - validTransactions.sumOf { it.totalDiscountAmount }
-        val totalDiscount = validTransactions.sumOf { it.totalDiscountAmount }
-        val totalQuantity = itemCalculations.totalQuantity
+        // Net calculations (regular sales minus returns) - same as buildReadReport
+        val totalGross = regularItemCalculations.totalGross + returnItemCalculations.totalGross // returns are already negative
+        val totalNetSales = regularTransactions.sumOf { it.netAmount } + returnTransactions.sumOf { it.netAmount }
+        val totalDiscount = regularTransactions.sumOf { it.totalDiscountAmount } + returnTransactions.sumOf { it.totalDiscountAmount }
+        val totalQuantity = regularItemCalculations.totalQuantity + returnItemCalculations.totalQuantity // returns have negative quantities
 
-        // Count total transactions and returns
-        val totalTransactions = validTransactions.size
+        // Payment method totals including returns (returns should reduce totals) - same as buildReadReport
+        val paymentDistribution = PaymentDistribution(
+            cash = regularTransactions.sumOf { it.cash } + returnTransactions.sumOf { it.cash },
+            card = regularTransactions.sumOf { it.card } + returnTransactions.sumOf { it.card },
+            gCash = regularTransactions.sumOf { it.gCash } + returnTransactions.sumOf { it.gCash },
+            payMaya = regularTransactions.sumOf { it.payMaya } + returnTransactions.sumOf { it.payMaya },
+            loyaltyCard = regularTransactions.sumOf { it.loyaltyCard } + returnTransactions.sumOf { it.loyaltyCard },
+            charge = regularTransactions.sumOf { it.charge } + returnTransactions.sumOf { it.charge },
+            foodpanda = regularTransactions.sumOf { it.foodpanda } + returnTransactions.sumOf { it.foodpanda },
+            grabfood = regularTransactions.sumOf { it.grabfood } + returnTransactions.sumOf { it.grabfood },
+            representation = regularTransactions.sumOf { it.representation } + returnTransactions.sumOf { it.representation },
+            ar = regularTransactions.filter { it.type == 3 }.sumOf { it.netAmount } +
+                    returnTransactions.filter { it.type == 3 }.sumOf { it.netAmount }
+        )
+
+        // VAT calculations (same logic as buildReadReport)
+        val vatRate = 0.12
+        val vatableSales = totalNetSales / (1 + vatRate)
+        val vatAmount = totalNetSales - vatableSales
+
+        // Transaction statistics
+        val totalTransactions = regularTransactions.size
         val totalReturns = returnTransactions.size
 
-        val paymentDistribution = PaymentDistribution(
-            cash = validTransactions.sumOf { it.cash },
-            card = validTransactions.sumOf { it.card },
-            gCash = validTransactions.sumOf { it.gCash },
-            payMaya = validTransactions.sumOf { it.payMaya },
-            loyaltyCard = validTransactions.sumOf { it.loyaltyCard },
-            charge = validTransactions.sumOf { it.charge },
-            foodpanda = validTransactions.sumOf { it.foodpanda },
-            grabfood = validTransactions.sumOf { it.grabfood },
-            representation = validTransactions.sumOf { it.representation },
-            ar = validTransactions.filter { it.type == 3 }.sumOf { it.netAmount }
-        )
+        // Combine item sales from both regular and return transactions
+        val combinedItemSales = combineItemSales(regularItemCalculations.itemSales, returnItemCalculations.itemSales)
 
         return SalesReport(
             totalGross = totalGross,
             totalNetSales = totalNetSales,
-            totalDiscount = totalDiscount,
-            totalQuantity = totalQuantity,
+            totalDiscount = kotlin.math.abs(totalDiscount), // Show as positive for display
+            totalQuantity = kotlin.math.abs(totalQuantity), // Show as positive for display
             totalTransactions = totalTransactions,
             totalReturns = totalReturns,
             paymentDistribution = paymentDistribution,
-            itemSales = itemCalculations.itemSales
+            itemSales = combinedItemSales,
+            vatAmount = vatAmount,
+            vatableSales = vatableSales
         )
     }
+    private fun combineItemSales(
+        regularItemSales: List<ItemSalesSummary>,
+        returnItemSales: List<ItemSalesSummary>
+    ): List<ItemSalesSummary> {
+        val combinedItems = mutableMapOf<String, ItemSalesSummary>()
 
+        // Add regular sales
+        regularItemSales.forEach { item ->
+            combinedItems[item.name] = item
+        }
+
+        // Subtract returns
+        returnItemSales.forEach { returnItem ->
+            val existing = combinedItems[returnItem.name]
+            if (existing != null) {
+                combinedItems[returnItem.name] = existing.copy(
+                    quantity = existing.quantity + returnItem.quantity, // returnItem.quantity is negative
+                    totalAmount = existing.totalAmount + returnItem.totalAmount // returnItem.totalAmount is negative
+                )
+            } else {
+                // If item only exists in returns, add it with negative values
+                combinedItems[returnItem.name] = returnItem
+            }
+        }
+
+        // Filter out items with zero or negative quantities/amounts and sort by total amount
+        return combinedItems.values
+            .filter { it.quantity > 0 && it.totalAmount > 0 }
+            .sortedByDescending { it.totalAmount }
+    }
     // New data class to hold item calculation results
-    data class ItemCalculationResult(
-        val totalGross: Double,
-        val totalQuantity: Int,
-        val itemSales: List<ItemSalesSummary>
-    )
+
     private suspend fun calculateItemTotals(transactions: List<TransactionSummary>): ItemCalculationResult {
         return withContext(Dispatchers.IO) {
             val itemSales = mutableMapOf<String, ItemSalesSummary>()
@@ -2440,12 +2496,7 @@ class ReportsActivity : AppCompatActivity() {
                 items.forEach { item ->
                     val key = item.name
 
-                    // Get product details to fetch itemgroup
-                    val product =
-                        item.itemId?.let { transactionDao.getProductByItemId(it) } // You'll need this method
-                    val itemGroup = product?.itemGroup ?: "Unknown"
-
-                    // Use consistent pricing logic
+                    // Use consistent pricing logic (same as buildReadReport)
                     val effectivePrice = if (item.priceOverride != null && item.priceOverride > 0.0) {
                         item.priceOverride
                     } else {
@@ -2458,12 +2509,12 @@ class ReportsActivity : AppCompatActivity() {
                     totalGross += itemTotal
                     totalQuantity += item.quantity
 
-                    // Update item sales summary with itemGroup
+                    // Update item sales summary
                     val currentSummary = itemSales.getOrDefault(key, ItemSalesSummary(
                         name = item.name,
                         quantity = 0,
                         totalAmount = 0.0,
-                        itemGroup = itemGroup
+                        itemGroup = item.itemGroup ?: "Unknown"
                     ))
 
                     itemSales[key] = currentSummary.copy(
@@ -2527,7 +2578,7 @@ class ReportsActivity : AppCompatActivity() {
 
                             // Get product details for itemgroup
                             val product = item.itemId?.let { transactionDao.getProductByItemId(it) }
-                            val itemGroup = product?.itemGroup ?: "Unknown"
+                            val itemGroup = item.itemGroup ?: "Unknown"
 
                             val currentSummary = itemSales.getOrDefault(key, ItemSalesSummary(
                                 name = item.name,
@@ -2638,26 +2689,38 @@ class ReportsActivity : AppCompatActivity() {
 
 
     private fun updateUI(report: SalesReport) {
-        // Update main summary cards
+        // Update main summary cards with consistent calculations
         binding.totalGrossAmount.text = "₱${String.format("%.2f", report.totalGross)}"
         binding.totalNetSalesAmount.text = "₱${String.format("%.2f", report.totalNetSales)}"
         binding.totalDiscountAmount.text = "₱${String.format("%.2f", report.totalDiscount)}"
 
-        // Update the changed fields
-        binding.totalCostLabel.text = "${report.totalQuantity}"           // Now shows total quantity
-        binding.totalVatLabel.text = "${report.totalTransactions}"        // Now shows total transactions
-        binding.vatableSalesLabel.text = "${report.totalReturns}"         // Now shows total returns
+        // Update the statistics fields
+        binding.totalCostLabel.text = "${report.totalQuantity}"           // Total quantity sold
+        binding.totalVatLabel.text = "${report.totalTransactions}"        // Total transactions
+        binding.vatableSalesLabel.text = "${report.totalReturns}"         // Total returns
 
         // Update payment distribution and item sales
         updatePaymentDistributionAndItemSales(report.paymentDistribution, report.itemSales)
     }
-
+    private fun getVoidedTransactionsCount(transactions: List<TransactionSummary>): Int {
+        // Count transactions with return comments (same logic as buildReadReport)
+        return transactions.count { transaction ->
+            transaction.comment.contains("Return:", ignoreCase = true) ||
+                    transaction.comment.contains("Return processed:", ignoreCase = true)
+        }
+    }
 
     private fun createPaymentMethodView(method: String, amount: Double): androidx.cardview.widget.CardView {
         val cardView = androidx.cardview.widget.CardView(this).apply {
             radius = 12f
             cardElevation = 2f
-            setCardBackgroundColor(resources.getColor(android.R.color.white, null))
+            setCardBackgroundColor(
+                if (amount >= 0) {
+                    resources.getColor(android.R.color.white, null)
+                } else {
+                    resources.getColor(android.R.color.holo_red_light, null)
+                }
+            )
         }
 
         val paymentView = LinearLayout(this).apply {
@@ -2682,7 +2745,7 @@ class ReportsActivity : AppCompatActivity() {
             textSize = 20f
         }
 
-        // Payment method name (styled like summary card labels)
+        // Payment method name
         val methodNameTextView = TextView(this).apply {
             text = method.uppercase()
             layoutParams = LinearLayout.LayoutParams(
@@ -2696,15 +2759,25 @@ class ReportsActivity : AppCompatActivity() {
             setTypeface(null, android.graphics.Typeface.BOLD)
         }
 
-        // Amount (styled like summary card amounts)
+        // Amount with proper sign display
         val amountTextView = TextView(this).apply {
-            text = "₱${String.format("%.2f", amount)}"
+            text = if (amount < 0) {
+                "-₱${String.format("%.2f", kotlin.math.abs(amount))}"
+            } else {
+                "₱${String.format("%.2f", amount)}"
+            }
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
             textSize = 20f
-            setTextColor(getPaymentMethodColor(method))
+            setTextColor(
+                if (amount >= 0) {
+                    getPaymentMethodColor(method)
+                } else {
+                    resources.getColor(android.R.color.holo_red_dark, null)
+                }
+            )
             setTypeface(null, android.graphics.Typeface.BOLD)
         }
 
@@ -2715,7 +2788,6 @@ class ReportsActivity : AppCompatActivity() {
         cardView.addView(paymentView)
         return cardView
     }
-
     private fun getPaymentMethodColor(method: String): Int {
         return when (method.lowercase()) {
             "cash" -> Color.parseColor("#10B981") // Green like Net Sales

@@ -383,7 +383,11 @@ object RetrofitClient {
 //    private const val BASE_URL = "https://ecposeljin.com.ecticketph.com/"
 
     //   local
-//       private const val BASE_URL = "http://10.151.5.145:3000/"
+//       private const val BASE_URL = "http://10.151.5.239:8000/"
+
+//    private const val BASE_URL = "http://localhost:3000/"
+
+//    private const val BASE_URL = "http://localhost:3000/"
 
 //    private const val BASE_URL = "https://ecposmiddleware-aj1882pz3-progenxs-projects.vercel.app/"
 

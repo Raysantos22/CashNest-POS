@@ -1358,95 +1358,8 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                     transactionViewModel.getTransactionItems(transaction.transactionId)
                 }
 
-                val receiptContent = buildString {
-                    // BIR Info
-                    appendLine("TIN: Your TIN Number")
-                    appendLine("MIN: Your MIN")
-                    appendLine("Store: ${transaction.store}")
-                    appendLine("═".repeat(45))
-
-                    // Transaction Info
-                    appendLine("OFFICIAL RECEIPT")
-                    val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-                    appendLine("Cashier: ${transaction.staff}")
-                    appendLine("Date: ${dateFormat.format(transaction.createdDate)}")
-                    appendLine("SI#: ${transaction.receiptId}")
-                    appendLine("═".repeat(45))
-
-                    // Items Section
-                    appendLine("Item                    Price   Qty    Total")
-                    appendLine("═".repeat(45))
-
-                    items.forEach { item ->
-                        val effectivePrice = if (item.priceOverride!! > 0.0) item.priceOverride else item.price
-                        val itemTotal = effectivePrice * item.quantity
-
-                        // Item format
-                        if (item.isReturned) {
-                            appendLine("(Returned)")
-                        }
-                        appendLine("${item.name.take(22).padEnd(22)} ${
-                            String.format(
-                                "%7.2f",
-                                effectivePrice
-                            )
-                        } ${String.format("%3d", item.quantity)} ${String.format("%9.2f", itemTotal)}")
-
-                        // Discounts
-                        when (item.discountType.uppercase()) {
-                            "PERCENTAGE", "PWD", "SC" -> {
-                                val discountAmount = itemTotal * (item.discountRate)
-                                if (discountAmount > 0) {
-                                    appendLine(" Disc(${item.discountType}):${String.format("%22.2f", discountAmount)}")
-                                }
-                            }
-                            "FIXED", "FIXEDTOTAL" -> {
-                                if (item.discountAmount > 0) {
-                                    appendLine(" Disc(Fixed):${String.format("%25.2f", item.discountAmount)}")
-                                }
-                            }
-                        }
-                    }
-
-                    appendLine("═".repeat(45))
-
-                    // Totals
-                    appendLine("Gross Amount:${String.format("%27.2f", transaction.grossAmount)}")
-                    if (transaction.totalDiscountAmount > 0) {
-                        appendLine("Less Discount:${String.format("%26.2f", transaction.totalDiscountAmount)}")
-                    }
-                    appendLine("Net Amount:${String.format("%29.2f", transaction.netAmount)}")
-                    appendLine("Amount Paid:${String.format("%28.2f", transaction.totalAmountPaid)}")
-                    appendLine("Change:${String.format("%33.2f", transaction.changeGiven)}")
-
-                    if (transaction.partialPayment > 0) {
-                        appendLine("Total Paid:${String.format("%30.2f", (transaction.partialPayment + transaction.totalAmountPaid) - transaction.changeGiven)}")
-                    }
-
-                    // VAT Information
-                    appendLine("═".repeat(45))
-                    appendLine("VATable Sales:${String.format("%26.2f", transaction.vatableSales)}")
-                    appendLine("VAT Amount:${String.format("%29.2f", transaction.vatAmount)}")
-                    appendLine("VAT Exempt:${String.format("%29.2f", 0.0)}")
-
-                    // Footer
-                    appendLine("═".repeat(45))
-                    appendLine("ID/PWD/OSCA#:")
-                    appendLine("Name:")
-                    appendLine("Signature:")
-
-                    if ((!transaction.customerAccount.isNullOrBlank() && transaction.customerAccount != "Walk-in Customer") ||
-                        (!transaction.customerName.isNullOrBlank() && transaction.customerName != "Walk-in Customer")
-                    ) {
-                        appendLine("═".repeat(45))
-                        appendLine("Customer Account: ${transaction.customerAccount}")
-                        appendLine("Customer Name: ${transaction.customerName ?: "N/A"}")
-                    }
-
-                    appendLine("═".repeat(45))
-                    appendLine("Valid for 5 years from PTU date")
-                    appendLine("POS Provider: IT WARRIORS")
-                }
+                // Use the same logic as generateReceiptContent but formatted for dialog display
+                val receiptContent = buildTransactionDetailsContent(transaction, items)
 
                 detailsTextView.text = receiptContent
             } catch (e: Exception) {
@@ -1480,6 +1393,271 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
         }
 
         transactionDetailsDialog?.show()
+    }
+
+    // New helper function that uses the same logic as generateReceiptContent
+    private fun buildTransactionDetailsContent(
+        transaction: TransactionSummary,
+        items: List<TransactionRecord>
+    ): String {
+        val isReturn = transaction.type == 2
+
+        // Determine if this is a pure AR transaction or has mixed payments (same logic as generateReceiptContent)
+        val hasOtherPayments = transaction.cash > 0 || transaction.gCash > 0 ||
+                transaction.payMaya > 0 || transaction.card > 0 ||
+                transaction.loyaltyCard > 0 || transaction.charge > 0 ||
+                transaction.foodpanda > 0 || transaction.grabfood > 0 ||
+                transaction.representation > 0
+
+        val isPureAR = transaction.type == 3 && !hasOtherPayments
+        val isMixedPayment = hasOtherPayments && transaction.type == 3
+
+        return buildString {
+            // BIR Info
+            appendLine("TIN: Your TIN Number")
+            appendLine("MIN: Your MIN")
+            appendLine("Store: ${transaction.store}")
+            appendLine("═".repeat(45))
+
+            // Transaction Info with proper receipt type
+            when {
+                isReturn -> appendLine("RETURN RECEIPT")
+                isMixedPayment -> appendLine("MIXED PAYMENT RECEIPT")
+                isPureAR -> appendLine("AR RECEIPT")
+                else -> appendLine("OFFICIAL RECEIPT")
+            }
+
+            val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+            appendLine("Cashier: ${transaction.staff}")
+            appendLine("Date: ${dateFormat.format(transaction.createdDate)}")
+            appendLine("SI#: ${transaction.receiptId}")
+
+            // For return receipts, show original transaction reference
+            if (isReturn && !transaction.refundReceiptId.isNullOrEmpty()) {
+                appendLine("Original SI#: ${transaction.refundReceiptId}")
+            }
+
+            appendLine("═".repeat(45))
+
+            // Items Section
+            appendLine("Item                    Price   Qty    Total")
+            appendLine("═".repeat(45))
+
+            items.forEach { item ->
+                val effectivePrice = if (item.priceOverride != null && item.priceOverride!! > 0.0) {
+                    item.priceOverride!!
+                } else {
+                    item.price
+                }
+
+                // For returns, show the actual returned quantity and amounts
+                val displayQuantity = if (isReturn) kotlin.math.abs(item.quantity) else item.quantity
+                val displayPrice = effectivePrice
+                val itemTotal = if (isReturn) {
+                    kotlin.math.abs(effectivePrice * item.quantity) // Show positive amount for display
+                } else {
+                    effectivePrice * item.quantity
+                }
+
+                // Item format
+                if (item.isReturned && !isReturn) {
+                    appendLine("(Returned)")
+                }
+                appendLine("${item.name.take(22).padEnd(22)} ${
+                    String.format("%7.2f", displayPrice)
+                } ${String.format("%3d", displayQuantity)} ${String.format("%9.2f", itemTotal)}")
+
+                // Discounts (show positive amounts for readability)
+                when (item.discountType?.uppercase()) {
+                    "PERCENTAGE", "PWD", "SC" -> {
+                        val discountAmount = if (isReturn) {
+                            kotlin.math.abs(itemTotal * (item.discountRate ?: 0.0))
+                        } else {
+                            itemTotal * (item.discountRate ?: 0.0)
+                        }
+                        if (discountAmount > 0) {
+                            appendLine(" Disc(${item.discountType}):${String.format("%22.2f", discountAmount)}")
+                        }
+                    }
+                    "FIXED", "FIXEDTOTAL" -> {
+                        val discountAmount = if (isReturn) {
+                            kotlin.math.abs(item.discountAmount ?: 0.0)
+                        } else {
+                            item.discountAmount ?: 0.0
+                        }
+                        if (discountAmount > 0) {
+                            appendLine(" Disc(Fixed):${String.format("%25.2f", discountAmount)}")
+                        }
+                    }
+                }
+            }
+
+            appendLine("═".repeat(45))
+
+            // Totals - for returns, show positive amounts for readability but indicate they are returns
+            if (isReturn) {
+                appendLine("Return Amount:${String.format("%25.2f", kotlin.math.abs(transaction.grossAmount))}")
+                if (transaction.totalDiscountAmount != 0.0) {
+                    appendLine("Less Discount:${String.format("%26.2f", kotlin.math.abs(transaction.totalDiscountAmount))}")
+                }
+                appendLine("Net Return:${String.format("%27.2f", kotlin.math.abs(transaction.netAmount))}")
+                appendLine("Refund Amount:${String.format("%25.2f", kotlin.math.abs(transaction.totalAmountPaid))}")
+            } else {
+                appendLine("Gross Amount:${String.format("%27.2f", transaction.grossAmount)}")
+                if (transaction.totalDiscountAmount > 0) {
+                    appendLine("Less Discount:${String.format("%26.2f", transaction.totalDiscountAmount)}")
+                }
+                appendLine("Net Amount:${String.format("%29.2f", transaction.netAmount)}")
+            }
+
+            // Payment Method Details Section - Show for all non-return transactions (same as generateReceiptContent)
+            if (!isReturn) {
+                appendLine("═".repeat(45))
+                appendLine("PAYMENT DETAILS")
+                appendLine("═".repeat(45))
+
+                // Check for all payment methods used - Include AR calculation
+                val paymentMethods = mutableListOf<Pair<String, Double>>()
+
+                if (transaction.cash > 0) paymentMethods.add("Cash" to transaction.cash)
+                if (transaction.gCash > 0) paymentMethods.add("GCash" to transaction.gCash)
+                if (transaction.payMaya > 0) paymentMethods.add("PayMaya" to transaction.payMaya)
+                if (transaction.card > 0) paymentMethods.add("Card" to transaction.card)
+                if (transaction.loyaltyCard > 0) paymentMethods.add("Loyalty Card" to transaction.loyaltyCard)
+                if (transaction.charge > 0) paymentMethods.add("Charge" to transaction.charge)
+                if (transaction.foodpanda > 0) paymentMethods.add("FoodPanda" to transaction.foodpanda)
+                if (transaction.grabfood > 0) paymentMethods.add("GrabFood" to transaction.grabfood)
+                if (transaction.representation > 0) paymentMethods.add("Representation" to transaction.representation)
+
+                // Calculate AR amount (difference between net amount and cash payments)
+                val totalCashPayments = paymentMethods.sumOf { it.second }
+                val arAmount = transaction.netAmount - totalCashPayments
+
+                // Add AR payment if there's an outstanding amount or if it's an AR transaction
+                if (arAmount > 0.01 || (transaction.type == 3 && paymentMethods.isEmpty())) {
+                    paymentMethods.add("Accounts Receivable" to if (arAmount > 0.01) arAmount else transaction.netAmount)
+                }
+
+                // Check if this is a split payment or has partial payment
+                val isSplitPayment = paymentMethods.size > 1
+                val hasPartialPayment = transaction.partialPayment > 0
+
+                if (isSplitPayment) {
+                    appendLine("SPLIT PAYMENT:")
+                    paymentMethods.forEach { (method, amount) ->
+                        appendLine("${method.padEnd(25)} ${String.format("%12.2f", amount)}")
+                    }
+                    appendLine("═".repeat(45))
+                    appendLine("Total Amount:${String.format("%26.2f", transaction.netAmount)}")
+
+                    // Show breakdown of payments
+                    val cashPayments = paymentMethods.filter { it.first != "Accounts Receivable" }
+                    val arPayments = paymentMethods.filter { it.first == "Accounts Receivable" }
+
+                    if (cashPayments.isNotEmpty()) {
+                        val totalPaid = cashPayments.sumOf { it.second }
+                        appendLine("Amount Paid:${String.format("%28.2f", totalPaid)}")
+                    }
+                    if (arPayments.isNotEmpty()) {
+                        val totalAR = arPayments.sumOf { it.second }
+                        appendLine("On Account:${String.format("%30.2f", totalAR)}")
+                    }
+
+                } else if (paymentMethods.isNotEmpty()) {
+                    val (method, amount) = paymentMethods.first()
+                    appendLine("Payment Method: $method")
+                    if (method == "Accounts Receivable") {
+                        appendLine("On Account:${String.format("%30.2f", amount)}")
+                        appendLine("Amount Paid:${String.format("%28.2f", 0.0)}")
+                    } else {
+                        appendLine("Amount Paid:${String.format("%28.2f", amount)}")
+                    }
+                }
+
+                // Handle partial payments
+                if (hasPartialPayment) {
+                    appendLine("═".repeat(45))
+                    appendLine("PARTIAL PAYMENT SUMMARY:")
+                    appendLine("Previous Payment:${String.format("%24.2f", transaction.partialPayment)}")
+                    appendLine("This Payment:${String.format("%28.2f", transaction.totalAmountPaid)}")
+                    appendLine("Total Paid:${String.format("%30.2f", transaction.partialPayment + transaction.totalAmountPaid)}")
+                }
+
+                // Only show change for non-AR transactions or when change is actually given
+                if (!isPureAR || transaction.changeGiven > 0) {
+                    appendLine("Change:${String.format("%33.2f", transaction.changeGiven)}")
+                }
+            } else {
+                // For return transactions, show refund method details
+                appendLine("═".repeat(45))
+                appendLine("REFUND DETAILS")
+                appendLine("═".repeat(45))
+
+                val refundMethods = mutableListOf<Pair<String, Double>>()
+
+                // Collect refund methods (negative amounts become positive for display)
+                if (transaction.cash < 0) refundMethods.add("Cash Refund" to kotlin.math.abs(transaction.cash))
+                if (transaction.gCash < 0) refundMethods.add("GCash Refund" to kotlin.math.abs(transaction.gCash))
+                if (transaction.payMaya < 0) refundMethods.add("PayMaya Refund" to kotlin.math.abs(transaction.payMaya))
+                if (transaction.card < 0) refundMethods.add("Card Refund" to kotlin.math.abs(transaction.card))
+                if (transaction.loyaltyCard < 0) refundMethods.add("Loyalty Refund" to kotlin.math.abs(transaction.loyaltyCard))
+                if (transaction.charge < 0) refundMethods.add("Charge Refund" to kotlin.math.abs(transaction.charge))
+                if (transaction.foodpanda < 0) refundMethods.add("FoodPanda Refund" to kotlin.math.abs(transaction.foodpanda))
+                if (transaction.grabfood < 0) refundMethods.add("GrabFood Refund" to kotlin.math.abs(transaction.grabfood))
+                if (transaction.representation < 0) refundMethods.add("Representation Refund" to kotlin.math.abs(transaction.representation))
+
+                if (refundMethods.size > 1) {
+                    appendLine("SPLIT REFUND:")
+                    refundMethods.forEach { (method, amount) ->
+                        appendLine("${method.padEnd(25)} ${String.format("%12.2f", amount)}")
+                    }
+                    appendLine("═".repeat(45))
+                    appendLine("Total Refund:${String.format("%26.2f", refundMethods.sumOf { it.second })}")
+                } else if (refundMethods.isNotEmpty()) {
+                    val (method, amount) = refundMethods.first()
+                    appendLine("Refund Method: ${method.replace(" Refund", "")}")
+                    appendLine("Refund Amount:${String.format("%26.2f", amount)}")
+                }
+            }
+
+            // VAT Information - show positive amounts for readability
+            appendLine("═".repeat(45))
+            if (isReturn) {
+                appendLine("VATable Sales:${String.format("%26.2f", kotlin.math.abs(transaction.vatableSales))}")
+                appendLine("VAT Amount:${String.format("%29.2f", kotlin.math.abs(transaction.vatAmount))}")
+            } else {
+                appendLine("VATable Sales:${String.format("%26.2f", transaction.vatableSales)}")
+                appendLine("VAT Amount:${String.format("%29.2f", transaction.vatAmount)}")
+            }
+            appendLine("VAT Exempt:${String.format("%29.2f", 0.0)}")
+
+            // Footer
+            appendLine("═".repeat(45))
+            if (!isReturn) {
+                appendLine("ID/PWD/OSCA#:")
+                appendLine("Name:")
+                appendLine("Signature:")
+                appendLine("Comment: ${transaction.comment ?: "N/A"}")
+
+            } else {
+                appendLine("Return processed on: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())}")
+                if (!transaction.comment.isNullOrEmpty()) {
+                    appendLine("Return Reason: ${transaction.comment}")
+                }
+            }
+
+            if ((!transaction.customerAccount.isNullOrBlank() && transaction.customerAccount != "Walk-in Customer") ||
+                (!transaction.customerName.isNullOrBlank() && transaction.customerName != "Walk-in Customer")
+            ) {
+                appendLine("═".repeat(45))
+                appendLine("Customer Account: ${transaction.customerAccount}")
+                appendLine("Customer Name: ${transaction.customerName ?: "N/A"}")
+            }
+
+            appendLine("═".repeat(45))
+            appendLine("Valid for 5 years from PTU date")
+            appendLine("POS Provider: IT WARRIORS")
+        }
     }
 
 private fun printReceiptWithItems(transaction: TransactionSummary) {
@@ -1782,270 +1960,275 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
         }
     }
 
-private fun processReturnTransaction(
-    transaction: TransactionSummary,
-    items: List<TransactionRecord>,
-    remarks: String
-) {
-    lifecycleScope.launch {
-        try {
-            // Get current store from session
-            val currentStore = SessionManager.getCurrentUser()?.storeid
-                ?: throw IllegalStateException("No store ID found in current session")
+    private fun processReturnTransaction(
+        transaction: TransactionSummary,
+        items: List<TransactionRecord>,
+        remarks: String
+    ) {
+        lifecycleScope.launch {
+            try {
+                // Get current store from session
+                val currentStore = SessionManager.getCurrentUser()?.storeid
+                    ?: throw IllegalStateException("No store ID found in current session")
 
-            // Generate return transaction ID using number sequence
-            val returnTransactionId = numberSequenceRemoteRepository.getNextTransactionNumber(currentStore)
+                // Generate return transaction ID using number sequence
+                val returnTransactionId = numberSequenceRemoteRepository.getNextTransactionNumber(currentStore)
 
-            // Get store key and generate store-specific sequence
-            val storeKey = numberSequenceRemoteRepository.getCurrentStoreKey(currentStore)
-            val storeSequence = "$currentStore-${returnTransactionId.split("-").last()}"
+                // Get store key and generate store-specific sequence
+                val storeKey = numberSequenceRemoteRepository.getCurrentStoreKey(currentStore)
+                val storeSequence = "$currentStore-${returnTransactionId.split("-").last()}"
 
-            // Get original transaction records to update
-            val originalTransactionItems = transactionViewModel.getTransactionItems(transaction.transactionId)
+                // Get original transaction records to update
+                val originalTransactionItems = transactionViewModel.getTransactionItems(transaction.transactionId)
 
-            // Calculate return amounts based on actual items being returned (same logic as receipt)
-            var returnGrossAmount = 0.0
-            var returnTotalDiscountAmount = 0.0
-            var returnNetAmount = 0.0
+                // Calculate return amounts based on actual items being returned
+                var returnGrossAmount = 0.0
+                var returnTotalDiscountAmount = 0.0
+                var returnNetAmount = 0.0
+                var returnVatAmount = 0.0
 
-            // Create return transaction records with proper calculations
-            val returnedItems = items.map { item ->
-                // Calculate effective price (same as receipt logic)
-                val effectivePrice = if (item.priceOverride != null && item.priceOverride > 0.0) {
-                    item.priceOverride
+                // Create return transaction records with proper discount calculations
+                val returnedItems = items.map { item ->
+                    // Calculate effective price (same as receipt logic)
+                    val effectivePrice = if (item.priceOverride != null && item.priceOverride > 0.0) {
+                        item.priceOverride
+                    } else {
+                        item.price
+                    }
+
+                    // Calculate item total (same as receipt: effectivePrice * quantity)
+                    val itemTotal = effectivePrice * item.quantity
+
+                    // Calculate discount amount for this item (same as receipt logic)
+                    val itemDiscountAmount = when (item.discountType?.uppercase()) {
+                        "PERCENTAGE", "PWD", "SC" -> {
+                            itemTotal * (item.discountRate ?: 0.0)
+                        }
+                        "FIXED", "FIXEDTOTAL" -> {
+                            item.discountAmount ?: 0.0
+                        }
+                        else -> 0.0
+                    }
+
+                    // Calculate net amount for this item (itemTotal - discount)
+                    val itemNetAmount = itemTotal - itemDiscountAmount
+
+                    // Add to return totals
+                    returnGrossAmount += itemTotal
+                    returnTotalDiscountAmount += itemDiscountAmount
+                    returnNetAmount += itemNetAmount
+
+                    // Calculate VAT amount for this item
+                    val vatRate = 0.12
+                    val itemVatableSales = itemNetAmount / (1 + vatRate)
+                    val itemVatAmount = itemNetAmount - itemVatableSales
+                    returnVatAmount += itemVatAmount
+
+                    TransactionRecord(
+                        transactionId = returnTransactionId,
+                        name = item.name,
+                        price = item.price,
+                        quantity = -item.quantity, // Negative quantity
+                        subtotal = -itemTotal, // Negative subtotal
+                        vatRate = item.vatRate,
+                        vatAmount = -itemVatAmount, // Negative VAT amount
+                        discountRate = item.discountRate, // Keep the rate the same
+                        discountAmount = -itemDiscountAmount, // Negative discount amount
+                        total = -itemNetAmount, // Negative net total
+                        receiptNumber = returnTransactionId,
+                        paymentMethod = transaction.paymentMethod,
+                        ar = 0.0,
+                        comment = "Return: $remarks",
+                        lineNum = item.lineNum,
+                        itemId = item.itemId,
+                        itemGroup = item.itemGroup,
+                        netPrice = item.netPrice,
+                        costAmount = item.costAmount?.let { -it }, // Negative cost amount
+                        netAmount = -itemNetAmount, // Negative net amount
+                        grossAmount = -itemTotal, // Negative gross amount
+                        customerAccount = item.customerAccount,
+                        store = item.store,
+                        priceOverride = item.priceOverride,
+                        staff = getCurrentStaff(),
+                        discountOfferId = item.discountOfferId,
+                        lineDiscountAmount = -itemDiscountAmount, // Negative line discount
+                        lineDiscountPercentage = item.lineDiscountPercentage,
+                        customerDiscountAmount = item.customerDiscountAmount?.let { -it },
+                        taxAmount = item.taxAmount?.let { -it }, // Negative tax amount
+                        isReturned = true,
+                        returnTransactionId = transaction.transactionId,
+                        returnQuantity = item.quantity.toDouble(),
+                        returnLineId = item.lineNum?.toDouble() ?: 0.0,
+                        storeKey = storeKey,
+                        storeSequence = storeSequence,
+                        unit = item.unit,
+                        unitQuantity = item.unitQuantity,
+                        unitPrice = item.unitPrice,
+                        createdDate = Date(), // Current date for the return
+                        taxExempt = item.taxExempt,
+                        currency = item.currency,
+                        discountType = item.discountType,
+                        netAmountNotIncludingTax = item.netAmountNotIncludingTax?.let { -it }
+                    )
+                }
+
+                // Update original transaction items to mark them as returned
+                val updatedOriginalItems = originalTransactionItems.map { originalItem ->
+                    val matchingReturnItem = items.find {
+                        it.itemId == originalItem.itemId &&
+                                it.lineNum == originalItem.lineNum
+                    }
+
+                    if (matchingReturnItem != null) {
+                        originalItem.copy(
+                            isReturned = true,
+                            returnTransactionId = returnTransactionId,
+                            returnQuantity = matchingReturnItem.quantity.toDouble().absoluteValue
+                        )
+                    } else {
+                        originalItem
+                    }
+                }
+
+                // Calculate VAT amounts using the fixed return amounts
+                val returnVatableSales = returnNetAmount / (1 + 0.12)
+                val calculatedReturnVatAmount = returnNetAmount - returnVatableSales
+
+                // Calculate cost amount for returned items
+                val returnCostAmount = items.sumOf { item ->
+                    (item.costAmount ?: 0.0) * item.quantity
+                }
+
+                // Calculate payment method proportions based on net amount
+                val paymentProportion = if (transaction.netAmount > 0) {
+                    returnNetAmount / transaction.netAmount
                 } else {
-                    item.price
+                    0.0
                 }
 
-                // Calculate item total (same as receipt: effectivePrice * quantity)
-                val itemTotal = effectivePrice * item.quantity
-
-                // Calculate discount amount for this item (same as receipt logic)
-                val itemDiscountAmount = when (item.discountType?.uppercase()) {
-                    "PERCENTAGE", "PWD", "SC" -> {
-                        itemTotal * (item.discountRate ?: 0.0)
-                    }
-                    "FIXED", "FIXEDTOTAL" -> {
-                        item.discountAmount ?: 0.0
-                    }
-                    else -> 0.0
-                }
-
-                // Calculate net amount for this item (itemTotal - discount)
-                val itemNetAmount = itemTotal - itemDiscountAmount
-
-                // Add to return totals
-                returnGrossAmount += itemTotal
-                returnTotalDiscountAmount += itemDiscountAmount
-                returnNetAmount += itemNetAmount
-
-                TransactionRecord(
+                // Create return transaction summary with NEGATIVE amounts
+                val returnTransactionSummary = TransactionSummary(
                     transactionId = returnTransactionId,
-                    name = item.name,
-                    price = item.price,
-                    quantity = -item.quantity, // Negative quantity
-                    subtotal = -itemTotal, // Negative subtotal
-                    vatRate = item.vatRate,
-                    vatAmount = -item.vatAmount, // Negative VAT amount
-                    discountRate = item.discountRate, // Keep the rate the same
-                    discountAmount = -itemDiscountAmount, // Negative discount amount
-                    total = -itemNetAmount, // Negative net total
-                    receiptNumber = returnTransactionId,
-                    paymentMethod = transaction.paymentMethod,
-                    ar = 0.0,
-                    comment = "Return: $remarks",
-                    lineNum = item.lineNum,
-                    itemId = item.itemId,
-                    itemGroup = item.itemGroup,
-                    netPrice = item.netPrice,
-                    costAmount = item.costAmount?.let { -it }, // Negative cost amount
-                    netAmount = -itemNetAmount, // Negative net amount
-                    grossAmount = -itemTotal, // Negative gross amount
-                    customerAccount = item.customerAccount,
-                    store = item.store,
-                    priceOverride = item.priceOverride,
+                    type = 2, // Return transaction type
+                    receiptId = returnTransactionId,
+                    store = transaction.store,
                     staff = getCurrentStaff(),
-                    discountOfferId = item.discountOfferId,
-                    lineDiscountAmount = -itemDiscountAmount, // Negative line discount
-                    lineDiscountPercentage = item.lineDiscountPercentage,
-                    customerDiscountAmount = item.customerDiscountAmount?.let { -it },
-                    taxAmount = item.taxAmount?.let { -it }, // Negative tax amount
-                    isReturned = true,
-                    returnTransactionId = transaction.transactionId,
-                    returnQuantity = item.quantity.toDouble(),
-                    returnLineId = item.lineNum?.toDouble() ?: 0.0,
                     storeKey = storeKey,
                     storeSequence = storeSequence,
-                    unit = item.unit,
-                    unitQuantity = item.unitQuantity,
-                    unitPrice = item.unitPrice,
-                    createdDate = Date(), // Current date for the return
-                    taxExempt = item.taxExempt,
-                    currency = item.currency,
-                    discountType = item.discountType,
-                    netAmountNotIncludingTax = item.netAmountNotIncludingTax?.let { -it }
-                )
-            }
+                    customerAccount = transaction.customerAccount,
+                    netAmount = -returnNetAmount, // NEGATIVE
+                    costAmount = -returnCostAmount, // NEGATIVE
+                    grossAmount = -returnGrossAmount, // NEGATIVE
+                    partialPayment = 0.0,
+                    transactionStatus = 1,
+                    discountAmount = -returnTotalDiscountAmount, // NEGATIVE discount amount
+                    customerDiscountAmount = -items.sumOf { it.customerDiscountAmount ?: 0.0 }, // NEGATIVE
+                    totalDiscountAmount = -returnTotalDiscountAmount, // NEGATIVE total discount
+                    numberOfItems = -items.sumOf { it.quantity.toDouble() }, // NEGATIVE
+                    refundReceiptId = transaction.transactionId,
+                    currency = transaction.currency,
+                    zReportId = null,
+                    createdDate = Date(),
+                    priceOverride = 0.0,
+                    comment = "Return: $remarks",
+                    receiptEmail = null,
+                    markupAmount = 0.0,
+                    markupDescription = null,
+                    taxIncludedInPrice = -calculatedReturnVatAmount, // NEGATIVE VAT
+                    windowNumber = transaction.windowNumber,
+                    paymentMethod = transaction.paymentMethod,
+                    customerName = transaction.customerName,
+                    vatAmount = -calculatedReturnVatAmount, // NEGATIVE VAT amount
+                    vatExemptAmount = 0.0,
+                    vatableSales = -returnVatableSales, // NEGATIVE vatable sales
+                    discountType = transaction.discountType,
+                    totalAmountPaid = -returnNetAmount, // NEGATIVE (amount to be refunded)
+                    changeGiven = 0.0, // No change for returns
 
-            // Update original transaction items to mark them as returned
-            val updatedOriginalItems = originalTransactionItems.map { originalItem ->
-                val matchingReturnItem = items.find {
-                    it.itemId == originalItem.itemId &&
-                            it.lineNum == originalItem.lineNum
+                    // IMPORTANT: Calculate NEGATIVE payment method amounts proportionally
+                    gCash = if (transaction.gCash > 0) -(transaction.gCash * paymentProportion) else 0.0,
+                    payMaya = if (transaction.payMaya > 0) -(transaction.payMaya * paymentProportion) else 0.0,
+                    cash = if (transaction.cash > 0) -(transaction.cash * paymentProportion) else 0.0,
+                    card = if (transaction.card > 0) -(transaction.card * paymentProportion) else 0.0,
+                    loyaltyCard = if (transaction.loyaltyCard > 0) -(transaction.loyaltyCard * paymentProportion) else 0.0,
+                    charge = if (transaction.charge > 0) -(transaction.charge * paymentProportion) else 0.0,
+                    foodpanda = if (transaction.foodpanda > 0) -(transaction.foodpanda * paymentProportion) else 0.0,
+                    grabfood = if (transaction.grabfood > 0) -(transaction.grabfood * paymentProportion) else 0.0,
+                    representation = if (transaction.representation > 0) -(transaction.representation * paymentProportion) else 0.0,
+                    syncStatus = false
+                )
+
+                // Perform database operations
+                transactionDao.apply {
+                    // Update original transaction items to mark returned items
+                    updateTransactionRecords(updatedOriginalItems)
+
+                    // Insert return transaction summary
+                    insertTransactionSummary(returnTransactionSummary)
+
+                    // Insert return transaction records
+                    insertAll(returnedItems)
+
+                    // Update original transaction's refund receipt ID
+                    updateRefundReceiptId(transaction.transactionId, returnTransactionId)
                 }
 
-                if (matchingReturnItem != null) {
-                    originalItem.copy(
-                        isReturned = true,
-                        returnTransactionId = returnTransactionId,
-                        returnQuantity = matchingReturnItem.quantity.toDouble().absoluteValue
+                // Sync the return transaction
+                transactionViewModel.syncTransaction(returnTransactionId)
+
+                // Observe the sync result
+                transactionViewModel.syncStatus.observe(this@Window1) { result ->
+                    result.fold(
+                        onSuccess = { response ->
+                            Log.e("Return", "Return transaction synced successfully: ${response}")
+                            Toast.makeText(
+                                this@Window1,
+                                "Return transaction synced successfully",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        onFailure = { error ->
+                            Log.e("Return", "Sync failed: ${error.message}")
+                            Toast.makeText(
+                                this@Window1,
+                                "Return transaction saved locally but sync failed: ${error.message}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
                     )
-                } else {
-                    originalItem
                 }
-            }
 
-            // Calculate VAT amounts (same logic as receipt)
-            val vatRate = 0.12
-            val returnVatableSales = returnNetAmount / (1 + vatRate)
-            val returnVatAmount = returnNetAmount - returnVatableSales
-
-            // Calculate cost amount for returned items
-            val returnCostAmount = items.sumOf { item ->
-                (item.costAmount ?: 0.0) * item.quantity
-            }
-
-            // Calculate payment method proportions based on net amount
-            val paymentProportion = if (transaction.netAmount > 0) {
-                returnNetAmount / transaction.netAmount
-            } else {
-                0.0
-            }
-
-            // Create return transaction summary with calculated amounts (all negative for returns)
-            val returnTransactionSummary = TransactionSummary(
-                transactionId = returnTransactionId,
-                type = 2, // Return transaction type
-                receiptId = returnTransactionId,
-                store = transaction.store,
-                staff = getCurrentStaff(),
-                storeKey = storeKey,
-                storeSequence = storeSequence,
-                customerAccount = transaction.customerAccount,
-                // Use calculated amounts for the specific items being returned
-                netAmount = -returnNetAmount,
-                costAmount = -returnCostAmount,
-                grossAmount = -returnGrossAmount,
-                partialPayment = 0.0,
-                transactionStatus = 1,
-                discountAmount = -returnTotalDiscountAmount,
-                customerDiscountAmount = -items.sumOf { it.customerDiscountAmount ?: 0.0 },
-                totalDiscountAmount = -returnTotalDiscountAmount,
-                numberOfItems = -items.sumOf { it.quantity.toDouble() },
-                refundReceiptId = "${transaction.store}${transaction.transactionId}",
-                currency = transaction.currency,
-                zReportId = null,
-                createdDate = Date(),
-                priceOverride = 0.0,
-                comment = "$remarks",
-                receiptEmail = null,
-                markupAmount = 0.0,
-                markupDescription = null,
-                taxIncludedInPrice = -returnVatAmount,
-                windowNumber = transaction.windowNumber,
-                paymentMethod = transaction.paymentMethod,
-                customerName = transaction.customerName,
-                vatAmount = -returnVatAmount,
-                vatExemptAmount = 0.0,
-                vatableSales = -returnVatableSales,
-                discountType = transaction.discountType,
-                totalAmountPaid = -returnNetAmount,
-                changeGiven = 0.0, // No change for returns
-                // Calculate payment method amounts proportionally
-                gCash = if (transaction.gCash > 0) -(transaction.gCash * paymentProportion) else 0.0,
-                payMaya = if (transaction.payMaya > 0) -(transaction.payMaya * paymentProportion) else 0.0,
-                cash = if (transaction.cash > 0) -(transaction.cash * paymentProportion) else 0.0,
-                card = if (transaction.card > 0) -(transaction.card * paymentProportion) else 0.0,
-                loyaltyCard = if (transaction.loyaltyCard > 0) -(transaction.loyaltyCard * paymentProportion) else 0.0,
-                charge = if (transaction.charge > 0) -(transaction.charge * paymentProportion) else 0.0,
-                foodpanda = if (transaction.foodpanda > 0) -(transaction.foodpanda * paymentProportion) else 0.0,
-                grabfood = if (transaction.grabfood > 0) -(transaction.grabfood * paymentProportion) else 0.0,
-                representation = if (transaction.representation > 0) -(transaction.representation * paymentProportion) else 0.0,
-                syncStatus = false
-            )
-
-            // Perform database operations
-            transactionDao.apply {
-                // Update original transaction items to mark returned items
-                updateTransactionRecords(updatedOriginalItems)
-
-                // Insert return transaction summary
-                insertTransactionSummary(returnTransactionSummary)
-
-                // Insert return transaction records
-                insertAll(returnedItems)
-
-                // Update original transaction's refund receipt ID
-                updateRefundReceiptId(transaction.transactionId, returnTransactionId)
-            }
-
-            // Sync the return transaction
-            transactionViewModel.syncTransaction(returnTransactionId)
-
-            // Observe the sync result
-            transactionViewModel.syncStatus.observe(this@Window1) { result ->
-                result.fold(
-                    onSuccess = { response ->
-                        Log.e("Return", "Return transaction synced successfully: ${response}")
-                        Toast.makeText(
-                            this@Window1,
-                            "Return transaction synced successfully",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    },
-                    onFailure = { error ->
-                        Log.e("Return", "Sync failed: ${error.message}")
-                        Toast.makeText(
-                            this@Window1,
-                            "Return transaction saved locally but sync failed: ${error.message}",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
+                val transactionLogger = TransactionLogger(this@Window1)
+                transactionLogger.logReturn(
+                    returnTransaction = returnTransactionSummary,
+                    originalTransaction = transaction,
+                    returnedItems = returnedItems,
+                    remarks = remarks
                 )
-            }
 
-            val transactionLogger = TransactionLogger(this@Window1)
-            transactionLogger.logReturn(
-                returnTransaction = returnTransactionSummary,
-                originalTransaction = transaction,
-                returnedItems = returnedItems,
-                remarks = remarks
-            )
+                // Update inventory
+                updateInventory(returnedItems)
 
-            // Update inventory
-            updateInventory(returnedItems)
-
-            withContext(Dispatchers.Main) {
-                Toast.makeText(
-                    this@Window1,
-                    "Return processed successfully",
-                    Toast.LENGTH_SHORT
-                ).show()
-                printReturnReceipt(returnTransactionSummary, returnedItems, remarks)
-            }
-        } catch (e: Exception) {
-            Log.e("ReturnTransaction", "Error processing return: ${e.message}")
-            withContext(Dispatchers.Main) {
-                Toast.makeText(
-                    this@Window1,
-                    "Error processing return: ${e.message}",
-                    Toast.LENGTH_LONG
-                ).show()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@Window1,
+                        "Return processed successfully",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    printReturnReceipt(returnTransactionSummary, returnedItems, remarks)
+                }
+            } catch (e: Exception) {
+                Log.e("ReturnTransaction", "Error processing return: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@Window1,
+                        "Error processing return: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
         }
     }
-}
-
 private fun printReturnReceipt(
     transaction: TransactionSummary,
     returnedItems: List<TransactionRecord>,
@@ -2115,19 +2298,40 @@ private fun printReturnReceipt(
     }
 
     private fun clearCart() {
+        showLoadingState(true)
         lifecycleScope.launch {
-            if (partialPaymentAmount == 0.0) {
-                cartViewModel.deleteAll(windowId)
-                transactionComment = "" // Clear the comment
-                updateTotalAmountWithComment()
+            try {
+                if (partialPaymentAmount == 0.0) {
+                    cartViewModel.deleteAll(windowId)
+                    transactionComment = "" // Clear the comment
 
-                Toast.makeText(this@Window1, "Cart cleared", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(
-                    this@Window1,
-                    "Cannot clear cart with partial payment",
-                    Toast.LENGTH_SHORT
-                ).show()
+                    delay(100) // Ensure deletion completes
+
+                    withContext(Dispatchers.Main) {
+                        updateTotalAmountWithComment()
+                        showLoadingState(false)
+                        Toast.makeText(this@Window1, "Cart cleared", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        showLoadingState(false)
+                        Toast.makeText(
+                            this@Window1,
+                            "Cannot clear cart with partial payment",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error clearing cart: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    showLoadingState(false)
+                    Toast.makeText(
+                        this@Window1,
+                        "Error clearing cart. Please try again.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
             }
         }
     }
@@ -2384,10 +2588,16 @@ override fun onDestroy() {
 //        }
 //    }
 private fun voidPartialPayment() {
+    showLoadingState(true)
     lifecycleScope.launch {
-        if (!checkSupervisorAccess()) return@launch
-
         try {
+            if (!checkSupervisorAccess()) {
+                withContext(Dispatchers.Main) {
+                    showLoadingState(false)
+                }
+                return@launch
+            }
+
             val cartItems = cartViewModel.getAllCartItems(windowId).first()
             val removedAmount = cartItems.firstOrNull()?.partialPayment ?: 0.0
 
@@ -2395,14 +2605,23 @@ private fun voidPartialPayment() {
             partialPaymentAmount = 0.0
             partialPaymentApplied = false
 
-            updateTotalAmount(cartItems)
-            Toast.makeText(this@Window1, "Partial payment voided", Toast.LENGTH_SHORT).show()
+            delay(100) // Ensure operations complete
+
+            val updatedCartItems = cartViewModel.getAllCartItems(windowId).first()
+
+            withContext(Dispatchers.Main) {
+                updateTotalAmount(updatedCartItems)
+                showLoadingState(false)
+                Toast.makeText(this@Window1, "Partial payment voided", Toast.LENGTH_SHORT).show()
+            }
 
             printVoidPartialPaymentReceipt(removedAmount, cartItems)
         } catch (e: Exception) {
-            Log.e(TAG, "Error voiding partial payment", e)
-            Toast.makeText(this@Window1, "Error voiding partial payment", Toast.LENGTH_SHORT)
-                .show()
+            Log.e(TAG, "Error voiding partial payment: ${e.message}", e)
+            withContext(Dispatchers.Main) {
+                showLoadingState(false)
+                Toast.makeText(this@Window1, "Error voiding partial payment", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 }
@@ -4894,9 +5113,46 @@ private fun printReceiptWithBluetoothPrinter(
 
     private fun updateTotalAmountWithComment() {
         lifecycleScope.launch {
-            val cartItems = cartViewModel.getAllCartItems(windowId).first()
-            updateTotalAmount(cartItems)
+            try {
+                val cartItems = cartViewModel.getAllCartItems(windowId).first()
+                withContext(Dispatchers.Main) {
+                    updateTotalAmount(cartItems)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error updating total amount with comment: ${e.message}", e)
+            }
+        }
+    }
 
+    private fun setupCartObservation() {
+        lifecycleScope.launch {
+            try {
+                cartViewModel.currentWindowCartItems.collect { cartItems ->
+                    Log.d(TAG, "Received ${cartItems.size} cart items for window $windowId")
+                    withContext(Dispatchers.Main) {
+                        (binding.recyclerviewcart.adapter as CartAdapter).submitList(cartItems)
+                        updateTotalAmount(cartItems)
+                        updateCartUI(cartItems)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in cart observation: ${e.message}", e)
+            }
+        }
+
+        lifecycleScope.launch {
+            try {
+                cartViewModel.getAllCartItems(windowId).collect { cartItems ->
+                    Log.d(TAG, "Retrieved ${cartItems.size} cart items")
+                    withContext(Dispatchers.Main) {
+                        (binding.recyclerviewcart.adapter as CartAdapter).submitList(cartItems)
+                        updateTotalAmount(cartItems)
+                        updateCartUI(cartItems)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error collecting cart items: ${e.message}", e)
+            }
         }
     }
 
@@ -5235,13 +5491,23 @@ private fun printReceiptWithBluetoothPrinter(
 
     private fun setupCommentHandling() {
         lifecycleScope.launch {
-            cartViewModel.getCartComment(windowId)
+            try {
+                cartViewModel.getCartComment(windowId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting cart comment: ${e.message}", e)
+            }
         }
 
         lifecycleScope.launch {
-            cartViewModel.cartComment.collect { comment ->
-                transactionComment = comment ?: "" // Update local comment to empty if null
-                updateTotalAmountWithComment()
+            try {
+                cartViewModel.cartComment.collect { comment ->
+                    transactionComment = comment ?: "" // Update local comment to empty if null
+                    withContext(Dispatchers.Main) {
+                        updateTotalAmountWithComment()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error collecting cart comment: ${e.message}", e)
             }
         }
     }
@@ -5259,9 +5525,22 @@ private fun printReceiptWithBluetoothPrinter(
             .setPositiveButton("Save") { dialog, _ ->
                 val comment = commentEditText.text.toString().trim()
                 lifecycleScope.launch {
-                    cartViewModel.updateCartComment(windowId, comment)
-                    transactionComment = comment // Update the local variable
-                    updateTotalAmountWithComment() // Refresh total amount
+                    try {
+                        cartViewModel.updateCartComment(windowId, comment)
+                        transactionComment = comment // Update the local variable
+
+                        delay(50) // Small delay to ensure update completes
+
+                        withContext(Dispatchers.Main) {
+                            updateTotalAmountWithComment() // Refresh total amount
+                            Toast.makeText(this@Window1, "Comment saved", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error saving comment: ${e.message}", e)
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(this@Window1, "Error saving comment", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }
                 dialog.dismiss()
             }
@@ -5303,14 +5582,26 @@ private fun printReceiptWithBluetoothPrinter(
 
     private fun deleteComment() {
         lifecycleScope.launch {
-            cartViewModel.updateCartComment(windowId, null)
-            transactionComment = ""
-            updateTotalAmountWithComment()
-            cartViewModel.getCartComment(windowId) // Refresh the comment from the ViewModel
-            Toast.makeText(this@Window1, "Comment deleted", Toast.LENGTH_SHORT).show()
+            try {
+                cartViewModel.updateCartComment(windowId, null)
+                transactionComment = ""
+
+                delay(50) // Small delay to ensure update completes
+
+                cartViewModel.getCartComment(windowId) // Refresh the comment from the ViewModel
+
+                withContext(Dispatchers.Main) {
+                    updateTotalAmountWithComment()
+                    Toast.makeText(this@Window1, "Comment deleted", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error deleting comment: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@Window1, "Error deleting comment", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
-
 
     private fun updateCartUI(cartItems: List<CartItem>) {
         // Update your RecyclerView or other UI components with the cart items
@@ -5694,9 +5985,9 @@ private fun connectToPrinter() {
         sb.append(0x1B.toChar()) // ESC
         sb.append('3'.toChar())  // Select line spacing
         sb.append(50.toChar())
+
         // Store Header
         sb.appendLine("ELJIN CORP")
-
         sb.appendLine()
         sb.appendLine("TIN: Your TIN Number")
         sb.appendLine("MIN: Your MIN")
@@ -5708,7 +5999,7 @@ private fun connectToPrinter() {
         // Transaction Info
         val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
         sb.appendLine("Date: ${dateFormat.format(Date())}")
-//        sb.appendLine("SI#: ${cartItems.firstOrNull()?.transactionId ?: "N/A"}")
+        sb.appendLine("Window: ${windowId}")
         sb.appendLine("-".repeat(45))
 
         // Items Section
@@ -5727,10 +6018,7 @@ private fun connectToPrinter() {
             // Item line with compact format
             sb.appendLine(
                 "${item.productName.take(22).padEnd(22)} ${
-                    String.format(
-                        "%7.2f",
-                        effectivePrice
-                    )
+                    String.format("%7.2f", effectivePrice)
                 } ${String.format("%3d", item.quantity)} ${String.format("%9.2f", itemTotal)}"
             )
 
@@ -5771,17 +6059,50 @@ private fun connectToPrinter() {
         }
         sb.appendLine("Net Amount:${String.format("%29.2f", netAmount)}")
 
-        // Payment Method
+        // Enhanced Payment Details Section
         sb.appendLine("-".repeat(45))
+        sb.appendLine("PAYMENT DETAILS")
+        sb.appendLine("-".repeat(45))
+
+        // Show current payment method and amount
         sb.appendLine("Payment Method: $paymentMethod")
-        sb.appendLine("Payment:${String.format("%32.2f", amountPaid)}")
+        sb.appendLine("This Payment:${String.format("%28.2f", amountPaid)}")
+
+        // Check if there are multiple payment methods used in previous payments
+        val previousPayments = mutableListOf<Pair<String, Double>>()
+        cartItems.firstOrNull()?.let { firstItem ->
+            if (firstItem.cash > 0 && paymentMethod != "Cash") previousPayments.add("Cash" to firstItem.cash)
+            if (firstItem.gCash > 0 && paymentMethod != "GCash") previousPayments.add("GCash" to firstItem.gCash)
+            if (firstItem.card > 0 && paymentMethod != "Credit Card" && paymentMethod != "Debit Card") previousPayments.add("Card" to firstItem.card)
+            // Add other payment methods as needed
+        }
+
+        if (previousPayments.isNotEmpty()) {
+            sb.appendLine("-".repeat(45))
+            sb.appendLine("PREVIOUS PAYMENTS:")
+            previousPayments.forEach { (method, amount) ->
+                sb.appendLine("${method.padEnd(25)} ${String.format("%12.2f", amount)}")
+            }
+        }
 
         // Partial Payment Summary
         sb.appendLine("-".repeat(45))
         sb.appendLine("PARTIAL PAYMENT SUMMARY")
+        val previousTotal = totalPartialPayment - amountPaid
+        if (previousTotal > 0) {
+            sb.appendLine("Previous Total:${String.format("%26.2f", previousTotal)}")
+        }
         sb.appendLine("This Payment:${String.format("%28.2f", amountPaid)}")
         sb.appendLine("Total Paid:${String.format("%30.2f", totalPartialPayment)}")
-        sb.appendLine("Balance:${String.format("%32.2f", remainingBalance)}")
+        sb.appendLine("Balance Due:${String.format("%29.2f", remainingBalance)}")
+
+        // Show payment completion status
+        if (remainingBalance <= 0.01) { // Account for rounding
+            sb.appendLine("STATUS: FULLY PAID")
+        } else {
+            val percentagePaid = (totalPartialPayment / netAmount) * 100
+            sb.appendLine("Paid: ${String.format("%.1f", percentagePaid)}% of total")
+        }
 
         // VAT Info
         sb.appendLine("-".repeat(45))
@@ -5789,18 +6110,68 @@ private fun connectToPrinter() {
         sb.appendLine("VAT Amount:${String.format("%29.2f", vatAmount)}")
         sb.appendLine("VAT Exempt:${String.format("%29.2f", 0.0)}")
 
+        // Customer Info if available
+        cartItems.firstOrNull()?.let { firstItem ->
+            if (!firstItem.customerName.isNullOrBlank() && firstItem.customerName != "Walk-in Customer") {
+                sb.appendLine("-".repeat(45))
+                sb.appendLine("Customer: ${firstItem.customerName}")
+                if (!firstItem.customerAccName.isNullOrBlank()) {
+                    sb.appendLine("Account: ${firstItem.customerAccName}")
+                }
+            }
+        }
+
         // Footer
         sb.appendLine("-".repeat(45))
         sb.appendLine("Valid for 5 years from PTU date")
         sb.appendLine("POS Provider: IT WARRIORS")
-        sb.append("-".repeat(45))
+        sb.appendLine("-".repeat(45))
+
+        // Reset text formatting
         sb.append(0x1B.toChar()) // ESC
         sb.append('!'.toChar())  // Select print mode
         sb.append(0x00.toChar()) // Reset to normal size
-
         sb.append(0x1B.toChar()) // ESC
         sb.append('2'.toChar())
+
         printReceiptWithBluetoothPrinter(sb.toString().trimEnd())
+    }
+
+    // 5. Helper function for return payment methods formatting
+    private fun formatReturnPaymentMethodsSection(transaction: TransactionSummary): String {
+        val sb = StringBuilder()
+
+        sb.appendLine("-".repeat(45))
+        sb.appendLine("REFUND DETAILS")
+        sb.appendLine("-".repeat(45))
+
+        val refundMethods = mutableListOf<Pair<String, Double>>()
+
+        // Collect refund methods (negative amounts become positive for display)
+        if (transaction.cash < 0) refundMethods.add("Cash Refund" to kotlin.math.abs(transaction.cash))
+        if (transaction.gCash < 0) refundMethods.add("GCash Refund" to kotlin.math.abs(transaction.gCash))
+        if (transaction.payMaya < 0) refundMethods.add("PayMaya Refund" to kotlin.math.abs(transaction.payMaya))
+        if (transaction.card < 0) refundMethods.add("Card Refund" to kotlin.math.abs(transaction.card))
+        if (transaction.loyaltyCard < 0) refundMethods.add("Loyalty Refund" to kotlin.math.abs(transaction.loyaltyCard))
+        if (transaction.charge < 0) refundMethods.add("Charge Refund" to kotlin.math.abs(transaction.charge))
+        if (transaction.foodpanda < 0) refundMethods.add("FoodPanda Refund" to kotlin.math.abs(transaction.foodpanda))
+        if (transaction.grabfood < 0) refundMethods.add("GrabFood Refund" to kotlin.math.abs(transaction.grabfood))
+        if (transaction.representation < 0) refundMethods.add("Representation Refund" to kotlin.math.abs(transaction.representation))
+
+        if (refundMethods.size > 1) {
+            sb.appendLine("SPLIT REFUND:")
+            refundMethods.forEach { (method, amount) ->
+                sb.appendLine("${method.padEnd(25)} ${String.format("%12.2f", amount)}")
+            }
+            sb.appendLine("-".repeat(45))
+            sb.appendLine("Total Refund:${String.format("%26.2f", refundMethods.sumOf { it.second })}")
+        } else if (refundMethods.isNotEmpty()) {
+            val (method, amount) = refundMethods.first()
+            sb.appendLine("Refund Method: ${method.replace(" Refund", "")}")
+            sb.appendLine("Refund Amount:${String.format("%26.2f", amount)}")
+        }
+
+        return sb.toString()
     }
 
 
@@ -5963,96 +6334,151 @@ private fun connectToPrinter() {
 
     private fun showDiscountDialog() {
         lifecycleScope.launch {
-            val cartItems = cartViewModel.getAllCartItems(windowId).first()
-            if (cartItems.isEmpty()) {
-                Toast.makeText(
-                    this@Window1,
-                    "No items in cart. Please add items before applying discount.",
-                    Toast.LENGTH_SHORT
-                ).show()
-                return@launch
-            }
-
-            val dialogView = layoutInflater.inflate(R.layout.dialog_discount, null)
-            val discountRecyclerView = dialogView.findViewById<RecyclerView>(R.id.discountRecyclerView)
-            val cartItemsLayout = dialogView.findViewById<LinearLayout>(R.id.cartItemsLayout)
-            val cartItemsTitle = dialogView.findViewById<TextView>(R.id.cartItemsTitle)
-            val searchEditText = dialogView.findViewById<EditText>(R.id.searchDiscounts)
-            val selectAllCheckbox = dialogView.findViewById<CheckBox>(R.id.selectAllCheckbox)
-
-            var selectedDiscount: Discount? = null
-            var adapter: DiscountAdapter? = null
-
-            val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle)
-                .setTitle("Apply Discount")
-                .setView(dialogView)
-                .setPositiveButton("Apply") { dialog, _ ->
-                    applySelectedDiscount(dialogView, selectedDiscount)
-                    dialog.dismiss()
+            try {
+                val cartItems = cartViewModel.getAllCartItems(windowId).first()
+                if (cartItems.isEmpty()) {
+                    Toast.makeText(
+                        this@Window1,
+                        "No items in cart. Please add items before applying discount.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@launch
                 }
-                .setNegativeButton("Cancel") { dialog, _ ->
-                    dialog.cancel()
-                }
-                .create()
 
-            dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+                withContext(Dispatchers.Main) {
+                    val dialogView = layoutInflater.inflate(R.layout.dialog_discount, null)
+                    val discountRecyclerView = dialogView.findViewById<RecyclerView>(R.id.discountRecyclerView)
+                    val cartItemsLayout = dialogView.findViewById<LinearLayout>(R.id.cartItemsLayout)
+                    val cartItemsTitle = dialogView.findViewById<TextView>(R.id.cartItemsTitle)
+                    val searchEditText = dialogView.findViewById<EditText>(R.id.searchDiscounts)
+                    val selectAllCheckbox = dialogView.findViewById<CheckBox>(R.id.selectAllCheckbox)
 
-            // Set up search functionality
-            searchEditText.addTextChangedListener(object : TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-                override fun afterTextChanged(s: Editable?) {
-                    adapter?.filter(s.toString())
-                }
-            })
+                    var selectedDiscount: Discount? = null
+                    var adapter: DiscountAdapter? = null
 
-            // Handle "Done" action on keyboard
-            searchEditText.setOnEditorActionListener { v, actionId, event ->
-                if (actionId == EditorInfo.IME_ACTION_DONE) {
-                    hideKeyboard(v)
-                    true
-                } else {
-                    false
-                }
-            }
+                    val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle)
+                        .setTitle("Apply Discount")
+                        .setView(dialogView)
+                        .setPositiveButton("Apply") { dialog, _ ->
+                            applySelectedDiscount(dialogView, selectedDiscount)
+                            dialog.dismiss()
+                        }
+                        .setNegativeButton("Cancel") { dialog, _ ->
+                            dialog.cancel()
+                        }
+                        .create()
 
-            discountViewModel.fetchDiscounts()
-            discountViewModel.discounts.observe(this@Window1) { discounts ->
-                adapter = DiscountAdapter(discounts) { discount ->
-                    selectedDiscount = discount
-                    updateCartItemsForDiscount(cartItemsLayout, cartItemsTitle, selectAllCheckbox, discount)
-                }
-                discountRecyclerView.adapter = adapter
+                    dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
 
-                val layoutManager = LinearLayoutManager(this@Window1, LinearLayoutManager.HORIZONTAL, false)
-                discountRecyclerView.layoutManager = layoutManager
-            }
+                    // Show loading state for discount recycler view
+                    showDiscountRecyclerLoading(dialogView, true)
 
-            // Set up Select All checkbox listener
-            selectAllCheckbox.setOnCheckedChangeListener { _, isChecked ->
-                for (i in 0 until cartItemsLayout.childCount) {
-                    val view = cartItemsLayout.getChildAt(i)
-                    if (view is CheckBox && view.isEnabled) {
-                        view.isChecked = isChecked
+                    // Set up search functionality
+                    searchEditText.addTextChangedListener(object : TextWatcher {
+                        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                        override fun afterTextChanged(s: Editable?) {
+                            adapter?.filter(s.toString())
+                        }
+                    })
+
+                    // Handle "Done" action on keyboard
+                    searchEditText.setOnEditorActionListener { v, actionId, event ->
+                        if (actionId == EditorInfo.IME_ACTION_DONE) {
+                            hideKeyboard(v)
+                            true
+                        } else {
+                            false
+                        }
                     }
-                }
-            }
 
-            // Populate cart items
-            cartItems.forEach { cartItem ->
-                if (cartItem.discount == 0.0) {
-                    val checkBox = CheckBox(this@Window1).apply {
-                        text = "${cartItem.productName} (${cartItem.quantity} x ₱${cartItem.price})"
-                        tag = cartItem.id
-                        setTextColor(Color.BLACK)
-                        buttonTintList = ColorStateList.valueOf(Color.BLACK)
+                    // Initialize adapter first
+                    adapter = DiscountAdapter { discount ->
+                        selectedDiscount = discount
+                        updateCartItemsForDiscount(cartItemsLayout, cartItemsTitle, selectAllCheckbox, discount)
                     }
-                    cartItemsLayout.addView(checkBox)
+                    discountRecyclerView.adapter = adapter
+                    val layoutManager = LinearLayoutManager(this@Window1, LinearLayoutManager.HORIZONTAL, false)
+                    discountRecyclerView.layoutManager = layoutManager
+
+                    // Load discounts from local data first for fast loading
+                    lifecycleScope.launch {
+                        try {
+                            // Get cached discounts first for immediate display
+                            val cachedDiscounts = discountViewModel.discounts.value
+                            if (!cachedDiscounts.isNullOrEmpty()) {
+                                withContext(Dispatchers.Main) {
+                                    adapter?.setDiscounts(cachedDiscounts)
+                                    showDiscountRecyclerLoading(dialogView, false)
+                                }
+                            }
+
+                            // Fetch fresh discounts in background
+                            discountViewModel.fetchDiscounts()
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error loading discounts: ${e.message}", e)
+                            withContext(Dispatchers.Main) {
+                                showDiscountRecyclerLoading(dialogView, false)
+                                Toast.makeText(
+                                    this@Window1,
+                                    "Error loading discounts",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    }
+
+                    // Observe discount updates
+                    discountViewModel.discounts.observe(this@Window1) { discounts ->
+                        if (!discounts.isNullOrEmpty()) {
+                            adapter?.setDiscounts(discounts)
+                            showDiscountRecyclerLoading(dialogView, false)
+                        }
+                    }
+
+                    // Set up Select All checkbox listener
+                    selectAllCheckbox.setOnCheckedChangeListener { _, isChecked ->
+                        for (i in 0 until cartItemsLayout.childCount) {
+                            val view = cartItemsLayout.getChildAt(i)
+                            if (view is CheckBox && view.isEnabled) {
+                                view.isChecked = isChecked
+                            }
+                        }
+                    }
+
+                    // Populate cart items
+                    cartItems.forEach { cartItem ->
+                        if (cartItem.discount == 0.0) {
+                            val checkBox = CheckBox(this@Window1).apply {
+                                text = "${cartItem.productName} (${cartItem.quantity} x ₱${cartItem.price})"
+                                tag = cartItem.id
+                                setTextColor(Color.BLACK)
+                                buttonTintList = ColorStateList.valueOf(Color.BLACK)
+                            }
+                            cartItemsLayout.addView(checkBox)
+                        }
+                    }
+
+                    dialog.show()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error showing discount dialog: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@Window1,
+                        "Error loading discount dialog",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
             }
-
-            dialog.show()
         }
+    }
+    private fun showDiscountRecyclerLoading(dialogView: View, isLoading: Boolean) {
+        val loadingIndicator = dialogView.findViewById<View>(R.id.discountRecyclerLoadingIndicator)
+        val discountRecyclerView = dialogView.findViewById<RecyclerView>(R.id.discountRecyclerView)
+
+        loadingIndicator?.visibility = if (isLoading) View.VISIBLE else View.GONE
+        discountRecyclerView?.alpha = if (isLoading) 0.5f else 1.0f
     }
 
     // Add this extension function to hide the keyboard
@@ -6093,6 +6519,9 @@ private fun connectToPrinter() {
         val cartItemsLayout = dialogView.findViewById<LinearLayout>(R.id.cartItemsLayout)
         val selectedCartItemIds = mutableListOf<Int>()
 
+        // Show loading state
+        showDiscountLoadingState(dialogView, true)
+
         for (i in 0 until cartItemsLayout.childCount) {
             val view = cartItemsLayout.getChildAt(i)
             if (view is CheckBox && view.isChecked) {
@@ -6106,82 +6535,137 @@ private fun connectToPrinter() {
 
         if (selectedCartItemIds.isNotEmpty() && selectedDiscount != null) {
             lifecycleScope.launch {
-                val cartItems = cartViewModel.getAllCartItems(windowId).first()
-                val selectedItems = cartItems.filter { it.id in selectedCartItemIds }
+                try {
+                    val cartItems = cartViewModel.getAllCartItems(windowId).first()
+                    val selectedItems = cartItems.filter { it.id in selectedCartItemIds }
 
-                // Check if items already have discounts
-                val itemsWithExistingDiscounts = selectedItems.filter {
-                    it.discountType.isNotBlank() && it.discountType != "FIXEDTOTAL"
-                }
+                    // Check if items already have discounts
+                    val itemsWithExistingDiscounts = selectedItems.filter {
+                        it.discountType.isNotBlank() && it.discountType != "FIXEDTOTAL"
+                    }
 
-                if (selectedDiscount.DISCOUNTTYPE.equals("FIXEDTOTAL", ignoreCase = true) &&
-                    itemsWithExistingDiscounts.isNotEmpty()
-                ) {
-                    // Show warning dialog for items with existing discounts
-                    AlertDialog.Builder(this@Window1)
-                        .setTitle("Warning")
-                        .setMessage("Some selected items already have discounts. Fixed Total discount cannot be combined with other discounts. Remove existing discounts first?")
-                        .setPositiveButton("Remove and Apply") { _, _ ->
-                            // Remove existing discounts and apply FIXEDTOTAL
-                            selectedItems.forEach { item ->
-                                val updatedItem = item.copy(
-                                    discount = 0.0,
-                                    discountType = "",
-                                    discountAmount = 0.0,
-                                    discountName = null
+                    if (selectedDiscount.DISCOUNTTYPE.equals("FIXEDTOTAL", ignoreCase = true) &&
+                        itemsWithExistingDiscounts.isNotEmpty()
+                    ) {
+                        withContext(Dispatchers.Main) {
+                            showDiscountLoadingState(dialogView, false)
+                            // Show warning dialog for items with existing discounts
+                            AlertDialog.Builder(this@Window1)
+                                .setTitle("Warning")
+                                .setMessage("Some selected items already have discounts. Fixed Total discount cannot be combined with other discounts. Remove existing discounts first?")
+                                .setPositiveButton("Remove and Apply") { _, _ ->
+                                    lifecycleScope.launch {
+                                        showDiscountLoadingState(dialogView, true)
+                                        try {
+                                            // Remove existing discounts and apply FIXEDTOTAL
+                                            selectedItems.forEach { item ->
+                                                val updatedItem = item.copy(
+                                                    discount = 0.0,
+                                                    discountType = "",
+                                                    discountAmount = 0.0,
+                                                    discountName = null
+                                                )
+                                                cartViewModel.update(updatedItem)
+                                            }
+
+                                            delay(100) // Ensure updates complete
+
+                                            applyFixedTotalDiscount(
+                                                selectedItems,
+                                                selectedDiscount.PARAMETER.toDouble(),
+                                                selectedDiscount.DISCOFFERNAME
+                                            )
+
+                                            delay(100) // Ensure discount application completes
+
+                                            val updatedCartItems = cartViewModel.getAllCartItems(windowId).first()
+                                            withContext(Dispatchers.Main) {
+                                                updateTotalAmount(updatedCartItems)
+                                                showDiscountLoadingState(dialogView, false)
+                                                Toast.makeText(
+                                                    this@Window1,
+                                                    "Discount applied to ${selectedItems.size} items",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            Log.e(TAG, "Error applying discount: ${e.message}", e)
+                                            withContext(Dispatchers.Main) {
+                                                showDiscountLoadingState(dialogView, false)
+                                                Toast.makeText(
+                                                    this@Window1,
+                                                    "Error applying discount. Please try again.",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        }
+                                    }
+                                }
+                                .setNegativeButton("Cancel") { _, _ ->
+                                    showDiscountLoadingState(dialogView, false)
+                                }
+                                .show()
+                        }
+                    } else {
+                        // Apply the discount normally
+                        when (selectedDiscount.DISCOUNTTYPE.toUpperCase()) {
+                            "FIXEDTOTAL" -> applyFixedTotalDiscount(
+                                selectedItems,
+                                selectedDiscount.PARAMETER.toDouble(),
+                                selectedDiscount.DISCOFFERNAME
+                            )
+
+                            "PERCENTAGE" -> {
+                                val isVatExempt = selectedDiscount.DISCOFFERNAME.contains(
+                                    "SENIOR",
+                                    ignoreCase = true
+                                ) ||
+                                        selectedDiscount.DISCOFFERNAME.contains(
+                                            "PWD",
+                                            ignoreCase = true
+                                        )
+                                applyPercentageDiscount(
+                                    selectedItems,
+                                    selectedDiscount.PARAMETER.toDouble(),
+                                    isVatExempt,
+                                    selectedDiscount.DISCOFFERNAME
                                 )
-                                cartViewModel.update(updatedItem)
                             }
-                            applyFixedTotalDiscount(
+
+                            "FIXED" -> applyFixedDiscount(
                                 selectedItems,
                                 selectedDiscount.PARAMETER.toDouble(),
                                 selectedDiscount.DISCOFFERNAME
                             )
                         }
-                        .setNegativeButton("Cancel", null)
-                        .show()
-                } else {
-                    // Apply the discount normally
-                    when (selectedDiscount.DISCOUNTTYPE.toUpperCase()) {
-                        "FIXEDTOTAL" -> applyFixedTotalDiscount(
-                            selectedItems,
-                            selectedDiscount.PARAMETER.toDouble(),
-                            selectedDiscount.DISCOFFERNAME
-                        )
 
-                        "PERCENTAGE" -> {
-                            val isVatExempt = selectedDiscount.DISCOFFERNAME.contains(
-                                "SENIOR",
-                                ignoreCase = true
-                            ) ||
-                                    selectedDiscount.DISCOFFERNAME.contains(
-                                        "PWD",
-                                        ignoreCase = true
-                                    )
-                            applyPercentageDiscount(
-                                selectedItems,
-                                selectedDiscount.PARAMETER.toDouble(),
-                                isVatExempt,
-                                selectedDiscount.DISCOFFERNAME
-                            )
+                        delay(100) // Ensure discount application completes
+
+                        val updatedCartItems = cartViewModel.getAllCartItems(windowId).first()
+                        withContext(Dispatchers.Main) {
+                            updateTotalAmount(updatedCartItems)
+                            showDiscountLoadingState(dialogView, false)
+                            Toast.makeText(
+                                this@Window1,
+                                "Discount applied to ${selectedItems.size} items",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
-
-                        "FIXED" -> applyFixedDiscount(
-                            selectedItems,
-                            selectedDiscount.PARAMETER.toDouble(),
-                            selectedDiscount.DISCOFFERNAME
-                        )
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error applying discount: ${e.message}", e)
+                    withContext(Dispatchers.Main) {
+                        showDiscountLoadingState(dialogView, false)
+                        Toast.makeText(
+                            this@Window1,
+                            "Error applying discount. Please try again.",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     }
                 }
-
-                Toast.makeText(
-                    this@Window1,
-                    "Discount applied to ${selectedItems.size} items",
-                    Toast.LENGTH_SHORT
-                ).show()
-                updateTotalAmount(cartViewModel.getAllCartItems(windowId).first())
             }
         } else {
+            showDiscountLoadingState(dialogView, false)
             Toast.makeText(
                 this@Window1,
                 "Please select both a discount and at least one item",
@@ -6189,7 +6673,19 @@ private fun connectToPrinter() {
             ).show()
         }
     }
+    private fun showDiscountLoadingState(dialogView: View, isLoading: Boolean) {
+        val loadingIndicator = dialogView.findViewById<View>(R.id.discountLoadingIndicator)
+        val discountRecyclerView = dialogView.findViewById<RecyclerView>(R.id.discountRecyclerView)
+        val cartItemsLayout = dialogView.findViewById<LinearLayout>(R.id.cartItemsLayout)
 
+        loadingIndicator?.visibility = if (isLoading) View.VISIBLE else View.GONE
+        discountRecyclerView?.alpha = if (isLoading) 0.5f else 1.0f
+        cartItemsLayout?.alpha = if (isLoading) 0.5f else 1.0f
+
+        // Disable/enable interactions
+        discountRecyclerView?.isEnabled = !isLoading
+        cartItemsLayout?.isEnabled = !isLoading
+    }
 
 
     // In your Window1.kt
@@ -6375,6 +6871,8 @@ private fun connectToPrinter() {
         }
     }
     private fun updateTotalAmount(cartItems: List<CartItem>) {
+        Log.d(TAG, "Updating total amount for ${cartItems.size} items")
+
         var subtotal = 0.0
         var discount = 0.0
         var vatAmount = 0.0
@@ -6401,50 +6899,58 @@ private fun connectToPrinter() {
         val discountedTotal = subtotal - discount
         val finalTotal = discountedTotal - partialPayment
 
+        Log.d(TAG, "Calculated totals - Subtotal: $subtotal, Discount: $discount, VAT: $vatAmount, Final: $finalTotal")
+
         // Update UI based on layout type
         if (isMobileLayout) {
             // Update mobile cart bottom sheet
-            findViewById<TextView>(R.id.totalAmountTextView)?.text = "₱ %.2f".format(subtotal)
-            findViewById<TextView>(R.id.discountAmountText)?.text = "₱ %.2f".format(discount)
-            findViewById<TextView>(R.id.vatAmountText)?.text = "₱ %.2f".format(vatAmount)
+            runOnUiThread {
+                findViewById<TextView>(R.id.totalAmountTextView)?.text = "₱ %.2f".format(subtotal)
+                findViewById<TextView>(R.id.discountAmountText)?.text = "₱ %.2f".format(discount)
+                findViewById<TextView>(R.id.vatAmountText)?.text = "₱ %.2f".format(vatAmount)
 
-            if (partialPayment > 0) {
-                findViewById<TextView>(R.id.partialLabel)?.visibility = View.VISIBLE
-                findViewById<TextView>(R.id.partialPaymentTextView)?.apply {
-                    visibility = View.VISIBLE
-                    text = "₱ %.2f".format(partialPayment)
+                if (partialPayment > 0) {
+                    findViewById<TextView>(R.id.partialLabel)?.visibility = View.VISIBLE
+                    findViewById<TextView>(R.id.partialPaymentTextView)?.apply {
+                        visibility = View.VISIBLE
+                        text = "₱ %.2f".format(partialPayment)
+                    }
+                    findViewById<TextView>(R.id.finalTotalText)?.text = "₱ %.2f".format(finalTotal)
+                } else {
+                    findViewById<TextView>(R.id.partialLabel)?.visibility = View.GONE
+                    findViewById<TextView>(R.id.partialPaymentTextView)?.visibility = View.GONE
+                    findViewById<TextView>(R.id.finalTotalText)?.text = "₱ %.2f".format(discountedTotal)
                 }
-                findViewById<TextView>(R.id.finalTotalText)?.text = "₱ %.2f".format(finalTotal)
-            } else {
-                findViewById<TextView>(R.id.partialLabel)?.visibility = View.GONE
-                findViewById<TextView>(R.id.partialPaymentTextView)?.visibility = View.GONE
-                findViewById<TextView>(R.id.finalTotalText)?.text = "₱ %.2f".format(discountedTotal)
             }
         } else {
             // Update tablet sidebar (existing code)
-            binding.apply {
-                totalAmountTextView.text = "₱ %.2f".format(subtotal)
-                discountAmountText.text = "₱ %.2f".format(discount)
-                vatAmountText.text = "₱ %.2f".format(vatAmount)
+            runOnUiThread {
+                binding.apply {
+                    totalAmountTextView.text = "₱ %.2f".format(subtotal)
+                    discountAmountText.text = "₱ %.2f".format(discount)
+                    vatAmountText.text = "₱ %.2f".format(vatAmount)
 
-                if (partialPayment > 0) {
-                    partialLabel.visibility = View.VISIBLE
-                    partialPaymentTextView.visibility = View.VISIBLE
-                    partialPaymentTextView.text = "₱ %.2f".format(partialPayment)
-                    finalTotalText.text = "₱ %.2f".format(finalTotal)
-                } else {
-                    partialLabel.visibility = View.GONE
-                    partialPaymentTextView.visibility = View.GONE
-                    finalTotalText.text = "₱ %.2f".format(discountedTotal)
+                    if (partialPayment > 0) {
+                        partialLabel.visibility = View.VISIBLE
+                        partialPaymentTextView.visibility = View.VISIBLE
+                        partialPaymentTextView.text = "₱ %.2f".format(partialPayment)
+                        finalTotalText.text = "₱ %.2f".format(finalTotal)
+                    } else {
+                        partialLabel.visibility = View.GONE
+                        partialPaymentTextView.visibility = View.GONE
+                        finalTotalText.text = "₱ %.2f".format(discountedTotal)
+                    }
                 }
             }
         }
 
         // Handle transaction comment (both layouts)
         val commentText = if (transactionComment.isNotEmpty()) "Note: $transactionComment" else ""
-        findViewById<TextView>(R.id.commentView)?.apply {
-            text = commentText
-            visibility = if (commentText.isNotEmpty()) View.VISIBLE else View.GONE
+        runOnUiThread {
+            findViewById<TextView>(R.id.commentView)?.apply {
+                text = commentText
+                visibility = if (commentText.isNotEmpty()) View.VISIBLE else View.GONE
+            }
         }
     }
 //    private fun Double.roundToTwoDecimals(): Double {
@@ -8647,149 +9153,195 @@ private suspend fun performAutomaticZRead() {
                 return@checkStaffAndProceed
             }
 
+            // Show loading state immediately
+            showLoadingState(true)
+
             lifecycleScope.launch {
-                // Check Z-Read status before allowing transaction
-                val hasZReadToday = hasZReadForToday()
-                if (hasZReadToday && isAfterMidnight()) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(
-                            this@Window1,
-                            "Cannot add items. Z-Read completed for today.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                    return@launch
-                }
-
-                // Your existing addToCart logic here...
-                val existingItems = cartViewModel.getAllCartItems(windowId).first()
-                val partialPayment = existingItems.firstOrNull()?.partialPayment ?: 0.0
-
-                // Log the product we're trying to add
-                Log.d(TAG, "Adding product: ${product.itemName} (${product.itemid})")
-
-                // Check if there's a matching discount for this product
-                var matchingDiscount: Discount? = null
-
-                // Get loaded discounts
-                val loadedDiscounts = discountViewModel.discounts.value
-
-                if (!loadedDiscounts.isNullOrEmpty()) {
-                    // Try to find matching discount by comparing product name with discount offer name
-                    matchingDiscount = loadedDiscounts.find { discount ->
-                        discount.DISCOFFERNAME.trim().equals(product.itemName.trim(), ignoreCase = true)
+                try {
+                    // Check Z-Read status before allowing transaction
+                    val hasZReadToday = hasZReadForToday()
+                    if (hasZReadToday && isAfterMidnight()) {
+                        withContext(Dispatchers.Main) {
+                            showLoadingState(false)
+                            Toast.makeText(
+                                this@Window1,
+                                "Cannot add items. Z-Read completed for today.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                        return@launch
                     }
 
-                    if (matchingDiscount != null) {
-                        Log.d(TAG, "Found matching discount: ${matchingDiscount.DISCOFFERNAME} for product: ${product.itemName}")
+                    // Get fresh cart items data
+                    val existingItems = cartViewModel.getAllCartItems(windowId).first()
+                    val partialPayment = existingItems.firstOrNull()?.partialPayment ?: 0.0
+
+                    // Log the product we're trying to add
+                    Log.d(TAG, "Adding product: ${product.itemName} (${product.itemid})")
+
+                    // Check if there's a matching discount for this product
+                    var matchingDiscount: Discount? = null
+
+                    // Get loaded discounts
+                    val loadedDiscounts = discountViewModel.discounts.value
+
+                    if (!loadedDiscounts.isNullOrEmpty()) {
+                        // Try to find matching discount by comparing product name with discount offer name
+                        matchingDiscount = loadedDiscounts.find { discount ->
+                            discount.DISCOFFERNAME.trim().equals(product.itemName.trim(), ignoreCase = true)
+                        }
+
+                        if (matchingDiscount != null) {
+                            Log.d(TAG, "Found matching discount: ${matchingDiscount.DISCOFFERNAME} for product: ${product.itemName}")
+                        } else {
+                            Log.d(TAG, "No matching discount found for product: ${product.itemName}")
+                        }
                     } else {
-                        Log.d(TAG, "No matching discount found for product: ${product.itemName}")
+                        Log.d(TAG, "No discounts loaded")
                     }
-                } else {
-                    Log.d(TAG, "No discounts loaded")
-                }
 
-                // Find matching items in cart
-                val existingNonDiscountedItem = existingItems.find { item ->
-                    item.productId == product.id &&
-                            item.discount == 0.0 &&
-                            item.discountType.isEmpty() &&
-                            item.bundleId == null
-                }
+                    // Find matching items in cart
+                    val existingNonDiscountedItem = existingItems.find { item ->
+                        item.productId == product.id &&
+                                item.discount == 0.0 &&
+                                item.discountType.isEmpty() &&
+                                item.bundleId == null
+                    }
 
-                val existingDiscountedItem = existingItems.find { item ->
-                    item.productId == product.id &&
-                            (item.discount > 0.0 ||
-                                    item.discountType.isNotEmpty() ||
-                                    item.bundleId != null)
-                }
+                    val existingDiscountedItem = existingItems.find { item ->
+                        item.productId == product.id &&
+                                (item.discount > 0.0 ||
+                                        item.discountType.isNotEmpty() ||
+                                        item.bundleId != null)
+                    }
 
-                // If there's a matching discount, apply it to a new cart item
-                if (matchingDiscount != null) {
-                    Log.d(TAG, "Applying discount: ${matchingDiscount.DISCOFFERNAME} (${matchingDiscount.PARAMETER} ${matchingDiscount.DISCOUNTTYPE})")
+                    // Perform cart operations
+                    if (matchingDiscount != null) {
+                        Log.d(TAG, "Applying discount: ${matchingDiscount.DISCOFFERNAME} (${matchingDiscount.PARAMETER} ${matchingDiscount.DISCOUNTTYPE})")
 
-                    // Show toast to confirm discount application
+                        // Show toast to confirm discount application
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(
+                                this@Window1,
+                                "Applied discount: ${matchingDiscount.DISCOFFERNAME} (${matchingDiscount.PARAMETER} ${matchingDiscount.DISCOUNTTYPE})",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+
+                        // Create new item with discount applied
+                        cartViewModel.insert(
+                            CartItem(
+                                productId = product.id,
+                                quantity = 1,
+                                windowId = windowId,
+                                productName = product.itemName,
+                                price = product.price,
+                                partialPayment = partialPayment,
+                                vatAmount = 0.0,
+                                vatExemptAmount = 0.0,
+                                itemGroup = product.itemGroup,
+                                itemId = product.itemid,
+                                discount = matchingDiscount.PARAMETER.toDouble(),
+                                discountType = matchingDiscount.DISCOUNTTYPE,
+                                discountName = matchingDiscount.DISCOFFERNAME
+                            )
+                        )
+
+                    } else when {
+                        // If clicking a non-discounted item
+                        existingNonDiscountedItem != null -> {
+                            // Update quantity of existing non-discounted item
+                            cartViewModel.update(
+                                existingNonDiscountedItem.copy(
+                                    quantity = existingNonDiscountedItem.quantity + 1,
+                                    partialPayment = partialPayment
+                                )
+                            )
+                        }
+                        // If the product exists but only as a discounted item, create new non-discounted entry
+                        existingDiscountedItem != null -> {
+                            // Create new cart item without discount
+                            cartViewModel.insert(
+                                CartItem(
+                                    productId = product.id,
+                                    quantity = 1,
+                                    windowId = windowId,
+                                    productName = product.itemName,
+                                    price = product.price,
+                                    partialPayment = partialPayment,
+                                    vatAmount = 0.0,
+                                    vatExemptAmount = 0.0,
+                                    itemGroup = product.itemGroup,
+                                    itemId = product.itemid,
+                                    discount = 0.0,
+                                    discountType = ""
+                                )
+                            )
+                        }
+                        // If the product doesn't exist in cart at all
+                        else -> {
+                            cartViewModel.insert(
+                                CartItem(
+                                    productId = product.id,
+                                    quantity = 1,
+                                    windowId = windowId,
+                                    productName = product.itemName,
+                                    price = product.price,
+                                    partialPayment = partialPayment,
+                                    vatAmount = 0.0,
+                                    vatExemptAmount = 0.0,
+                                    itemGroup = product.itemGroup,
+                                    itemId = product.itemid,
+                                    discount = 0.0,
+                                    discountType = ""
+                                )
+                            )
+                        }
+                    }
+
+                    Log.d(TAG, "Added/Updated cart item for product ${product.id} in window $windowId")
+
+                    // Wait a bit to ensure database operations complete
+                    delay(100)
+
+                    // Get updated cart items and refresh totals
+                    val updatedCartItems = cartViewModel.getAllCartItems(windowId).first()
+
                     withContext(Dispatchers.Main) {
+                        updateTotalAmount(updatedCartItems)
+                        showLoadingState(false)
+                    }
+
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error adding to cart: ${e.message}", e)
+                    withContext(Dispatchers.Main) {
+                        showLoadingState(false)
                         Toast.makeText(
                             this@Window1,
-                            "Applied discount: ${matchingDiscount.DISCOFFERNAME} (${matchingDiscount.PARAMETER} ${matchingDiscount.DISCOUNTTYPE})",
+                            "Error adding item to cart. Please try again.",
                             Toast.LENGTH_SHORT
                         ).show()
                     }
-
-                    // Create new item with discount applied
-                    cartViewModel.insert(
-                        CartItem(
-                            productId = product.id,
-                            quantity = 1,
-                            windowId = windowId,
-                            productName = product.itemName,
-                            price = product.price,
-                            partialPayment = partialPayment,
-                            vatAmount = 0.0,
-                            vatExemptAmount = 0.0,
-                            itemGroup = product.itemGroup,
-                            itemId = product.itemid,
-                            discount = matchingDiscount.PARAMETER.toDouble(),
-                            discountType = matchingDiscount.DISCOUNTTYPE,
-                            discountName = matchingDiscount.DISCOFFERNAME
-                        )
-                    )
-
-                } else when {
-                    // If clicking a non-discounted item
-                    existingNonDiscountedItem != null -> {
-                        // Update quantity of existing non-discounted item
-                        cartViewModel.update(
-                            existingNonDiscountedItem.copy(
-                                quantity = existingNonDiscountedItem.quantity + 1,
-                                partialPayment = partialPayment
-                            )
-                        )
-                    }
-                    // If the product exists but only as a discounted item, create new non-discounted entry
-                    existingDiscountedItem != null -> {
-                        // Create new cart item without discount
-                        cartViewModel.insert(
-                            CartItem(
-                                productId = product.id,
-                                quantity = 1,
-                                windowId = windowId,
-                                productName = product.itemName,
-                                price = product.price,
-                                partialPayment = partialPayment,
-                                vatAmount = 0.0,
-                                vatExemptAmount = 0.0,
-                                itemGroup = product.itemGroup,
-                                itemId = product.itemid,
-                                discount = 0.0,
-                                discountType = ""
-                            )
-                        )
-                    }
-                    // If the product doesn't exist in cart at all
-                    else -> {
-                        cartViewModel.insert(
-                            CartItem(
-                                productId = product.id,
-                                quantity = 1,
-                                windowId = windowId,
-                                productName = product.itemName,
-                                price = product.price,
-                                partialPayment = partialPayment,
-                                vatAmount = 0.0,
-                                vatExemptAmount = 0.0,
-                                itemGroup = product.itemGroup,
-                                itemId = product.itemid,
-                                discount = 0.0,
-                                discountType = ""
-                            )
-                        )
-                    }
                 }
-
-                Log.d(TAG, "Added/Updated cart item for product ${product.id} in window $windowId")
-                updateTotalAmount(cartViewModel.getAllCartItems(windowId).first())
+            }
+        }
+    }
+    private fun showLoadingState(isLoading: Boolean) {
+        if (isMobileLayout) {
+            // Mobile layout loading indicators
+            findViewById<View>(R.id.cartLoadingIndicator)?.visibility = if (isLoading) View.VISIBLE else View.GONE
+            findViewById<TextView>(R.id.totalAmountTextView)?.alpha = if (isLoading) 0.5f else 1.0f
+            findViewById<TextView>(R.id.discountAmountText)?.alpha = if (isLoading) 0.5f else 1.0f
+            findViewById<TextView>(R.id.vatAmountText)?.alpha = if (isLoading) 0.5f else 1.0f
+            findViewById<TextView>(R.id.finalTotalText)?.alpha = if (isLoading) 0.5f else 1.0f
+        } else {
+            // Tablet layout loading indicators
+            binding.apply {
+                cartLoadingIndicator?.visibility = if (isLoading) View.VISIBLE else View.GONE
+                totalAmountTextView.alpha = if (isLoading) 0.5f else 1.0f
+                discountAmountText.alpha = if (isLoading) 0.5f else 1.0f
+                vatAmountText.alpha = if (isLoading) 0.5f else 1.0f
+                finalTotalText.alpha = if (isLoading) 0.5f else 1.0f
             }
         }
     }
@@ -10835,7 +11387,7 @@ private fun initializeSequences() {
                     lineNum = index + 1,
                     receiptId = transactionId,
                     itemId = cartItem.productId.toString(),
-                    itemGroup = cartItem.id.toString(),
+                    itemGroup = cartItem.itemGroup.toString(),
                     netPrice = cartItem.price.roundToTwoDecimals(),
                     costAmount = splitCostAmount,
                     netAmount = splitItemAfterDiscount,

@@ -576,7 +576,11 @@
                 android:textStyle="bold"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintTop_toTopOf="@id/totalTextView" />
-
+            <ProgressBar
+                android:id="@+id/cartLoadingIndicator"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:visibility="gone" />
             <!-- Action Buttons -->
             <LinearLayout
                 android:layout_width="0dp"

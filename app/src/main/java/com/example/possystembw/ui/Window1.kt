@@ -1825,6 +1825,7 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
                 val cancelButton = dialogView.findViewById<Button>(R.id.cancelButton)
                 val warningTextView = dialogView.findViewById<TextView>(R.id.warningTextView)
 
+
                 // Check for partial payment
                 val hasPartialPayment = returnable.any { it.partialPaymentAmount > 0 }
 
@@ -1906,7 +1907,399 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
         button.text = "Process Return"
     }
 
+    private fun showReturnPreviewDialog(
+        originalTransaction: TransactionSummary,
+        selectedItems: List<TransactionRecord>,
+        remarks: String
+    ) {
+        lifecycleScope.launch {
+            try {
+                // Calculate return amounts
+                val returnCalculation = calculateReturnAmounts(originalTransaction, selectedItems)
 
+                // Generate return receipt content preview
+                val returnReceiptContent = generateReturnReceiptPreview(
+                    originalTransaction,
+                    selectedItems,
+                    returnCalculation,
+                    remarks
+                )
+
+                withContext(Dispatchers.Main) {
+                    val dialogView = layoutInflater.inflate(R.layout.dialog_return_preview, null)
+                    val receiptTextView = dialogView.findViewById<TextView>(R.id.returnReceiptTextView)
+                    val summaryContainer = dialogView.findViewById<LinearLayout>(R.id.returnSummaryContainer)
+                    val confirmButton = dialogView.findViewById<Button>(R.id.confirmReturnButton)
+                    val cancelButton = dialogView.findViewById<Button>(R.id.cancelReturnButton)
+
+                    // Set monospace font for receipt preview
+                    receiptTextView.typeface = Typeface.MONOSPACE
+                    receiptTextView.text = returnReceiptContent
+
+                    // Add return summary
+                    addReturnSummaryViews(summaryContainer, returnCalculation, selectedItems.size)
+
+                    val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle)
+                        .setTitle("Return Transaction Preview")
+                        .setView(dialogView)
+                        .setCancelable(true)
+                        .create()
+
+                    confirmButton.setOnClickListener {
+                        dialog.dismiss()
+                        // Proceed with actual return processing
+                        lifecycleScope.launch {
+                            try {
+                                val loadingDialog = AlertDialog.Builder(this@Window1)
+                                    .setMessage("Processing return...")
+                                    .setCancelable(false)
+                                    .create()
+                                loadingDialog.show()
+
+                                processActualReturn(originalTransaction, selectedItems, remarks)
+                                loadingDialog.dismiss()
+
+                                Toast.makeText(
+                                    this@Window1,
+                                    "Return processed successfully",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(
+                                    this@Window1,
+                                    "Error processing return: ${e.message}",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+                    }
+
+                    cancelButton.setOnClickListener {
+                        dialog.dismiss()
+                    }
+
+                    dialog.window?.apply {
+                        setBackgroundDrawableResource(R.drawable.dialog_background)
+                        setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    }
+
+                    dialog.show()
+                }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error generating return preview", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@Window1,
+                        "Error generating return preview: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    data class ReturnCalculation(
+        val returnGrossAmount: Double,
+        val returnDiscountAmount: Double,
+        val returnNetAmount: Double,
+        val returnVatAmount: Double,
+        val refundCash: Double,
+        val refundCard: Double,
+        val refundGCash: Double,
+        val refundPayMaya: Double,
+        val refundLoyaltyCard: Double,
+        val refundCharge: Double,
+        val refundFoodpanda: Double,
+        val refundGrabfood: Double,
+        val refundRepresentation: Double
+    )
+
+    private fun calculateReturnAmounts(
+        originalTransaction: TransactionSummary,
+        selectedItems: List<TransactionRecord>
+    ): ReturnCalculation {
+        var returnGrossAmount = 0.0
+        var returnDiscountAmount = 0.0
+        var returnNetAmount = 0.0
+        var returnVatAmount = 0.0
+
+        selectedItems.forEach { item ->
+            // Calculate effective price
+            val effectivePrice = if (item.priceOverride != null && item.priceOverride > 0.0) {
+                item.priceOverride
+            } else {
+                item.price
+            }
+
+            // Calculate item total
+            val itemTotal = effectivePrice * item.quantity
+
+            // Calculate discount amount for this item
+            val itemDiscountAmount = when (item.discountType?.uppercase()) {
+                "PERCENTAGE", "PWD", "SC" -> {
+                    val discountRate = item.discountRate ?: (item.lineDiscountPercentage ?: 0.0) / 100.0
+                    itemTotal * discountRate
+                }
+                "FIXED" -> {
+                    item.discountAmount ?: 0.0
+                }
+                "FIXEDTOTAL" -> {
+                    item.discountAmount ?: 0.0
+                }
+                else -> 0.0
+            }
+
+            // Calculate net amount for this item
+            val itemNetAmount = itemTotal - itemDiscountAmount
+
+            // Calculate VAT for this item
+            val itemVatAmount = itemNetAmount * 0.12 / 1.12
+
+            // Add to return totals
+            returnGrossAmount += itemTotal
+            returnDiscountAmount += itemDiscountAmount
+            returnNetAmount += itemNetAmount
+            returnVatAmount += itemVatAmount
+        }
+
+        // Calculate payment method proportions
+        val paymentProportion = if (originalTransaction.netAmount > 0) {
+            returnNetAmount / originalTransaction.netAmount
+        } else {
+            0.0
+        }
+
+        return ReturnCalculation(
+            returnGrossAmount = returnGrossAmount,
+            returnDiscountAmount = returnDiscountAmount,
+            returnNetAmount = returnNetAmount,
+            returnVatAmount = returnVatAmount,
+            refundCash = if (originalTransaction.cash > 0) originalTransaction.cash * paymentProportion else 0.0,
+            refundCard = if (originalTransaction.card > 0) originalTransaction.card * paymentProportion else 0.0,
+            refundGCash = if (originalTransaction.gCash > 0) originalTransaction.gCash * paymentProportion else 0.0,
+            refundPayMaya = if (originalTransaction.payMaya > 0) originalTransaction.payMaya * paymentProportion else 0.0,
+            refundLoyaltyCard = if (originalTransaction.loyaltyCard > 0) originalTransaction.loyaltyCard * paymentProportion else 0.0,
+            refundCharge = if (originalTransaction.charge > 0) originalTransaction.charge * paymentProportion else 0.0,
+            refundFoodpanda = if (originalTransaction.foodpanda > 0) originalTransaction.foodpanda * paymentProportion else 0.0,
+            refundGrabfood = if (originalTransaction.grabfood > 0) originalTransaction.grabfood * paymentProportion else 0.0,
+            refundRepresentation = if (originalTransaction.representation > 0) originalTransaction.representation * paymentProportion else 0.0
+        )
+    }
+
+    private fun generateReturnReceiptPreview(
+        originalTransaction: TransactionSummary,
+        selectedItems: List<TransactionRecord>,
+        calculation: ReturnCalculation,
+        remarks: String
+    ): String {
+        return buildString {
+            appendLine("ELJIN CORP")
+            appendLine("TIN: Your TIN Number")
+            appendLine("MIN: Your MIN")
+            appendLine("Store: ${originalTransaction.store}")
+            appendLine("═".repeat(45))
+            appendLine("RETURN RECEIPT")
+            appendLine("Cashier: ${getCurrentStaff()}")
+            appendLine("Date: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())}")
+            appendLine("Original SI#: ${originalTransaction.receiptId}")
+            appendLine("═".repeat(45))
+            appendLine("Item                    Price   Qty    Total")
+            appendLine("═".repeat(45))
+
+            selectedItems.forEach { item ->
+                val effectivePrice = if (item.priceOverride != null && item.priceOverride > 0.0) {
+                    item.priceOverride
+                } else {
+                    item.price
+                }
+
+                val itemTotal = effectivePrice * item.quantity
+
+                appendLine("${item.name.take(22).padEnd(22)} ${
+                    String.format("%7.2f", effectivePrice)
+                } ${String.format("%3d", item.quantity)} ${String.format("%9.2f", itemTotal)}")
+
+                // Show discounts if any
+                when (item.discountType?.uppercase()) {
+                    "PERCENTAGE", "PWD", "SC" -> {
+                        val discountRate = item.discountRate ?: (item.lineDiscountPercentage ?: 0.0) / 100.0
+                        val discountAmount = itemTotal * discountRate
+                        if (discountAmount > 0) {
+                            appendLine(" Disc(${item.discountType}):${String.format("%22.2f", discountAmount)}")
+                        }
+                    }
+                    "FIXED", "FIXEDTOTAL" -> {
+                        val discountAmount = item.discountAmount ?: 0.0
+                        if (discountAmount > 0) {
+                            appendLine(" Disc(Fixed):${String.format("%25.2f", discountAmount)}")
+                        }
+                    }
+                }
+            }
+
+            appendLine("═".repeat(45))
+            appendLine("Return Amount:${String.format("%25.2f", calculation.returnGrossAmount)}")
+            if (calculation.returnDiscountAmount > 0) {
+                appendLine("Less Discount:${String.format("%26.2f", calculation.returnDiscountAmount)}")
+            }
+            appendLine("Net Return:${String.format("%27.2f", calculation.returnNetAmount)}")
+            appendLine("═".repeat(45))
+            appendLine("REFUND DETAILS")
+            appendLine("═".repeat(45))
+
+            // Show refund methods
+            val refundMethods = mutableListOf<Pair<String, Double>>()
+            if (calculation.refundCash > 0) refundMethods.add("Cash Refund" to calculation.refundCash)
+            if (calculation.refundCard > 0) refundMethods.add("Card Refund" to calculation.refundCard)
+            if (calculation.refundGCash > 0) refundMethods.add("GCash Refund" to calculation.refundGCash)
+            if (calculation.refundPayMaya > 0) refundMethods.add("PayMaya Refund" to calculation.refundPayMaya)
+            if (calculation.refundLoyaltyCard > 0) refundMethods.add("Loyalty Refund" to calculation.refundLoyaltyCard)
+            if (calculation.refundCharge > 0) refundMethods.add("Charge Refund" to calculation.refundCharge)
+            if (calculation.refundFoodpanda > 0) refundMethods.add("FoodPanda Refund" to calculation.refundFoodpanda)
+            if (calculation.refundGrabfood > 0) refundMethods.add("GrabFood Refund" to calculation.refundGrabfood)
+            if (calculation.refundRepresentation > 0) refundMethods.add("Representation Refund" to calculation.refundRepresentation)
+
+            if (refundMethods.size > 1) {
+                appendLine("SPLIT REFUND:")
+                refundMethods.forEach { (method, amount) ->
+                    appendLine("${method.padEnd(25)} ${String.format("%12.2f", amount)}")
+                }
+                appendLine("═".repeat(45))
+                appendLine("Total Refund:${String.format("%26.2f", refundMethods.sumOf { it.second })}")
+            } else if (refundMethods.isNotEmpty()) {
+                val (method, amount) = refundMethods.first()
+                appendLine("Refund Method: ${method.replace(" Refund", "")}")
+                appendLine("Refund Amount:${String.format("%26.2f", amount)}")
+            }
+
+            appendLine("═".repeat(45))
+            appendLine("VATable Sales:${String.format("%26.2f", calculation.returnNetAmount / 1.12)}")
+            appendLine("VAT Amount:${String.format("%29.2f", calculation.returnVatAmount)}")
+            appendLine("VAT Exempt:${String.format("%29.2f", 0.0)}")
+            appendLine("═".repeat(45))
+            appendLine("Return Reason: $remarks")
+            appendLine("═".repeat(45))
+            appendLine("Valid for 5 years from PTU date")
+            appendLine("POS Provider: IT WARRIORS")
+        }
+    }
+
+    private fun addReturnSummaryViews(
+        container: LinearLayout,
+        calculation: ReturnCalculation,
+        itemCount: Int
+    ) {
+        container.removeAllViews()
+
+        // Items count
+        addSummaryRow(container, "Items to Return:", "$itemCount items")
+
+        // Gross amount
+        addSummaryRow(container, "Gross Amount:", "₱${String.format("%.2f", calculation.returnGrossAmount)}")
+
+        // Discount amount
+        if (calculation.returnDiscountAmount > 0) {
+            addSummaryRow(container, "Less Discount:", "₱${String.format("%.2f", calculation.returnDiscountAmount)}")
+        }
+
+        // Net amount
+        addSummaryRow(container, "Net Return Amount:", "₱${String.format("%.2f", calculation.returnNetAmount)}", true)
+
+        // Add divider
+        val divider = View(container.context).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                2
+            ).apply {
+                setMargins(0, 8, 0, 8)
+            }
+            setBackgroundColor(container.context.resources.getColor(android.R.color.darker_gray, null))
+        }
+        container.addView(divider)
+
+        // Refund breakdown
+        val refundMethods = mutableListOf<Pair<String, Double>>()
+        if (calculation.refundCash > 0) refundMethods.add("Cash" to calculation.refundCash)
+        if (calculation.refundCard > 0) refundMethods.add("Card" to calculation.refundCard)
+        if (calculation.refundGCash > 0) refundMethods.add("GCash" to calculation.refundGCash)
+        if (calculation.refundPayMaya > 0) refundMethods.add("PayMaya" to calculation.refundPayMaya)
+        if (calculation.refundLoyaltyCard > 0) refundMethods.add("Loyalty Card" to calculation.refundLoyaltyCard)
+        if (calculation.refundCharge > 0) refundMethods.add("Charge" to calculation.refundCharge)
+        if (calculation.refundFoodpanda > 0) refundMethods.add("FoodPanda" to calculation.refundFoodpanda)
+        if (calculation.refundGrabfood > 0) refundMethods.add("GrabFood" to calculation.refundGrabfood)
+        if (calculation.refundRepresentation > 0) refundMethods.add("Representation" to calculation.refundRepresentation)
+
+        if (refundMethods.isNotEmpty()) {
+            // Refund header
+            val refundHeader = TextView(container.context).apply {
+                text = "Refund Breakdown:"
+                textSize = 14f
+                setTypeface(null, Typeface.BOLD)
+                setTextColor(container.context.resources.getColor(android.R.color.black, null))
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = 8
+                    bottomMargin = 4
+                }
+            }
+            container.addView(refundHeader)
+
+            refundMethods.forEach { (method, amount) ->
+                addSummaryRow(container, "  $method:", "₱${String.format("%.2f", amount)}")
+            }
+        }
+    }
+
+    private fun addSummaryRow(
+        container: LinearLayout,
+        label: String,
+        value: String,
+        isBold: Boolean = false
+    ) {
+        val rowLayout = LinearLayout(container.context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = 4
+                bottomMargin = 4
+            }
+        }
+
+        val labelTextView = TextView(container.context).apply {
+            text = label
+            textSize = if (isBold) 16f else 14f
+            if (isBold) setTypeface(null, Typeface.BOLD)
+            setTextColor(container.context.resources.getColor(android.R.color.black, null))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val valueTextView = TextView(container.context).apply {
+            text = value
+            textSize = if (isBold) 16f else 14f
+            if (isBold) setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.END
+            setTextColor(
+                if (isBold) {
+                    container.context.resources.getColor(android.R.color.holo_red_dark, null)
+                } else {
+                    container.context.resources.getColor(android.R.color.black, null)
+                }
+            )
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        rowLayout.addView(labelTextView)
+        rowLayout.addView(valueTextView)
+        container.addView(rowLayout)
+    }
     private fun processReturn(
         returnDialog: AlertDialog,
         transaction: TransactionSummary,
@@ -1921,40 +2314,231 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
             selectedItems.isEmpty() -> {
                 Toast.makeText(this, "Please select items to return", Toast.LENGTH_SHORT).show()
             }
-
             remarks.isEmpty() -> {
                 remarksEditText.error = "Remarks are required"
             }
-
             else -> {
-                lifecycleScope.launch {
-                    try {
-                        // Show loading dialog
-                        val loadingDialog = AlertDialog.Builder(this@Window1)
-                            .setMessage("Processing return...")
-                            .setCancelable(false)
-                            .create()
-                        loadingDialog.show()
+                returnDialog.dismiss()
+                // Show preview instead of directly processing
+                showReturnPreviewDialog(transaction, selectedItems, remarks)
+            }
+        }
+    }
 
-                        val updatedItems = selectedItems.map { it.copy(isReturned = true) }
-                        transactionViewModel.updateTransactionRecords(updatedItems)
-                        processReturnTransaction(transaction, selectedItems, remarks)
-                        loadingDialog.dismiss()
-                        returnDialog.dismiss()
-//                        recreate()
-                        Toast.makeText(
-                            this@Window1,
-                            "Return processed successfully",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error processing return", e)
-                        Toast.makeText(
-                            this@Window1,
-                            "Error processing return: ${e.message}",
-                            Toast.LENGTH_LONG
-                        ).show()
+    // Separate method for actual return processing
+    private fun processActualReturn(
+        originalTransaction: TransactionSummary,
+        selectedItems: List<TransactionRecord>,
+        remarks: String
+    ) {
+        // Your existing processReturnTransaction logic here
+        // (I'll keep the original logic you had, just moved to this separate method)
+        lifecycleScope.launch {
+            try {
+                val currentStore = SessionManager.getCurrentUser()?.storeid
+                    ?: throw IllegalStateException("No store ID found in current session")
+
+                val returnTransactionId = numberSequenceRemoteRepository.getNextTransactionNumber(currentStore)
+                val storeKey = numberSequenceRemoteRepository.getCurrentStoreKey(currentStore)
+                val storeSequence = "$currentStore-${returnTransactionId.split("-").last()}"
+
+                val originalTransactionItems = transactionViewModel.getTransactionItems(originalTransaction.transactionId)
+
+                var returnGrossAmount = 0.0
+                var returnTotalDiscountAmount = 0.0
+                var returnNetAmount = 0.0
+                var returnVatAmount = 0.0
+
+                val returnedItems = selectedItems.map { item ->
+                    val effectivePrice = if (item.priceOverride != null && item.priceOverride > 0.0) {
+                        item.priceOverride
+                    } else {
+                        item.price
                     }
+
+                    val itemTotal = effectivePrice * item.quantity
+
+                    val itemDiscountAmount = when (item.discountType?.uppercase()) {
+                        "PERCENTAGE", "PWD", "SC" -> {
+                            val discountRate = item.discountRate ?: (item.lineDiscountPercentage ?: 0.0) / 100.0
+                            itemTotal * discountRate
+                        }
+                        "FIXED" -> {
+                            item.discountAmount ?: 0.0
+                        }
+                        "FIXEDTOTAL" -> {
+                            item.discountAmount ?: 0.0
+                        }
+                        else -> 0.0
+                    }
+
+                    val itemNetAmount = itemTotal - itemDiscountAmount
+                    val itemVatAmount = itemNetAmount * 0.12 / 1.12
+
+                    returnGrossAmount += -itemTotal
+                    returnTotalDiscountAmount += -itemDiscountAmount
+                    returnNetAmount += -itemNetAmount
+                    returnVatAmount += -itemVatAmount
+
+                    TransactionRecord(
+                        transactionId = returnTransactionId,
+                        name = item.name,
+                        price = item.price,
+                        quantity = -item.quantity,
+                        subtotal = -itemTotal,
+                        vatRate = item.vatRate,
+                        vatAmount = -itemVatAmount,
+                        discountRate = item.discountRate,
+                        discountAmount = -itemDiscountAmount,
+                        total = -itemNetAmount,
+                        receiptNumber = returnTransactionId,
+                        paymentMethod = originalTransaction.paymentMethod,
+                        ar = 0.0,
+                        comment = "Return: $remarks",
+                        lineNum = item.lineNum,
+                        itemId = item.itemId,
+                        itemGroup = item.itemGroup,
+                        netPrice = item.netPrice,
+                        costAmount = item.costAmount?.let { -it },
+                        netAmount = -itemNetAmount,
+                        grossAmount = -itemTotal,
+                        customerAccount = item.customerAccount,
+                        store = item.store,
+                        priceOverride = item.priceOverride,
+                        staff = getCurrentStaff(),
+                        discountOfferId = item.discountOfferId,
+                        lineDiscountAmount = -itemDiscountAmount,
+                        lineDiscountPercentage = item.lineDiscountPercentage,
+                        customerDiscountAmount = item.customerDiscountAmount?.let { -it },
+                        taxAmount = item.taxAmount?.let { -it },
+                        isReturned = true,
+                        returnTransactionId = originalTransaction.transactionId,
+                        returnQuantity = item.quantity.toDouble(),
+                        returnLineId = item.lineNum?.toDouble() ?: 0.0,
+                        storeKey = storeKey,
+                        storeSequence = storeSequence,
+                        unit = item.unit,
+                        unitQuantity = item.unitQuantity,
+                        unitPrice = item.unitPrice,
+                        createdDate = Date(),
+                        taxExempt = item.taxExempt,
+                        currency = item.currency,
+                        discountType = item.discountType,
+                        netAmountNotIncludingTax = item.netAmountNotIncludingTax?.let { -it },
+                        taxIncludedInPrice = -itemVatAmount
+                    )
+                }
+
+                val updatedOriginalItems = originalTransactionItems.map { originalItem ->
+                    val matchingReturnItem = selectedItems.find {
+                        it.itemId == originalItem.itemId &&
+                                it.lineNum == originalItem.lineNum
+                    }
+
+                    if (matchingReturnItem != null) {
+                        originalItem.copy(
+                            isReturned = true,
+                            returnTransactionId = returnTransactionId,
+                            returnQuantity = matchingReturnItem.quantity.toDouble().absoluteValue
+                        )
+                    } else {
+                        originalItem
+                    }
+                }
+
+                val vatRate = 0.12
+                val returnVatableSales = returnNetAmount / (1 + vatRate)
+
+                val returnCostAmount = selectedItems.sumOf { item ->
+                    (item.costAmount ?: 0.0) * item.quantity
+                }
+
+                val paymentProportion = if (originalTransaction.netAmount > 0) {
+                    kotlin.math.abs(returnNetAmount) / originalTransaction.netAmount
+                } else {
+                    0.0
+                }
+
+                val returnTransactionSummary = TransactionSummary(
+                    transactionId = returnTransactionId,
+                    type = 2,
+                    receiptId = returnTransactionId,
+                    store = originalTransaction.store,
+                    staff = getCurrentStaff(),
+                    storeKey = storeKey,
+                    storeSequence = storeSequence,
+                    customerAccount = originalTransaction.customerAccount,
+                    netAmount = returnNetAmount,
+                    costAmount = -kotlin.math.abs(returnCostAmount),
+                    grossAmount = returnGrossAmount,
+                    partialPayment = 0.0,
+                    transactionStatus = 1,
+                    discountAmount = returnTotalDiscountAmount,
+                    customerDiscountAmount = -selectedItems.sumOf { kotlin.math.abs(it.customerDiscountAmount ?: 0.0) },
+                    totalDiscountAmount = returnTotalDiscountAmount,
+                    numberOfItems = -selectedItems.sumOf { it.quantity.toDouble() },
+                    refundReceiptId = originalTransaction.transactionId,
+                    currency = originalTransaction.currency,
+                    zReportId = null,
+                    createdDate = Date(),
+                    priceOverride = 0.0,
+                    comment = "Return: $remarks",
+                    receiptEmail = null,
+                    markupAmount = 0.0,
+                    markupDescription = null,
+                    taxIncludedInPrice = returnVatAmount,
+                    windowNumber = originalTransaction.windowNumber,
+                    paymentMethod = originalTransaction.paymentMethod,
+                    customerName = originalTransaction.customerName,
+                    vatAmount = returnVatAmount,
+                    vatExemptAmount = 0.0,
+                    vatableSales = returnVatableSales,
+                    discountType = originalTransaction.discountType,
+                    totalAmountPaid = returnNetAmount,
+                    changeGiven = 0.0,
+                    gCash = if (originalTransaction.gCash > 0) -(originalTransaction.gCash * paymentProportion) else 0.0,
+                    payMaya = if (originalTransaction.payMaya > 0) -(originalTransaction.payMaya * paymentProportion) else 0.0,
+                    cash = if (originalTransaction.cash > 0) -(originalTransaction.cash * paymentProportion) else 0.0,
+                    card = if (originalTransaction.card > 0) -(originalTransaction.card * paymentProportion) else 0.0,
+                    loyaltyCard = if (originalTransaction.loyaltyCard > 0) -(originalTransaction.loyaltyCard * paymentProportion) else 0.0,
+                    charge = if (originalTransaction.charge > 0) -(originalTransaction.charge * paymentProportion) else 0.0,
+                    foodpanda = if (originalTransaction.foodpanda > 0) -(originalTransaction.foodpanda * paymentProportion) else 0.0,
+                    grabfood = if (originalTransaction.grabfood > 0) -(originalTransaction.grabfood * paymentProportion) else 0.0,
+                    representation = if (originalTransaction.representation > 0) -(originalTransaction.representation * paymentProportion) else 0.0,
+                    syncStatus = false
+                )
+
+                transactionDao.apply {
+                    updateTransactionRecords(updatedOriginalItems)
+                    insertTransactionSummary(returnTransactionSummary)
+                    insertAll(returnedItems)
+                    updateRefundReceiptId(originalTransaction.transactionId, returnTransactionId)
+                }
+
+                transactionViewModel.syncTransaction(returnTransactionId)
+
+                val transactionLogger = TransactionLogger(this@Window1)
+                transactionLogger.logReturn(
+                    returnTransaction = returnTransactionSummary,
+                    originalTransaction = originalTransaction,
+                    returnedItems = returnedItems,
+                    remarks = remarks
+                )
+
+                updateInventory(returnedItems)
+
+                withContext(Dispatchers.Main) {
+                    printReturnReceipt(returnTransactionSummary, returnedItems, remarks)
+                }
+
+            } catch (e: Exception) {
+                Log.e("ReturnTransaction", "Error processing return: ${e.message}")
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@Window1,
+                        "Error processing return: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             }
         }
@@ -1981,7 +2565,7 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
                 // Get original transaction records to update
                 val originalTransactionItems = transactionViewModel.getTransactionItems(transaction.transactionId)
 
-                // Calculate return amounts based on actual items being returned
+                // Calculate return amounts based on actual items being returned WITH PROPER DISCOUNT HANDLING
                 var returnGrossAmount = 0.0
                 var returnTotalDiscountAmount = 0.0
                 var returnNetAmount = 0.0
@@ -1999,12 +2583,19 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
                     // Calculate item total (same as receipt: effectivePrice * quantity)
                     val itemTotal = effectivePrice * item.quantity
 
-                    // Calculate discount amount for this item (same as receipt logic)
+                    // Calculate discount amount for this item WITH PROPER DISCOUNT LOGIC
                     val itemDiscountAmount = when (item.discountType?.uppercase()) {
                         "PERCENTAGE", "PWD", "SC" -> {
-                            itemTotal * (item.discountRate ?: 0.0)
+                            // For percentage discounts, apply the discount rate to the item total
+                            val discountRate = item.discountRate ?: (item.lineDiscountPercentage ?: 0.0) / 100.0
+                            itemTotal * discountRate
                         }
-                        "FIXED", "FIXEDTOTAL" -> {
+                        "FIXED" -> {
+                            // For fixed discounts, multiply discount by quantity
+                            (item.discountAmount ?: 0.0)
+                        }
+                        "FIXEDTOTAL" -> {
+                            // For fixed total discounts, use the discount amount as is
                             item.discountAmount ?: 0.0
                         }
                         else -> 0.0
@@ -2013,16 +2604,14 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
                     // Calculate net amount for this item (itemTotal - discount)
                     val itemNetAmount = itemTotal - itemDiscountAmount
 
-                    // Add to return totals
-                    returnGrossAmount += itemTotal
-                    returnTotalDiscountAmount += itemDiscountAmount
-                    returnNetAmount += itemNetAmount
+                    // Calculate VAT for this item
+                    val itemVatAmount = itemNetAmount * 0.12 / 1.12
 
-                    // Calculate VAT amount for this item
-                    val vatRate = 0.12
-                    val itemVatableSales = itemNetAmount / (1 + vatRate)
-                    val itemVatAmount = itemNetAmount - itemVatableSales
-                    returnVatAmount += itemVatAmount
+                    // Add to return totals (as NEGATIVE values)
+                    returnGrossAmount += -itemTotal // Negative for returns
+                    returnTotalDiscountAmount += -itemDiscountAmount // Negative for returns
+                    returnNetAmount += -itemNetAmount // Negative for returns
+                    returnVatAmount += -itemVatAmount // Negative for returns
 
                     TransactionRecord(
                         transactionId = returnTransactionId,
@@ -2068,7 +2657,8 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
                         taxExempt = item.taxExempt,
                         currency = item.currency,
                         discountType = item.discountType,
-                        netAmountNotIncludingTax = item.netAmountNotIncludingTax?.let { -it }
+                        netAmountNotIncludingTax = item.netAmountNotIncludingTax?.let { -it },
+                        taxIncludedInPrice = -itemVatAmount
                     )
                 }
 
@@ -2090,9 +2680,9 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
                     }
                 }
 
-                // Calculate VAT amounts using the fixed return amounts
-                val returnVatableSales = returnNetAmount / (1 + 0.12)
-                val calculatedReturnVatAmount = returnNetAmount - returnVatableSales
+                // Calculate VAT amounts (same logic as receipt)
+                val vatRate = 0.12
+                val returnVatableSales = returnNetAmount / (1 + vatRate)
 
                 // Calculate cost amount for returned items
                 val returnCostAmount = items.sumOf { item ->
@@ -2101,12 +2691,12 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
 
                 // Calculate payment method proportions based on net amount
                 val paymentProportion = if (transaction.netAmount > 0) {
-                    returnNetAmount / transaction.netAmount
+                    kotlin.math.abs(returnNetAmount) / transaction.netAmount
                 } else {
                     0.0
                 }
 
-                // Create return transaction summary with NEGATIVE amounts
+                // Create return transaction summary with calculated amounts (all negative for returns)
                 val returnTransactionSummary = TransactionSummary(
                     transactionId = returnTransactionId,
                     type = 2, // Return transaction type
@@ -2116,15 +2706,16 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
                     storeKey = storeKey,
                     storeSequence = storeSequence,
                     customerAccount = transaction.customerAccount,
-                    netAmount = -returnNetAmount, // NEGATIVE
-                    costAmount = -returnCostAmount, // NEGATIVE
-                    grossAmount = -returnGrossAmount, // NEGATIVE
+                    // Use calculated amounts for the specific items being returned (ALL NEGATIVE)
+                    netAmount = returnNetAmount, // Already negative
+                    costAmount = -kotlin.math.abs(returnCostAmount),
+                    grossAmount = returnGrossAmount, // Already negative
                     partialPayment = 0.0,
                     transactionStatus = 1,
-                    discountAmount = -returnTotalDiscountAmount, // NEGATIVE discount amount
-                    customerDiscountAmount = -items.sumOf { it.customerDiscountAmount ?: 0.0 }, // NEGATIVE
-                    totalDiscountAmount = -returnTotalDiscountAmount, // NEGATIVE total discount
-                    numberOfItems = -items.sumOf { it.quantity.toDouble() }, // NEGATIVE
+                    discountAmount = returnTotalDiscountAmount, // Already negative
+                    customerDiscountAmount = -items.sumOf { kotlin.math.abs(it.customerDiscountAmount ?: 0.0) },
+                    totalDiscountAmount = returnTotalDiscountAmount, // Already negative
+                    numberOfItems = -items.sumOf { it.quantity.toDouble() },
                     refundReceiptId = transaction.transactionId,
                     currency = transaction.currency,
                     zReportId = null,
@@ -2134,15 +2725,15 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
                     receiptEmail = null,
                     markupAmount = 0.0,
                     markupDescription = null,
-                    taxIncludedInPrice = -calculatedReturnVatAmount, // NEGATIVE VAT
+                    taxIncludedInPrice = returnVatAmount, // Already negative
                     windowNumber = transaction.windowNumber,
                     paymentMethod = transaction.paymentMethod,
                     customerName = transaction.customerName,
-                    vatAmount = -calculatedReturnVatAmount, // NEGATIVE VAT amount
+                    vatAmount = returnVatAmount, // Already negative
                     vatExemptAmount = 0.0,
-                    vatableSales = -returnVatableSales, // NEGATIVE vatable sales
+                    vatableSales = returnVatableSales, // Already negative
                     discountType = transaction.discountType,
-                    totalAmountPaid = -returnNetAmount, // NEGATIVE (amount to be refunded)
+                    totalAmountPaid = returnNetAmount, // Already negative (amount to be refunded)
                     changeGiven = 0.0, // No change for returns
 
                     // IMPORTANT: Calculate NEGATIVE payment method amounts proportionally
@@ -2176,28 +2767,6 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
                 // Sync the return transaction
                 transactionViewModel.syncTransaction(returnTransactionId)
 
-                // Observe the sync result
-                transactionViewModel.syncStatus.observe(this@Window1) { result ->
-                    result.fold(
-                        onSuccess = { response ->
-                            Log.e("Return", "Return transaction synced successfully: ${response}")
-                            Toast.makeText(
-                                this@Window1,
-                                "Return transaction synced successfully",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        },
-                        onFailure = { error ->
-                            Log.e("Return", "Sync failed: ${error.message}")
-                            Toast.makeText(
-                                this@Window1,
-                                "Return transaction saved locally but sync failed: ${error.message}",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-                    )
-                }
-
                 val transactionLogger = TransactionLogger(this@Window1)
                 transactionLogger.logReturn(
                     returnTransaction = returnTransactionSummary,
@@ -2212,7 +2781,7 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
                 withContext(Dispatchers.Main) {
                     Toast.makeText(
                         this@Window1,
-                        "Return processed successfully",
+                        "Return processed successfully with discounts applied",
                         Toast.LENGTH_SHORT
                     ).show()
                     printReturnReceipt(returnTransactionSummary, returnedItems, remarks)
@@ -2229,7 +2798,8 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
             }
         }
     }
-private fun printReturnReceipt(
+
+    private fun printReturnReceipt(
     transaction: TransactionSummary,
     returnedItems: List<TransactionRecord>,
     remarks: String

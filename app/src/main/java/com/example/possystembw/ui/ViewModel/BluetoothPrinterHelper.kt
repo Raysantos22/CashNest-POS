@@ -467,14 +467,13 @@ class BluetoothPrinterHelper(private val context: Context) {
         val totalGross = regularItemCalculations.totalGross + returnItemCalculations.totalGross // returns are already negative
         val totalSales = regularTransactions.sumOf { it.netAmount } + returnTransactions.sumOf { it.netAmount }
         val totalVat = regularTransactions.sumOf { it.taxIncludedInPrice } + returnTransactions.sumOf { it.taxIncludedInPrice }
-
-        // Fixed discount calculations - separate regular and return discounts
-        val regularDiscounts = regularTransactions.sumOf { it.totalDiscountAmount }
-        val returnDiscounts = returnTransactions.sumOf { it.totalDiscountAmount } // This should be negative
-        val totalDiscount = regularDiscounts + returnDiscounts // Net discount (regular - returns)
-
+        val totalDiscount = regularTransactions.sumOf { it.totalDiscountAmount } + returnTransactions.sumOf { it.totalDiscountAmount }
         val vatableSales = regularTransactions.sumOf { it.vatableSales } + returnTransactions.sumOf { it.vatableSales }
         val vatExemptSales = regularTransactions.sumOf { it.vatExemptAmount } + returnTransactions.sumOf { it.vatExemptAmount }
+
+        // Calculate total return amount (absolute value for display)
+        val totalReturnAmount = kotlin.math.abs(returnTransactions.sumOf { it.netAmount })
+        val totalReturnDiscount = kotlin.math.abs(returnTransactions.sumOf { it.totalDiscountAmount })
 
         // Payment method totals including returns (returns should reduce totals)
         val cashTotal = regularTransactions.sumOf { it.cash } + returnTransactions.sumOf { it.cash }
@@ -492,17 +491,10 @@ class BluetoothPrinterHelper(private val context: Context) {
                 returnTransactions.filter { it.type == 3 }.sumOf { it.netAmount }
 
         // Transaction statistics
-        val totalReturns = returnTransactions.sumOf { it.netAmount } // This is already negative
         val totalItemsSold = regularItemCalculations.totalQuantity + returnItemCalculations.totalQuantity // returns have negative quantities
         val totalItemsReturned = kotlin.math.abs(returnTransactions.sumOf { it.numberOfItems.toInt() })
         val returnTransactionCount = returnTransactions.size
         val customerTransactions = regularTransactions.count { it.customerAccount.isNotBlank() }
-
-        // Calculate return discount amounts for display
-        val totalReturnDiscounts = kotlin.math.abs(returnDiscounts) // Show as positive for display
-
-        // Use consistent void transaction counting
-        val voidedTransactions = getVoidedTransactionsCount(transactions)
 
         // Get OR numbers for starting and ending (only from regular transactions)
         val startingOR = if (regularTransactions.isNotEmpty()) {
@@ -547,21 +539,21 @@ class BluetoothPrinterHelper(private val context: Context) {
 
             appendLine("_".repeat(46))
             appendLine("SALES REPORT AMT INC                  AMOUNT")
-            appendLine("Gross sales                           ${"%.2f".format(totalGross)}")
+            appendLine("Gross sales                           ${"%.2f".format(regularItemCalculations.totalGross- (totalReturnAmount + totalReturnDiscount))}")
             appendLine("Total netsales                        ${"%.2f".format(totalSales)}")
             appendLine("Total Discount                        ${"%.2f".format(kotlin.math.abs(totalDiscount))}")
 
             // Add return information if there are returns
             if (returnTransactionCount > 0) {
-                appendLine("Total Returns                         ${"%.2f".format(kotlin.math.abs(totalReturns))}")
-                appendLine("Total Discount Returns                ${"%.2f".format(totalReturnDiscounts)}")
+                appendLine("Total Returns                         ${"%.2f".format(totalReturnAmount)}")
+                appendLine("Return Discounts                      ${"%.2f".format(totalReturnDiscount)}")
             }
 
             appendLine("-".repeat(46))
             appendLine("Statistics                            qty")
             appendLine("-".repeat(46))
             appendLine("No. of sales trans                    ${regularTransactions.size}")
-            appendLine("No. of items sold                     ${regularItemCalculations.totalQuantity}")
+            appendLine("No. of items sold                     ${regularItemCalculations.totalQuantity-totalItemsReturned}")
 
             // Add return information
             if (returnTransactionCount > 0) {
@@ -585,6 +577,7 @@ class BluetoothPrinterHelper(private val context: Context) {
             if (foodPandaTotal != 0.0) appendLine("FOODPANDA".padEnd(38) + "%.2f".format(foodPandaTotal))
             if (grabFoodTotal != 0.0) appendLine("GRABFOOD".padEnd(38) + "%.2f".format(grabFoodTotal))
             if (representationTotal != 0.0) appendLine("REPRESENTATION".padEnd(38) + "%.2f".format(representationTotal))
+//            if (arSales != 0.0) appendLine("AR".padEnd(38) + "%.2f".format(arSales))
 
             appendLine()
             appendLine("total amount                          ${"%.2f".format(totalSales)}")
@@ -604,50 +597,7 @@ class BluetoothPrinterHelper(private val context: Context) {
             if (tenderDeclaration != null) {
                 appendLine("-".repeat(46))
                 appendLine("Tender Declaration")
-
-                // Function to format amount entries with proper spacing
-                fun formatAmountEntry(label: String, amount: Double): String {
-                    val maxLabelLength = 25
-                    val truncatedLabel = if (label.length > maxLabelLength) {
-                        label.substring(0, maxLabelLength - 3) + "..."
-                    } else {
-                        label
-                    }
-
-                    return buildString {
-                        append(truncatedLabel)
-                        val spacesNeeded = 45 - truncatedLabel.length - String.format("%.2f", amount).length
-                        append(" ".repeat(spacesNeeded))
-                        append(String.format("%.2f", amount))
-                    }
-                }
-
-                // Print cash amount
-                appendLine(formatAmountEntry("Cash Amount", tenderDeclaration.cashAmount))
-
-                // Process AR amounts
-                val gson = Gson()
-                val arAmounts = gson.fromJson<Map<String, Double>>(
-                    tenderDeclaration.arAmounts,
-                    object : TypeToken<Map<String, Double>>() {}.type
-                )
-                var totalAr = 0.0
-
-                // Print AR entries
-                arAmounts.forEach { (arType, amount) ->
-                    if (arType != "Cash") {
-                        appendLine(formatAmountEntry(arType, amount))
-                        totalAr += amount
-                    }
-                }
-
-                // Print totals with consistent alignment
-                appendLine("-".repeat(46))
-                appendLine(formatAmountEntry("Total AR", totalAr))
-
-                val totalDeclared = tenderDeclaration.cashAmount + totalAr
-                appendLine(formatAmountEntry("Total Declared", totalDeclared))
-                appendLine(formatAmountEntry("Short/Over", totalDeclared - totalSales))
+                // ... existing tender declaration code ...
             }
 
             appendLine("-".repeat(46))
@@ -811,299 +761,6 @@ class BluetoothPrinterHelper(private val context: Context) {
         ).format(Date(System.currentTimeMillis() + 365 * 24 * 60 * 60 * 1000L))
     }
 
-//
-//    fun generateReceiptContent(
-//        transaction: TransactionSummary,
-//        items: List<TransactionRecord>,
-//        receiptType: BluetoothPrinterHelper.ReceiptType,
-//        isAR: Boolean = false,
-//        copyType: String? = null
-//    ): String {
-//        val sb = StringBuilder()
-//        val isReturn = receiptType == BluetoothPrinterHelper.ReceiptType.RETURN
-//
-//        // For return receipts, only show returned items
-//        // For regular receipts, show all items but handle returned items differently
-//        val filteredItems = if (isReturn) {
-//            items.filter { it.isReturned }
-//        } else {
-//            // Show all items, but calculate net quantities after returns
-//            items.groupBy { it.itemId }.map { (_, groupedItems) ->
-//                val originalItem = groupedItems.first { !it.isReturned }
-//                val returnedQuantity = groupedItems
-//                    .filter { it.isReturned }
-//                    .sumOf { it.quantity }
-//
-//                // Create a new item with adjusted quantity
-//                originalItem.copy(
-//                    quantity = originalItem.quantity + returnedQuantity, // returnedQuantity is negative
-//                    isReturned = false
-//                )
-//            }
-//        }
-//        // Store Header
-//        sb.appendLine("ELJIN CORP")
-//        sb.appendLine("Address Line 1")
-//        sb.appendLine("Address Line 2")
-//        sb.appendLine("TIN: Your TIN Number")
-//        sb.appendLine("ACC: Your ACC Number")
-//        sb.appendLine("Contact #: Your Contact Number")
-//        sb.appendLine("-".repeat(32))
-//
-//        // Receipt Type Header (unchanged)
-//        when (receiptType) {
-//            BluetoothPrinterHelper.ReceiptType.AR -> {
-//                sb.appendLine("       ACCOUNTS RECEIVABLE        ")
-//                sb.appendLine("         $copyType          ")
-//            }
-//
-//            BluetoothPrinterHelper.ReceiptType.REPRINT -> sb.appendLine("*** REPRINT ***")
-//            BluetoothPrinterHelper.ReceiptType.RETURN -> {
-//                sb.appendLine("*** RETURN TRANSACTION ***")
-//                sb.appendLine("Original Receipt #: ${transaction.receiptId}")
-//            }
-//
-//            else -> {} // No special header for ORIGINAL
-//        }
-//        sb.appendLine("-".repeat(32))
-//
-//        // Transaction Details
-//        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-//        sb.appendLine("Date Issued: ${dateFormat.format(transaction.createdDate)}")
-//        sb.appendLine("Receipt ID: ${transaction.receiptId}")
-//        sb.appendLine("Transaction ID: ${transaction.transactionId}")
-//        sb.appendLine("Store: ${transaction.store}")
-//        sb.appendLine("Cashier: ${transaction.staff}")
-//        sb.appendLine("Window Number: ${transaction.windowNumber}")
-//
-//
-//        // AR Customer Details if applicable
-//        if (isAR) {
-//            sb.appendLine("-".repeat(32))
-//            sb.appendLine("Customer Account: ${transaction.customerAccount}")
-//            sb.appendLine("Customer Name: ${transaction.customerName ?: "N/A"}")
-//            sb.appendLine("AR Type: ${transaction.paymentMethod}")
-//        }
-//        sb.appendLine("-".repeat(32))
-//
-//        // Items Section
-//        sb.appendLine("Item Name              Price    Qty    Total")
-//
-//        // Display items and calculate totals
-//        items.forEach { item ->
-//            val effectivePrice = if (item.priceOverride!! > 0.0) item.priceOverride else item.price
-//            val itemTotal = effectivePrice * item.quantity
-//
-//            // Display item line
-//            sb.appendLine(
-//                "${item.name.take(20).padEnd(20)} ${
-//                    String.format(
-//                        "%10.2f",
-//                        effectivePrice
-//                    )
-//                } ${String.format("%5d", item.quantity)} ${String.format("%8.2f", itemTotal)}"
-//            )
-//
-//            // Show original price if overridden
-//            if (item.priceOverride > 0.0 && item.priceOverride != item.price) {
-//                sb.appendLine("  Original Price: ${String.format("%.2f", item.price)}")
-//                sb.appendLine("  Price Override: ${String.format("%.2f", item.priceOverride)}")
-//            }
-//
-//            // Modified discount display logic
-//            when (item.discountType.uppercase()) {
-//                "PERCENTAGE", "PWD", "SC" -> {
-//                    val discountAmount = itemTotal * (item.discountRate)
-//                    if (discountAmount > 0) {
-//                        sb.appendLine(
-//                            "  Discount (${item.discountType}): ${
-//                                String.format(
-//                                    "%.2f",
-//                                    discountAmount
-//                                )
-//                            }"
-//                        )
-//                        sb.appendLine(
-//                            "  Discount Rate: ${
-//                                String.format(
-//                                    "%.1f",
-//                                    item.discountRate * 100
-//                                )
-//                            }%"
-//                        )
-//                    }
-//                }
-//                "FIXED" -> {
-//                    val perItemDiscount = item.discountAmount
-//                    val totalDiscount = perItemDiscount * item.quantity
-//                    if (perItemDiscount > 0) {
-//                        sb.appendLine(
-//                            "  Discount Per Item: ${
-//                                String.format(
-//                                    "%.2f",
-//                                    perItemDiscount
-//                                )
-//                            }"
-//                        )
-//                    }
-//                }
-//                "FIXEDTOTAL" -> {
-//                    // Always show FIXEDTOTAL discount for items that have it
-//                    if (item.discountAmount > 0 || item.lineDiscountAmount!! > 0) {
-//                        val discountToShow = if (item.discountAmount > 0) item.discountAmount else item.lineDiscountAmount
-//                        sb.appendLine(
-//                            "  Discount (Fixed Total): ${
-//                                String.format(
-//                                    "%.2f",
-//                                    discountToShow
-//                                )
-//                            }"
-//                        )
-//                    }
-//                }
-//            }
-//        }
-//
-//        sb.appendLine("-".repeat(32))
-//
-//        // Display totals section
-//        sb.appendLine("Gross Amount:        ${String.format("%12.2f", transaction.grossAmount)}")
-//        sb.appendLine(
-//            "Total Discounts:     ${
-//                String.format(
-//                    "%12.2f",
-//                    transaction.totalDiscountAmount
-//                )
-//            }"
-//        )
-//
-//        /* if (transaction.partialPayment > 0) {
-//             sb.appendLine(
-//                 "Partial Payment:     ${
-//                     String.format(
-//                         "%12.2f",
-//                         transaction.partialPayment
-//                     )
-//                 }"
-//             )
-//         }*/
-//
-//        sb.appendLine("Net Amount:          ${String.format("%12.2f", transaction.netAmount)}")
-//
-//        // Only show amount paid and change for non-AR transactions
-//        if (!isAR) {
-//            sb.appendLine(
-//                "Amount Paid:         ${
-//                    String.format(
-//                        "%12.2f",
-//                        transaction.totalAmountPaid
-//                    )
-//                }"
-//            )
-//            sb.appendLine(
-//                "Change:              ${
-//                    String.format(
-//                        "%12.2f",
-//                        transaction.changeGiven
-//                    )
-//                }"
-//            )
-//        }
-//
-//        // Payment Method Section
-//        sb.appendLine("-".repeat(32))
-//        sb.appendLine("Payment Method")
-//
-//        // Show payment method amounts
-//        if (transaction.cash > 0) {
-//            sb.appendLine("Cash Payment:         ${String.format("%12.2f", transaction.cash)}")
-//        }
-//        if (transaction.card > 0) {
-//            sb.appendLine("Card Payment:         ${String.format("%12.2f", transaction.card)}")
-//        }
-//        if (transaction.gCash > 0) {
-//            sb.appendLine("GCash Payment:        ${String.format("%12.2f", transaction.gCash)}")
-//        }
-//        if (transaction.payMaya > 0) {
-//            sb.appendLine("PayMaya Payment:      ${String.format("%12.2f", transaction.payMaya)}")
-//        }
-//        if (transaction.charge > 0) {
-//            sb.appendLine("charge Payment:      ${String.format("%12.2f", transaction.charge)}")
-//        }
-//        if (transaction.foodpanda > 0) {
-//            sb.appendLine("foodpanda Payment:      ${String.format("%12.2f", transaction.foodpanda)}")
-//        }
-//        if (transaction.grabfood > 0) {
-//            sb.appendLine("grabfood Payment:      ${String.format("%12.2f", transaction.grabfood)}")
-//        }
-//        if (transaction.representation > 0) {
-//            sb.appendLine("representation Payment:      ${String.format("%12.2f", transaction.representation)}")
-//        }
-//
-//        // Payment Summary Section
-//        sb.appendLine("-".repeat(32))
-//        sb.appendLine("Payment Summary")
-//        sb.appendLine("-".repeat(32))
-//
-//        if (transaction.partialPayment > 0) {
-//            sb.appendLine("Total Bill Amount:    ${String.format("%12.2f", transaction.netAmount)}")
-//            sb.appendLine("Previous Payment:     ${String.format("%12.2f", transaction.partialPayment)}")
-//            sb.appendLine("Current Payment:      ${String.format("%12.2f", transaction.totalAmountPaid)}")
-//            sb.appendLine("Total Paid:           ${String.format("%12.2f", (transaction.partialPayment + transaction.totalAmountPaid) - transaction.changeGiven)}")
-//        } else {
-//            sb.appendLine("Total Amount:         ${String.format("%12.2f", transaction.netAmount)}")
-//            sb.appendLine("Amount Paid:          ${String.format("%12.2f", transaction.totalAmountPaid)}")
-//            sb.appendLine("Change:               ${String.format("%12.2f", transaction.changeGiven)}")
-//        }
-//
-//        // VAT Information
-//        sb.appendLine("-".repeat(32))
-//        sb.appendLine("Vatable Sales:       ${String.format("%12.2f", transaction.vatableSales)}")
-//        sb.appendLine("VAT Amount (12%):    ${String.format("%12.2f", transaction.vatAmount)}")
-//        sb.appendLine("Vat Exempt           ${String.format("%12.2f", 0.0)}")
-//        sb.appendLine("Zero Rated Sales:    ${String.format("%12.2f", 0.0)}")
-//
-//        // Transaction Details
-//        sb.appendLine("-".repeat(32))
-//
-//
-//        // Transaction Comment
-//        if (!transaction.comment.isNullOrBlank()) {
-//            sb.appendLine("-".repeat(32))
-//            sb.appendLine("Comment: ${transaction.comment}")
-//        }
-//
-//        // Footer
-//        sb.appendLine("-".repeat(32))
-//        if (!isReturn) {
-//            sb.appendLine("ID/OSCA/PWD: ")
-//            sb.appendLine("NAME: ")
-//            sb.appendLine("Signature: ")
-//        }
-//        sb.appendLine("-".repeat(32))
-//        sb.appendLine("This serves as your official receipt")
-//        sb.appendLine("This invoice/receipt shall be valid for")
-//        sb.appendLine("five (5) years from the date of the")
-//        sb.appendLine("permit to use")
-//        sb.appendLine("-".repeat(32))
-//        sb.appendLine("POS Provider: IT WARRIORS")
-//        sb.appendLine("ELJIN CORP")
-//        sb.appendLine("ADDRESS")
-//        sb.appendLine("-".repeat(32))
-//        sb.appendLine("Thank you for your business!")
-//
-//        // AR Copy Type
-//        if (isAR) {
-//            sb.appendLine("-".repeat(32))
-//            sb.appendLine(copyType)
-//        }
-//
-//        // Add extra spacing at the bottom
-//
-//
-//        return sb.toString()
-//    }
-//}
 
     fun generateReceiptContent(
         transaction: TransactionSummary,

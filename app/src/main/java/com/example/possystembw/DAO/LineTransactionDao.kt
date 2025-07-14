@@ -10,6 +10,9 @@ import androidx.room.Transaction
 import androidx.sqlite.db.SupportSQLiteQuery
 import com.example.possystembw.database.LineTransactionEntity
 import kotlinx.coroutines.flow.Flow
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Dao
 interface LineTransactionDao {
@@ -51,6 +54,15 @@ interface LineTransactionDao {
 
     @RawQuery
     suspend fun getTodayFilteredItemsRaw(query: SupportSQLiteQuery): List<LineTransaction>
+
+    @Query("UPDATE line_transactions SET posted = 1, syncStatus = 1 WHERE journalId = :journalId")
+    suspend fun markAllAsPosted(journalId: String)
+
+    @Query("UPDATE line_transactions SET posted = 1, syncStatus = 1, postedDateTime = :currentDateTime WHERE journalId = :journalId")
+    suspend fun markAllAsPostedWithDateTime(journalId: String, currentDateTime: String)
+
+    // Also add this to your StockCountingDao if you have one
+
 
     // Alternative: Use a regular @Query (even better)
 // Method to get all line transactions for debugging
@@ -129,7 +141,111 @@ interface LineTransactionDao {
 
 
 
+    @Query("""
+        UPDATE line_transactions 
+        SET adjustment = :adjustment,
+            receivedCount = :receivedCount,
+            transferCount = :transferCount,
+            wasteCount = :wasteCount,
+            counted = :counted,
+            wasteType = :wasteType,
+            syncStatus = :syncStatus,
+            variantId = :variantId,
+            updatedAt = :updatedAt
+        WHERE journalId = :journalId AND itemId = :itemId
+    """)
+    suspend fun updateSpecificItem(
+        journalId: String,
+        itemId: String,
+        adjustment: String,
+        receivedCount: String,
+        transferCount: String?,
+        wasteCount: String,
+        counted: String,
+        wasteType: String?,
+        syncStatus: Int,
+        variantId: String?,
+        updatedAt: String = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+    )
+    @Query("""
+    UPDATE line_transactions 
+    SET adjustment = :adjustment,
+        receivedCount = :receivedCount,
+        transferCount = :transferCount,
+        wasteCount = :wasteCount,
+        counted = :counted,
+        wasteType = :wasteType,
+        variantId = :variantId,
+        syncStatus = :syncStatus,
+        updatedAt = datetime('now')
+    WHERE journalId = :journalId AND itemId = :itemId
+""")
+    suspend fun updateSpecificItemData(
+        journalId: String,
+        itemId: String,
+        adjustment: String,
+        receivedCount: String,
+        transferCount: String,
+        wasteCount: String,
+        counted: String,
+        wasteType: String?,
+        variantId: String?,
+        syncStatus: Int
+    )
+    /**
+     * Get count of items that have been modified but not yet synced
+     */
+    @Query("""
+        SELECT COUNT(*) FROM line_transactions 
+        WHERE journalId = :journalId 
+        AND syncStatus = 0 
+        AND (
+            CAST(adjustment AS REAL) > 0 OR
+            CAST(receivedCount AS REAL) > 0 OR
+            CAST(transferCount AS REAL) > 0 OR
+            CAST(wasteCount AS REAL) > 0 OR
+            CAST(counted AS REAL) > 0 OR
+            (wasteType IS NOT NULL AND wasteType != 'none' AND wasteType != 'Select type')
+        )
+    """)
+    suspend fun getModifiedUnsyncedCount(journalId: String): Int
 
+    /**
+     * Get items that are marked as unsynced and have actual values
+     */
+    @Query("""
+        SELECT * FROM line_transactions 
+        WHERE journalId = :journalId 
+        AND syncStatus = 0 
+        AND (
+            CAST(adjustment AS REAL) > 0 OR
+            CAST(receivedCount AS REAL) > 0 OR
+            CAST(transferCount AS REAL) > 0 OR
+            CAST(wasteCount AS REAL) > 0 OR
+            CAST(counted AS REAL) > 0 OR
+            (wasteType IS NOT NULL AND wasteType != 'none' AND wasteType != 'Select type')
+        )
+    """)
+    suspend fun getModifiedUnsyncedItems(journalId: String): List<LineTransactionEntity>
+
+
+@Transaction
+suspend fun updateSpecificItems(entities: List<LineTransactionEntity>) {
+    entities.forEach { entity ->
+        updateSpecificItem(
+            journalId = entity.journalId,
+            itemId = entity.itemId,
+            adjustment = entity.adjustment,
+            receivedCount = entity.receivedCount,
+            transferCount = entity.transferCount,
+            wasteCount = entity.wasteCount,
+            counted = entity.counted,
+            wasteType = entity.wasteType,
+            syncStatus = entity.syncStatus,
+            variantId = entity.variantId
+        )
+    }
+}
 @Query("UPDATE line_transactions SET syncStatus = :syncStatus WHERE journalId = :journalId AND itemId = :itemId")
     suspend fun updateSyncStatus(journalId: String, itemId: String, syncStatus: Int)
     @Transaction

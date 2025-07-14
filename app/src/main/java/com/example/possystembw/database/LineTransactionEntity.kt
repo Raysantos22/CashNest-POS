@@ -68,5 +68,28 @@ fun LineTransactionEntity.hasAnyValue(): Boolean {
             (transferCount?.toDoubleOrNull() ?: 0.0) > 0 ||
             (wasteCount.toDoubleOrNull() ?: 0.0) > 0 ||
             (counted.toDoubleOrNull() ?: 0.0) > 0 ||
-            (!wasteType.isNullOrBlank() && wasteType != "none")
+            (!wasteType.isNullOrBlank() && wasteType != "none" && wasteType != "Select type")
 }
+fun LineTransactionEntity.hasBeenModified(): Boolean {
+    return syncStatus == 0 && hasAnyValue()
+}
+
+// Add this helper function to check if item has significant changes
+fun LineTransactionEntity.hasSignificantChanges(): Boolean {
+    val adjustmentValue = adjustment.toDoubleOrNull() ?: 0.0
+    val receivedValue = receivedCount.toDoubleOrNull() ?: 0.0
+    val transferValue = transferCount?.toDoubleOrNull() ?: 0.0
+    val wasteValue = wasteCount.toDoubleOrNull() ?: 0.0
+    val countedValue = counted.toDoubleOrNull() ?: 0.0
+
+    // Consider it significant if:
+    // 1. There's a difference between ordered and received
+    // 2. There's any waste
+    // 3. There's any transfer
+    // 4. There's any manual count
+    return (adjustmentValue != receivedValue) ||
+            wasteValue > 0 ||
+            transferValue > 0 ||
+            countedValue > 0
+}
+

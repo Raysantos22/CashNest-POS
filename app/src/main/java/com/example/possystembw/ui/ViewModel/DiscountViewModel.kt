@@ -16,27 +16,74 @@ class DiscountViewModel(private val repository: DiscountRepository) : ViewModel(
     private val _error = MutableLiveData<String>()
     val error: LiveData<String> = _error
 
+    private val _isLoading = MutableLiveData<Boolean>()
+    val isLoading: LiveData<Boolean> = _isLoading
+
     fun fetchDiscounts() {
+        _isLoading.value = true
         viewModelScope.launch {
             repository.getAllDiscounts().collect { result ->
+                _isLoading.value = false
                 result.onSuccess { discountList ->
-                    Log.d("DiscountViewModel", "Fetched ${discountList.size} discounts")
+                    Log.d("DiscountViewModel", "✅ Successfully fetched ${discountList.size} discounts")
+
                     // Sort discounts by PARAMETER in ascending order
                     val sortedDiscounts = discountList.sortedBy { it.PARAMETER }
                     _discounts.value = sortedDiscounts
+
+                    // Enhanced debugging - show all discount details
+                    sortedDiscounts.forEach { discount ->
+                        Log.d("DiscountViewModel",
+                            "Discount: ${discount.DISCOFFERNAME} | " +
+                                    "Default: ${discount.PARAMETER} | " +
+                                    "Type: ${discount.DISCOUNTTYPE} | " +
+                                    "GF: ${discount.GRABFOOD_PARAMETER} | " +
+                                    "FP: ${discount.FOODPANDA_PARAMETER} | " +
+                                    "MR: ${discount.MANILAPRICE_PARAMETER} | " +
+                                    "Mall: ${discount.MALLPRICE_PARAMETER} | " +
+                                    "GF Mall: ${discount.GRABFOODMALL_PARAMETER} | " +
+                                    "FP Mall: ${discount.FOODPANDAMALL_PARAMETER}"
+                        )
+                    }
+
                 }.onFailure { e ->
-                    Log.e("DiscountViewModel", "Error fetching discounts", e)
+                    Log.e("DiscountViewModel", "❌ Error fetching discounts", e)
                     _error.value = "Error fetching discounts: ${e.message}"
-                    // Fallback to local data, also sorted
-                    val localDiscounts = repository.getLocalDiscounts().sortedBy { it.PARAMETER }
-                    Log.d("DiscountViewModel", "Fetched ${localDiscounts.size} local discounts")
-                    _discounts.value = localDiscounts
                 }
             }
         }
     }
-}
 
+    // Method to force refresh discounts
+    fun refreshDiscounts() {
+        _isLoading.value = true
+        viewModelScope.launch {
+            val result = repository.refreshDiscounts()
+            _isLoading.value = false
+
+            result.onSuccess { discountList ->
+                Log.d("DiscountViewModel", "✅ Force refresh successful: ${discountList.size} discounts")
+                val sortedDiscounts = discountList.sortedBy { it.PARAMETER }
+                _discounts.value = sortedDiscounts
+                _error.value = null // Clear any previous errors
+            }.onFailure { e ->
+                Log.e("DiscountViewModel", "❌ Force refresh failed", e)
+                _error.value = "Failed to refresh discounts: ${e.message}"
+            }
+        }
+    }
+
+    fun getCurrentDiscounts(): List<Discount>? {
+        val current = _discounts.value
+        Log.d("DiscountViewModel", "getCurrentDiscounts() returned ${current?.size ?: 0} discounts")
+        return current
+    }
+
+    // Method to clear errors
+    fun clearError() {
+        _error.value = null
+    }
+}
 
 class DiscountViewModelFactory(private val repository: DiscountRepository) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {

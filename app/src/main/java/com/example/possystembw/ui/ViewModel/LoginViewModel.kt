@@ -12,6 +12,7 @@ import com.example.possystembw.data.UserRepository
 import com.example.possystembw.database.User
 import kotlinx.coroutines.launch
 import at.favre.lib.crypto.bcrypt.BCrypt
+import com.example.possystembw.DAO.ServerAttendanceRecord
 import com.example.possystembw.DAO.TransactionApi
 import com.example.possystembw.DAO.TransactionDao
 import com.example.possystembw.DAO.TransactionSyncApi
@@ -50,6 +51,9 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
     private val _staffData = MutableLiveData<Result<List<StaffEntity>>>()
     val staffData: LiveData<Result<List<StaffEntity>>> = _staffData
 
+
+    private val _attendanceData = MutableLiveData<Result<List<ServerAttendanceRecord>>>()
+    val attendanceData: LiveData<Result<List<ServerAttendanceRecord>>> = _attendanceData
     init {
 
         val staffDao = AppDatabase.getDatabase(application).staffDao()
@@ -88,6 +92,41 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun fetchAttendanceData(storeId: String) {
+        viewModelScope.launch {
+            try {
+                Log.d("LoginViewModel", "Fetching attendance data for store: $storeId")
+
+                val result = RetrofitClient.attendanceService.getStoreAttendanceRecords(storeId)
+
+                if (result.isSuccess) {
+                    val attendanceList = result.getOrNull() ?: emptyList()
+                    Log.d("LoginViewModel", "Successfully fetched ${attendanceList.size} attendance records")
+                    _attendanceData.postValue(Result.success(attendanceList))
+                } else {
+                    val error = result.exceptionOrNull() ?: Exception("Unknown error fetching attendance")
+                    Log.e("LoginViewModel", "Failed to fetch attendance data", error)
+                    _attendanceData.postValue(Result.failure(error))
+                }
+            } catch (e: Exception) {
+                Log.e("LoginViewModel", "Error fetching attendance data", e)
+                _attendanceData.postValue(Result.failure(e))
+            }
+        }
+    }
+
+    // Optional: Add method to refresh attendance data
+    fun refreshAttendanceData() {
+        val storeId = SessionManager.getCurrentStoreId()
+        if (!storeId.isNullOrEmpty()) {
+            fetchAttendanceData(storeId)
+        }
+    }
+
+    // Optional: Add method to get cached attendance data
+    fun getCachedAttendanceData(): List<ServerAttendanceRecord> {
+        return SessionManager.getAttendanceData()
+    }
 
     fun fetchUsers() {
         viewModelScope.launch {

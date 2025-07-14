@@ -21,6 +21,8 @@ interface StockCountingDao {
     @Query("DELETE FROM stock_counting")
     suspend fun deleteAllStockCounting()
 
+    @Query("UPDATE stock_counting SET posted = 1 WHERE journalId = :journalId")
+    suspend fun markAsPosted(journalId: Long)
 
     @Query("DELETE FROM stock_counting WHERE journalId = :journalId")
     suspend fun deleteStockCountingByJournal(journalId: Long)

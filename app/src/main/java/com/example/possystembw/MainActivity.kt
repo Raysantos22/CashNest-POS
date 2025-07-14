@@ -96,6 +96,9 @@ import androidx.core.view.GravityCompat
 import android.view.MenuItem
 import com.example.possystembw.ui.GridSpacingItemDecoration
 import com.example.possystembw.ui.HorizontalSpacingItemDecoration
+import com.example.possystembw.ui.ViewModel.WindowVisibilityViewModel
+import com.example.possystembw.ui.WindowWithVisibility
+import kotlinx.coroutines.flow.combine
 
 class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
     private lateinit var windowViewModel: WindowViewModel
@@ -152,6 +155,9 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private var hamburgerButton: ImageButton? = null
     private var isMobileLayout = false
 
+    private lateinit var windowVisibilityViewModel: WindowVisibilityViewModel
+    private var allWindowsWithVisibility: List<WindowWithVisibility> = emptyList()
+//    private var allWindowTablesWithVisibility: List<WindowTableWithVisibility> = emptyList()
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -407,7 +413,14 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
             )
             transactionViewModel = ViewModelProvider(this, factory).get(TransactionViewModel::class.java)
 
+            // Add Window Visibility ViewModel
+            windowVisibilityViewModel = ViewModelProvider(
+                this,
+                WindowVisibilityViewModel.WindowVisibilityViewModelFactory(application)
+            )[WindowVisibilityViewModel::class.java]
+
             Log.d("MainActivity", "✅ All ViewModels initialized successfully")
+
 
         } catch (e: Exception) {
             Log.e("MainActivity", "❌ CRITICAL: ViewModels initialization failed", e)
@@ -1123,33 +1136,66 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     }
     private fun setupObservers() {
         lifecycleScope.launch {
-            windowViewModel.allWindows.collect { windows ->
-                Log.d(
-                    "MainActivity",
-                    "Received windows: ${windows.joinToString { it.description }}"
-                )
-                windowAdapter.submitList(windows)
+            combine(
+                windowViewModel.allWindows,
+                windowVisibilityViewModel.getHiddenWindows()
+            ) { windows, hiddenWindows ->
+                val hiddenWindowIds = hiddenWindows.map { it.windowId }.toSet()
+
+                // Filter out hidden windows
+                val visibleWindows = windows.filter { window ->
+                    window.id !in hiddenWindowIds
+                }
+
+                Log.d("MainActivity", "Visible windows: ${visibleWindows.size} out of ${windows.size}")
+                visibleWindows
+            }.collect { visibleWindows ->
+                windowAdapter.submitList(visibleWindows)
             }
         }
 
+        // Observe window tables and their visibility
         lifecycleScope.launch {
-            windowTableViewModel.allWindowTables.collect { windowTables ->
-                Log.d(
-                    "MainActivity",
-                    "Received window tables: ${windowTables.joinToString { it.description }}"
-                )
-                windowTableAdapter.submitList(windowTables)
+            combine(
+                windowTableViewModel.allWindowTables,
+                windowVisibilityViewModel.getHiddenWindows()
+            ) { windowTables, hiddenWindows ->
+                val hiddenWindowTableIds = hiddenWindows.map { it.windowTableId }.toSet()
+
+                // Filter out hidden window tables
+                val visibleWindowTables = windowTables.filter { windowTable ->
+                    windowTable.id !in hiddenWindowTableIds
+                }
+
+                Log.d("MainActivity", "Visible window tables: ${visibleWindowTables.size} out of ${windowTables.size}")
+                visibleWindowTables
+            }.collect { visibleWindowTables ->
+                windowTableAdapter.submitList(visibleWindowTables)
             }
         }
 
+        // Observe aligned windows with visibility
         lifecycleScope.launch {
-            windowViewModel.alignedWindows.collect { alignedWindows ->
-                if (alignedWindows.isNotEmpty()) {
-                    Log.d(
-                        "MainActivity",
-                        "Received aligned windows: ${alignedWindows.joinToString { it.description }}"
-                    )
-                    windowAdapter.submitList(alignedWindows)
+            combine(
+                windowViewModel.alignedWindows,
+                windowVisibilityViewModel.getHiddenWindows()
+            ) { alignedWindows, hiddenWindows ->
+                val hiddenWindowIds = hiddenWindows.map { it.windowId }.toSet()
+
+                // Filter out hidden aligned windows
+                val visibleAlignedWindows = alignedWindows.filter { window ->
+                    window.id !in hiddenWindowIds
+                }
+
+                if (visibleAlignedWindows.isNotEmpty()) {
+                    Log.d("MainActivity", "Visible aligned windows: ${visibleAlignedWindows.size} out of ${alignedWindows.size}")
+                    visibleAlignedWindows
+                } else {
+                    emptyList()
+                }
+            }.collect { visibleAlignedWindows ->
+                if (visibleAlignedWindows.isNotEmpty()) {
+                    windowAdapter.submitList(visibleAlignedWindows)
                 }
             }
         }
@@ -1637,7 +1683,29 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     private fun showAlignedWindows(windowTable: WindowTable) {
         Log.d("MainActivity", "Aligning windows with table ID: ${windowTable.id}")
-        windowViewModel.alignWindowsWithTable(windowTable.id)
+
+        // Check if the window table is visible before showing aligned windows
+        lifecycleScope.launch {
+            windowVisibilityViewModel.getHiddenWindows().collect { hiddenWindows ->
+                val hiddenWindowTableIds = hiddenWindows.map { it.windowTableId }.toSet()
+
+                if (windowTable.id !in hiddenWindowTableIds) {
+                    windowViewModel.alignWindowsWithTable(windowTable.id)
+                } else {
+                    Log.d("MainActivity", "Window table ${windowTable.id} is hidden, not showing aligned windows")
+                }
+            }
+        }
+    }
+    private fun logVisibilityState() {
+        lifecycleScope.launch {
+            windowVisibilityViewModel.getHiddenWindows().collect { hiddenWindows ->
+                Log.d("MainActivity", "Hidden windows: ${hiddenWindows.size}")
+                hiddenWindows.forEach { hiddenWindow ->
+                    Log.d("MainActivity", "Hidden - WindowID: ${hiddenWindow.windowId}, WindowTableID: ${hiddenWindow.windowTableId}")
+                }
+            }
+        }
     }
 
     private suspend fun updateAndDeleteNumberSequence(): Boolean {

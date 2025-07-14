@@ -57,6 +57,7 @@ class LoginActivity : AppCompatActivity() {
     private var isWebLoginComplete = false
     private var isNativeLoginComplete = false
     private var webLoginTimeout = false
+    private var isAttendanceDataLoaded = false
 
     private val webLoginTimeoutHandler = Handler(Looper.getMainLooper())
     private val WEB_LOGIN_TIMEOUT = 10000L // 10 seconds timeout
@@ -79,12 +80,12 @@ class LoginActivity : AppCompatActivity() {
         setupWebView()
         setupLoginButton()
         setupObservers()
-        setupBackgroundVideo() // Add this line
-
+        setupBackgroundVideo()
 
         // Start fetching users immediately
         fetchUsers()
     }
+
     private inner class WebAppInterface {
         @JavascriptInterface
         fun onWebLoginSuccess() {
@@ -107,12 +108,14 @@ class LoginActivity : AppCompatActivity() {
             }
         }
     }
+
     private fun fetchUsers() {
         if (!usersFetched) {
             showLoading("Syncing data...")
             viewModel.fetchUsers()
         }
     }
+
     private fun initializeViews() {
         viewModel = ViewModelProvider(this).get(LoginViewModel::class.java)
         emailInput = findViewById(R.id.emailInput)
@@ -208,6 +211,7 @@ class LoginActivity : AppCompatActivity() {
             }
         }
     }
+
     private fun proceedWithoutWebLogin(reason: String) {
         if (!isWebLoginComplete && !webLoginTimeout) {
             Log.w("LoginActivity", "Proceeding without web login: $reason")
@@ -216,7 +220,6 @@ class LoginActivity : AppCompatActivity() {
             checkLoginCompletion()
         }
     }
-
 
     private fun setupLoginButton() {
         loginButton.setOnClickListener {
@@ -228,6 +231,7 @@ class LoginActivity : AppCompatActivity() {
                 webLoginAttempted = false
                 isWebLoginComplete = false
                 isNativeLoginComplete = false
+                isAttendanceDataLoaded = false
                 webLoginTimeout = false
 
                 // Start native login
@@ -246,86 +250,106 @@ class LoginActivity : AppCompatActivity() {
         }
     }
 
-//    private fun setupObservers() {
-//        viewModel.loginResult.observe(this) { result ->
-//            result.onSuccess { user ->
-//                SessionManager.setCurrentUser(user)
-//                isNativeLoginComplete = true
-//                checkLoginCompletion()
-//            }.onFailure { error ->
-//                hideLoading()
-//                SessionManager.clearCurrentUser()
-//                Toast.makeText(this, "Login failed: ${error.message}", Toast.LENGTH_SHORT).show()
-//            }
-//        }
-//    }
-private fun setupObservers() {
-    // Observe users fetch result
-    viewModel.fetchUsersResult.observe(this) { result ->
-        result.onSuccess { users ->
-            usersFetched = true
-            hideLoading()
-            Log.d("LoginActivity", "Successfully fetched ${users.size} users")
-        }.onFailure { error ->
-            hideLoading()
-            Toast.makeText(this, "Failed to sync data: ${error.message}", Toast.LENGTH_LONG).show()
-            Log.e("LoginActivity", "Failed to fetch users", error)
-        }
-    }
-
-    viewModel.loginResult.observe(this) { result ->
-        result.onSuccess { user ->
-            isNativeLoginComplete = true
-            checkLoginCompletion()
-        }.onFailure { error ->
-            hideLoading()
-            SessionManager.clearCurrentUser()
-            Toast.makeText(this, "Login failed: ${error.message}", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    viewModel.staffData.observe(this) { result ->
-        result.onSuccess { staffList ->
-            Log.d("LoginActivity", "Successfully fetched and stored ${staffList.size} staff members")
-        }.onFailure { error ->
-            Log.e("LoginActivity", "Failed to fetch staff data", error)
-        }
-    }
-
-    viewModel.loginDataState.observe(this) { state ->
-        when (state) {
-            is LoginDataState.Loading -> {
-                showLoading("Loading data...")
-            }
-            is LoginDataState.Success -> {
-                showLoading("Loaded: ${state.transactionSummaryCount} summaries, ${state.transactionRecordCount} records")
-            }
-            is LoginDataState.Error -> {
+    private fun setupObservers() {
+        // Observe users fetch result
+        viewModel.fetchUsersResult.observe(this) { result ->
+            result.onSuccess { users ->
+                usersFetched = true
                 hideLoading()
-                Toast.makeText(this, state.message, Toast.LENGTH_LONG).show()
+                Log.d("LoginActivity", "Successfully fetched ${users.size} users")
+            }.onFailure { error ->
+                hideLoading()
+                Toast.makeText(this, "Failed to sync data: ${error.message}", Toast.LENGTH_LONG).show()
+                Log.e("LoginActivity", "Failed to fetch users", error)
             }
+        }
 
-            is LoginDataState.Warning -> TODO()
+        viewModel.loginResult.observe(this) { result ->
+            result.onSuccess { user ->
+                SessionManager.setCurrentUser(user)
+                isNativeLoginComplete = true
+
+                // Fetch attendance data after successful login
+                fetchAttendanceData(user.storeid ?: "")
+            }.onFailure { error ->
+                hideLoading()
+                SessionManager.clearCurrentUser()
+                Toast.makeText(this, "Login failed: ${error.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        viewModel.staffData.observe(this) { result ->
+            result.onSuccess { staffList ->
+                Log.d("LoginActivity", "Successfully fetched and stored ${staffList.size} staff members")
+            }.onFailure { error ->
+                Log.e("LoginActivity", "Failed to fetch staff data", error)
+            }
+        }
+
+        // Add attendance data observer
+        viewModel.attendanceData.observe(this) { result ->
+            result.onSuccess { attendanceList ->
+                isAttendanceDataLoaded = true
+                SessionManager.setAttendanceData(attendanceList)
+                Log.d("LoginActivity", "Successfully fetched and stored ${attendanceList.size} attendance records")
+                checkLoginCompletion()
+            }.onFailure { error ->
+                Log.e("LoginActivity", "Failed to fetch attendance data", error)
+                // Don't block login if attendance fetch fails
+                isAttendanceDataLoaded = true
+                checkLoginCompletion()
+            }
+        }
+
+        viewModel.loginDataState.observe(this) { state ->
+            when (state) {
+                is LoginDataState.Loading -> {
+                    showLoading("Loading data...")
+                }
+                is LoginDataState.Success -> {
+                    showLoading("Loaded: ${state.transactionSummaryCount} summaries, ${state.transactionRecordCount} records")
+                }
+                is LoginDataState.Error -> {
+                    hideLoading()
+                    Toast.makeText(this, state.message, Toast.LENGTH_LONG).show()
+                }
+                is LoginDataState.Warning -> {
+                    // Handle warning state if needed
+                }
+            }
         }
     }
-}
+
+    private fun fetchAttendanceData(storeId: String) {
+        if (storeId.isNotEmpty()) {
+            showLoading("Loading attendance data...")
+            viewModel.fetchAttendanceData(storeId)
+        } else {
+            Log.w("LoginActivity", "No store ID available, skipping attendance fetch")
+            isAttendanceDataLoaded = true
+            checkLoginCompletion()
+        }
+    }
 
     private fun checkLoginCompletion() {
         val webStatus = if (isWebLoginComplete) "completed" else "pending"
-        Log.d("LoginActivity", "Login status - Native: $isNativeLoginComplete, Web: $webStatus")
+        val attendanceStatus = if (isAttendanceDataLoaded) "loaded" else "loading"
 
-        if (isNativeLoginComplete) {
-            // If native login is successful, proceed regardless of web login state
+        Log.d("LoginActivity", "Login status - Native: $isNativeLoginComplete, Web: $webStatus, Attendance: $attendanceStatus")
+
+        if (isNativeLoginComplete && isAttendanceDataLoaded) {
+            // If native login is successful and attendance is loaded, proceed regardless of web login state
             if (!isWebLoginComplete) {
                 Log.w("LoginActivity", "Proceeding with login despite incomplete web login")
                 isWebLoginComplete = true
             }
 
-            Log.d("LoginActivity", "Login completed successfully")
+            Log.d("LoginActivity", "Login completed successfully with attendance data")
             SessionManager.refreshSession()
             startMainActivity()
         }
     }
+
     private fun setupBackgroundVideo() {
         val videoView = findViewById<VideoView>(R.id.backgroundVideo)
 
@@ -334,7 +358,7 @@ private fun setupObservers() {
             val path = "android.resource://$packageName/drawable/" + R.raw.ads
             videoView.setVideoPath(path)
 
-            // Configure video playback with muted audio
+            // Configure video playbook with muted audio
             videoView.setOnPreparedListener { mediaPlayer ->
                 // Mute the video
                 mediaPlayer.setVolume(0f, 0f)

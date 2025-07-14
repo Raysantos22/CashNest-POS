@@ -112,6 +112,8 @@ class CartAdapter(
                     "PERCENTAGE" -> baseTotal * (1 - cartItem.discount / 100)
                     "FIXED" -> (basePrice - cartItem.discount) * quantity
                     "FIXEDTOTAL" -> baseTotal - cartItem.discount
+                    "PWD" -> baseTotal * (1 - cartItem.discount / 100)
+                    "SC" -> baseTotal * (1 - cartItem.discount / 100)
                     else -> baseTotal
                 }
                 else -> baseTotal
@@ -151,9 +153,12 @@ class CartAdapter(
                 cartItem.discount > 0 -> {
                     discountInfoView.visibility = View.VISIBLE
                     discountInfoView.text = when (cartItem.discountType.uppercase()) {
-                        "PERCENTAGE" -> "Discount: ₱${cartItem.discount}%"
-                        "FIXED" -> "Discount: ₱${String.format("%.2f", cartItem.discount)}"
-                        "FIXEDTOTAL" -> "Discount: ₱${String.format("%.2f", cartItem.discount)}"
+                        "PERCENTAGE" -> "${cartItem.discountName}  ₱${cartItem.discount}%"
+                        "FIXED" -> "${cartItem.discountName} ₱${String.format("%.2f", cartItem.discount)}"
+                        "FIXEDTOTAL" -> "${cartItem.discountName}  ₱${String.format("%.2f", cartItem.discount)}"
+                        "SC" -> "${cartItem.discountName}  ₱${String.format("%.2f", cartItem.discount)}"
+                        "PWD" -> "${cartItem.discountName}  ₱${String.format("%.2f", cartItem.discount)}"
+
                         else -> "Discount Applied"
                     }
                 }

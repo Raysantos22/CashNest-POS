@@ -137,7 +137,7 @@
             android:layout_rowWeight="1"
             android:background="@drawable/rounded_button_background"
             android:padding="16dp"
-            android:text="Enable/Disable Batch Product "
+            android:text="Enable/Disable Window Table "
             android:textColor="@color/black" />
 
 

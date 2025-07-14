@@ -31,10 +31,9 @@ class ProductRepository(
     fun getVisibleProducts(): Flow<List<Product>> {
         return combine(
             productDao.getAllProducts(),
-            visibilityDao.getHiddenProducts()
+            visibilityDao.getHiddenProducts("GENERAL")
         ) { allProducts, hiddenVisibilities ->
             val hiddenIds = hiddenVisibilities.map { it.productId }.toSet()
-            // Filter OUT products that ARE in the hidden list
             allProducts.filter { product -> product.id !in hiddenIds }
         }
     }
@@ -42,21 +41,26 @@ class ProductRepository(
     val allProducts: Flow<List<Product>> = productDao.getAllProducts()
     val allCategories: Flow<List<Category>> = categoryDao.getAllCategories()
     private val visibilityRepository = ProductVisibilityRepository(visibilityDao)
-    suspend fun hideProduct(productId: Int) {
-        visibilityRepository.hideProduct(productId)
+    suspend fun hideProduct(productId: Int, platform: String = "GENERAL") {
+        visibilityRepository.hideProduct(productId, platform)
     }
 
-    suspend fun showProduct(productId: Int) {
-        visibilityRepository.showProduct(productId)
+    suspend fun showProduct(productId: Int, platform: String = "GENERAL") {
+        visibilityRepository.showProduct(productId, platform)
     }
 
-    suspend fun isProductHidden(productId: Int): Boolean {
-        return visibilityRepository.isProductHidden(productId)
+    suspend fun isProductHidden(productId: Int, platform: String = "GENERAL"): Boolean {
+        return visibilityRepository.isProductHidden(productId, platform)
     }
 
-    fun getHiddenProducts(): Flow<List<ProductVisibility>> {
-        return visibilityRepository.getHiddenProducts()
+    fun getHiddenProducts(platform: String = "GENERAL"): Flow<List<ProductVisibility>> {
+        return visibilityRepository.getHiddenProducts(platform)
     }
+
+    suspend fun getHiddenProductsSync(platform: String = "GENERAL"): List<ProductVisibility> {
+        return visibilityRepository.getHiddenProductsSync(platform)
+    }
+
     fun getAllAlignedProducts(): Flow<Map<Category, List<Product>>> {
         return combine(allCategories, allProducts) { categories, products ->
             val alignedMap = mutableMapOf<Category, List<Product>>()
@@ -179,6 +183,7 @@ class ProductRepository(
             }
         }
     }
+
     suspend fun refreshProductsAndCategories() {
         withContext(Dispatchers.IO) {
             try {
@@ -287,6 +292,7 @@ class ProductRepository(
     fun getProductsByCategory(categoryName: String): Flow<List<Product>> {
         return productDao.getProductsByCategory(categoryName)
     }
+
     //    }
     suspend fun insertAllProductsFromApi(): Result<List<Product>> = withContext(Dispatchers.IO) {
         try {
@@ -294,7 +300,7 @@ class ProductRepository(
             val currentVisibilitySettings = mutableMapOf<String, Boolean>()
             val existingProducts = productDao.getAllProductsSync() // You'll need to add this method
             existingProducts.forEach { product ->
-                val isHidden = visibilityDao.getVisibility(product.id)?.isHidden ?: false
+                val isHidden = visibilityDao.getVisibility(product.id, "PURCHASE")?.isHidden ?: false
                 // Use itemid as the key since it's more stable than auto-generated id
                 currentVisibilitySettings[product.itemid] = isHidden
             }
@@ -358,7 +364,15 @@ class ProductRepository(
             newProducts.forEach { product ->
                 val wasHidden = currentVisibilitySettings[product.itemid] ?: false
                 if (wasHidden) {
-                    visibilityDao.insertVisibility(ProductVisibility(product.id, true))
+                    // FIXED: Use the correct constructor with all required parameters
+                    visibilityDao.insertVisibility(
+                        ProductVisibility(
+                            id = 0, // Auto-generated
+                            productId = product.id,
+                            isHidden = true,
+                            platform = "PURCHASE"
+                        )
+                    )
                 }
             }
 

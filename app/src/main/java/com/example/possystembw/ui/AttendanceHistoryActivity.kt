@@ -6,30 +6,35 @@ import android.util.Log
 import android.view.View
 import android.widget.ImageView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
-import com.example.possystembw.DAO.AttendanceDao
+import com.example.possystembw.DAO.AttendanceService
+import com.example.possystembw.DAO.ServerAttendanceRecord
+import com.example.possystembw.DAO.toLocalAttendanceRecord
 import com.example.possystembw.R
-import com.example.possystembw.data.AppDatabase
 import com.example.possystembw.database.AttendanceRecord
 import com.example.possystembw.databinding.ActivityAttendanceHistoryBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
 class AttendanceHistoryActivity : AppCompatActivity() {
     private lateinit var binding: ActivityAttendanceHistoryBinding
-    private lateinit var attendanceDao: AttendanceDao
+    private lateinit var attendanceService: AttendanceService
     private var staffId: String? = null
     private var staffName: String? = null
     private var storeId: String? = null
+    private var allAttendanceRecords: List<ServerAttendanceRecord> = emptyList()
     private var attendanceDates: Set<String> = emptySet()
     private lateinit var calendar: Calendar
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+//    private val BASE_URL = "http://10.151.5.239:8000" // Your server base URL
+    private val BASE_URL = "http://10.151.5.239:8000" // Your server base URL
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,21 +46,22 @@ class AttendanceHistoryActivity : AppCompatActivity() {
         storeId = intent.getStringExtra("storeId")
 
         if (staffId == null || staffName == null || storeId == null) {
+            showToast("Missing required information")
             finish()
             return
         }
 
-        attendanceDao = AppDatabase.getDatabase(application).attendanceDao()
+        attendanceService = AttendanceService()
         calendar = Calendar.getInstance()
 
         setupToolbar()
         setupCalendarView()
-        initializeCurrentMonth()
+        loadAttendanceData()
     }
 
     private fun setupToolbar() {
         binding.toolbar.apply {
-            title = "Attendance History"
+            title = "Attendance History - $staffName"
             setNavigationOnClickListener { finish() }
         }
     }
@@ -71,73 +77,190 @@ class AttendanceHistoryActivity : AppCompatActivity() {
         }
     }
 
-    private fun initializeCurrentMonth() {
+    private fun loadAttendanceData() {
+        // First, try to use cached data
+        val cachedData = SessionManager.getAttendanceData()
+        if (cachedData.isNotEmpty() && SessionManager.isAttendanceDataFresh()) {
+            Log.d("AttendanceHistory", "Using cached attendance data: ${cachedData.size} records")
+            processCachedAttendanceData(cachedData)
+            return
+        }
+
+        // If no cached data or data is stale, fetch from server
+        showLoading(true)
         lifecycleScope.launch {
             try {
-                val calendar = Calendar.getInstance()
-                val firstDayOfMonth = calendar.apply {
-                    set(Calendar.DAY_OF_MONTH, 1)
-                }.time
-                val lastDayOfMonth = calendar.apply {
-                    set(Calendar.DAY_OF_MONTH, calendar.getActualMaximum(Calendar.DAY_OF_MONTH))
-                }.time
+                val result = attendanceService.getStoreAttendanceRecords(storeId!!)
 
-                val startDate = dateFormat.format(firstDayOfMonth)
-                val endDate = dateFormat.format(lastDayOfMonth)
+                if (result.isSuccess) {
+                    allAttendanceRecords = result.getOrNull() ?: emptyList()
 
-                // Get attendance records for the month
-                val records = withContext(Dispatchers.IO) {
-                    attendanceDao.getAttendanceForStaffBetweenDates(staffId!!, startDate, endDate)
-                }
+                    // Update cache
+                    SessionManager.setAttendanceData(allAttendanceRecords)
 
-                // Store dates with attendance
-                attendanceDates = records.map { it.date }.toSet()
+                    // Filter records for this specific staff member
+                    val staffRecords = allAttendanceRecords.filter { record ->
+                        record.staffId == staffId
+                    }
 
-                // Update the calendar with current date's attendance
-                val currentDate = dateFormat.format(Date())
-                loadAttendanceForDate(currentDate)
+                    // Store dates with attendance
+                    attendanceDates = staffRecords.map { it.date }.toSet()
 
-                // Add date change listener
-                binding.calendarView.setOnDateChangeListener { _, year, month, dayOfMonth ->
-                    calendar.set(year, month, dayOfMonth)
-                    val selectedDate = dateFormat.format(calendar.time)
+                    withContext(Dispatchers.Main) {
+                        updateAttendanceIndicators(staffRecords)
+                        showLoading(false)
 
-                    if (attendanceDates.contains(selectedDate)) {
-                        loadAttendanceForDate(selectedDate)
-                        binding.imagesContainer.visibility = View.VISIBLE
-                        binding.attendanceDetails.visibility = View.VISIBLE
-                    } else {
-                        binding.imagesContainer.visibility = View.GONE
-                        binding.attendanceDetails.apply {
-                            text = "No attendance record for ${formatDate(selectedDate)}"
-                            visibility = View.VISIBLE
-                        }
-                        resetAttendanceViews()
+                        // Load current date's attendance
+                        val currentDate = dateFormat.format(Date())
+                        loadAttendanceForDate(currentDate)
+
+                        showToast("Loaded ${staffRecords.size} attendance records")
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        showLoading(false)
+                        showToast("Failed to load attendance data: ${result.exceptionOrNull()?.message}")
+                        handleError()
                     }
                 }
-
-                // Update attendance indicator views
-                updateAttendanceIndicators(records)
-
             } catch (e: Exception) {
-                Log.e("AttendanceHistory", "Error loading month data", e)
+                withContext(Dispatchers.Main) {
+                    showLoading(false)
+                    Log.e("AttendanceHistory", "Error loading attendance data", e)
+                    showToast("Error loading data: ${e.message}")
+                    handleError()
+                }
+            }
+        }
+    }
+    private fun processCachedAttendanceData(cachedData: List<ServerAttendanceRecord>) {
+        allAttendanceRecords = cachedData
+
+        // Filter records for this specific staff member
+        val staffRecords = allAttendanceRecords.filter { record ->
+            record.staffId == staffId
+        }
+
+        // Store dates with attendance
+        attendanceDates = staffRecords.map { it.date }.toSet()
+
+        updateAttendanceIndicators(staffRecords)
+
+        // Load current date's attendance
+        val currentDate = dateFormat.format(Date())
+        loadAttendanceForDate(currentDate)
+
+        showToast("Loaded ${staffRecords.size} cached attendance records")
+    }
+
+    private fun updateAttendanceIndicators(records: List<ServerAttendanceRecord>) {
+        // Calculate current month statistics
+        val calendar = Calendar.getInstance()
+        val currentMonth = calendar.get(Calendar.MONTH)
+        val currentYear = calendar.get(Calendar.YEAR)
+
+        val currentMonthRecords = records.filter { record ->
+            try {
+                val recordDate = dateFormat.parse(record.date)
+                val recordCalendar = Calendar.getInstance().apply { time = recordDate!! }
+                recordCalendar.get(Calendar.MONTH) == currentMonth &&
+                        recordCalendar.get(Calendar.YEAR) == currentYear
+            } catch (e: Exception) {
+                false
+            }
+        }
+
+        // Update the legend count
+        binding.presentCountText.text = "${currentMonthRecords.size} days present this month"
+
+        // Calculate absent days for current month
+        val daysInMonth = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
+        val absentDays = daysInMonth - currentMonthRecords.size
+        binding.absentCountText.text = "$absentDays days absent this month"
+
+        // Update progress indicator
+        val attendanceRatio = if (daysInMonth > 0) {
+            (currentMonthRecords.size.toFloat() / daysInMonth.toFloat() * 100).toInt()
+        } else 0
+        binding.attendanceProgressBar.progress = attendanceRatio
+    }
+
+    private fun loadAttendanceForDate(date: String) {
+        val record = allAttendanceRecords.find { it.staffId == staffId && it.date == date }
+
+        binding.apply {
+            if (record != null) {
+                // Show attendance details
+                attendanceDetails.apply {
+                    text = buildString {
+                        append("Date: ${formatDate(date)}\n")
+                        append("Staff: ${extractStaffNameFromId(record.staffId)}\n")
+                        append("Status: ${record.status}\n")
+                        if (!record.timeIn.isNullOrEmpty()) append("Time In: ${record.timeIn}\n")
+                        if (!record.breakIn.isNullOrEmpty()) append("Break In: ${record.breakIn}\n")
+                        if (!record.breakOut.isNullOrEmpty()) append("Break Out: ${record.breakOut}\n")
+                        if (!record.timeOut.isNullOrEmpty()) append("Time Out: ${record.timeOut}")
+                    }
+                    setBackgroundResource(R.drawable.attendance_details_background)
+                    visibility = View.VISIBLE
+                }
+
+                imagesContainer.visibility = View.VISIBLE
+
+                // Update each section with appropriate visibility and data
+                updateAttendanceSection(
+                    record.timeIn,
+                    record.timeInPhoto,
+                    timeInStaffText,
+                    timeInTimeText,
+                    timeInImage,
+                    "Time In"
+                )
+
+                updateAttendanceSection(
+                    record.breakIn,
+                    record.breakInPhoto,
+                    breakInStaffText,
+                    breakInTimeText,
+                    breakInImage,
+                    "Break In"
+                )
+
+                updateAttendanceSection(
+                    record.breakOut,
+                    record.breakOutPhoto,
+                    breakOutStaffText,
+                    breakOutTimeText,
+                    breakOutImage,
+                    "Break Out"
+                )
+
+                updateAttendanceSection(
+                    record.timeOut,
+                    record.timeOutPhoto,
+                    timeOutStaffText,
+                    timeOutTimeText,
+                    timeOutImage,
+                    "Time Out"
+                )
+            } else {
+                resetAttendanceViews()
+                attendanceDetails.apply {
+                    text = if (attendanceDates.contains(date)) {
+                        "No attendance record for ${formatDate(date)}"
+                    } else {
+                        "No attendance record for ${formatDate(date)}"
+                    }
+                    visibility = View.VISIBLE
+                }
+                imagesContainer.visibility = View.GONE
             }
         }
     }
 
-    private fun updateAttendanceIndicators(records: List<AttendanceRecord>) {
-        // Update the legend count
-        binding.presentCountText.text = "${records.size} days present"
-
-        // Calculate absent days
-        val calendar = Calendar.getInstance()
-        val daysInMonth = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
-        val absentDays = daysInMonth - records.size
-        binding.absentCountText.text = "$absentDays days absent"
-
-        // Update progress indicator
-        val attendanceRatio = (records.size.toFloat() / daysInMonth.toFloat() * 100).toInt()
-        binding.attendanceProgressBar.progress = attendanceRatio
+    private fun extractStaffNameFromId(staffId: String): String {
+        // Extract staff name from staffId format "Name_STOREID"
+        return staffId.substringBeforeLast("_")
     }
 
     private fun resetAttendanceViews() {
@@ -160,107 +283,24 @@ class AttendanceHistoryActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadAttendanceForDate(date: String) {
-        lifecycleScope.launch {
-            try {
-                val record = withContext(Dispatchers.IO) {
-                    attendanceDao.getAttendanceForStaffOnDate(staffId!!, date)
-                }
-
-                binding.apply {
-                    if (record != null) {
-                        // Show attendance details with improved styling
-                        attendanceDetails.apply {
-                            text = buildString {
-                                append("Date: ${formatDate(date)}\n")
-                                append("Status: ${record.status}\n")
-                                if (record.timeIn != null) append("Time In: ${record.timeIn}\n")
-                                if (record.breakIn != null) append("Break In: ${record.breakIn}\n")
-                                if (record.breakOut != null) append("Break Out: ${record.breakOut}\n")
-                                if (record.timeOut != null) append("Time Out: ${record.timeOut}")
-                            }
-                            setBackgroundResource(R.drawable.attendance_details_background)
-                            visibility = View.VISIBLE
-                        }
-
-                        imagesContainer.visibility = View.VISIBLE
-
-                        // Update each section with appropriate visibility and data
-                        updateAttendanceSection(
-                            record.timeIn,
-                            record.timeInPhoto,
-                            timeInStaffText,
-                            timeInTimeText,
-                            timeInImage
-                        )
-
-                        updateAttendanceSection(
-                            record.breakIn,
-                            record.breakInPhoto,
-                            breakInStaffText,
-                            breakInTimeText,
-                            breakInImage
-                        )
-
-                        updateAttendanceSection(
-                            record.breakOut,
-                            record.breakOutPhoto,
-                            breakOutStaffText,
-                            breakOutTimeText,
-                            breakOutImage
-                        )
-
-                        updateAttendanceSection(
-                            record.timeOut,
-                            record.timeOutPhoto,
-                            timeOutStaffText,
-                            timeOutTimeText,
-                            timeOutImage
-                        )
-                    } else {
-                        resetAttendanceViews()
-                        attendanceDetails.apply {
-                            text = "No attendance record for ${formatDate(date)}"
-                            visibility = View.VISIBLE
-                        }
-                        imagesContainer.visibility = View.GONE
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("AttendanceHistory", "Error loading date data", e)
-                handleError()
-            }
-        }
-    }
-
-    private fun handleError() {
-        binding.apply {
-            attendanceDetails.apply {
-                text = "Error loading attendance data"
-                visibility = View.VISIBLE
-            }
-            imagesContainer.visibility = View.GONE
-            resetAttendanceViews()
-        }
-    }
-
     private fun updateAttendanceSection(
         time: String?,
         photoPath: String?,
         staffText: TextView,
         timeText: TextView,
-        imageView: ImageView
+        imageView: ImageView,
+        sectionType: String
     ) {
-        if (time != null) {
+        if (!time.isNullOrEmpty()) {
             staffText.apply {
-                text = staffName
+                text = "$sectionType - ${extractStaffNameFromId(staffId!!)}"
                 visibility = View.VISIBLE
             }
             timeText.apply {
                 text = time
                 visibility = View.VISIBLE
             }
-            loadImage(imageView, photoPath)
+            loadImageFromServer(imageView, photoPath)
         } else {
             staffText.visibility = View.GONE
             timeText.visibility = View.GONE
@@ -268,10 +308,12 @@ class AttendanceHistoryActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadImage(imageView: ImageView, path: String?) {
-        if (!path.isNullOrEmpty()) {
+    private fun loadImageFromServer(imageView: ImageView, photoPath: String?) {
+        if (!photoPath.isNullOrEmpty()) {
+            val fullImageUrl = BASE_URL + photoPath
+
             Glide.with(this)
-                .load(File(path))
+                .load(fullImageUrl)
                 .placeholder(R.drawable.placeholder_image)
                 .error(R.drawable.placeholder_image)
                 .centerCrop()
@@ -291,10 +333,31 @@ class AttendanceHistoryActivity : AppCompatActivity() {
             date
         }
     }
-}
 
-// Interface for calendar day decoration
-interface DayDecorator {
-    fun shouldDecorate(day: Calendar): Boolean
-    fun decorate(view: View)
+    private fun showLoading(show: Boolean) {
+        binding.apply {
+            if (show) {
+                attendanceDetails.apply {
+                    text = "Loading attendance data..."
+                    visibility = View.VISIBLE
+                }
+                imagesContainer.visibility = View.GONE
+            }
+        }
+    }
+
+    private fun handleError() {
+        binding.apply {
+            attendanceDetails.apply {
+                text = "Error loading attendance data. Please check your internet connection and try again."
+                visibility = View.VISIBLE
+            }
+            imagesContainer.visibility = View.GONE
+            resetAttendanceViews()
+        }
+    }
+
+    private fun showToast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
 }

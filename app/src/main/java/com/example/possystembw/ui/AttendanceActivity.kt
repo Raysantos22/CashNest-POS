@@ -10,8 +10,14 @@ import android.app.Dialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.Typeface
+import android.media.ExifInterface
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
@@ -85,6 +91,8 @@ class AttendanceActivity : AppCompatActivity() {
 
     private lateinit var attendanceManager: AttendanceManager
 
+    // Server attendance data
+    private var serverAttendanceData: Map<String, com.example.possystembw.DAO.ServerAttendanceRecord> = emptyMap()
 
     private lateinit var sidebarLayout: ConstraintLayout
     private lateinit var toggleButton: ImageButton
@@ -92,7 +100,6 @@ class AttendanceActivity : AppCompatActivity() {
     private lateinit var ecposTitle: TextView
     private var isSidebarExpanded = true
     private var isAnimating = false
-
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -122,6 +129,15 @@ class AttendanceActivity : AppCompatActivity() {
         }
     }
 
+    private fun openAttendanceHistory(staff: StaffEntity) {
+        val intent = Intent(this, AttendanceHistoryActivity::class.java).apply {
+            putExtra("staffId", "${staff.name}_${staff.storeId}")
+            putExtra("staffName", staff.name)
+            putExtra("storeId", staff.storeId)
+        }
+        startActivity(intent)
+    }
+
     private fun initializeTimeUpdate() {
         timeUpdateHandler = Handler(Looper.getMainLooper())
         timeUpdateRunnable = object : Runnable {
@@ -137,49 +153,6 @@ class AttendanceActivity : AppCompatActivity() {
         }
     }
 
-    //    private suspend fun initializeAttendanceSystem() {
-//        withContext(Dispatchers.Main) {
-//            showLoading("Checking internet connection...")
-//        }
-//
-//        // Check internet connection
-//        if (!PhilippinesServerTime.isInternetAvailable(this)) {
-//            throw NoInternetException("Internet connection required for attendance")
-//        }
-//
-//        // Only sync time if it hasn't been synced before
-//        if (!isTimeAlreadySynced) {
-//            withContext(Dispatchers.Main) {
-//                showLoading("Syncing time with server...")
-//            }
-//
-//            // Try to sync time with retries
-//            val timeSync = PhilippinesServerTime.syncTimeWithRetry(this)
-//            if (!timeSync) {
-//                throw ServerTimeException("Failed to sync with server time after retries")
-//            }
-//            isTimeAlreadySynced = true
-//        }
-//
-//        // Initialize other components
-//        withContext(Dispatchers.Main) {
-//            showLoading("Setting up attendance system...")
-//
-//            setupButtonListeners()
-//            setupRecyclerView()
-//            setupTimeAndDate()
-//            setupWeekDayButtons()
-//            setupInitialViews()
-//            checkPermissions()
-//
-//            // Hide loading and show main content
-//            hideLoading()
-//            binding.mainContent.visibility = View.VISIBLE
-//        }
-//
-//        // Load initial data
-//        loadStaffList()
-//    }
     private suspend fun initializeAttendanceSystem() {
         withContext(Dispatchers.Main) {
             showLoading("Checking internet connection...")
@@ -189,6 +162,12 @@ class AttendanceActivity : AppCompatActivity() {
         if (!PhilippinesServerTime.isInternetAvailable(this)) {
             throw NoInternetException("Internet connection required for attendance")
         }
+
+        // Load server attendance data first
+        withContext(Dispatchers.Main) {
+            showLoading("Loading attendance data...")
+        }
+        loadServerAttendanceData()
 
         // Initialize components
         withContext(Dispatchers.Main) {
@@ -210,6 +189,411 @@ class AttendanceActivity : AppCompatActivity() {
         loadStaffList()
     }
 
+    private suspend fun loadServerAttendanceData() {
+        try {
+            val storeId = SessionManager.getCurrentUser()?.storeid ?: return
+
+            // Try to get cached data first
+            val cachedData = SessionManager.getAttendanceData()
+            if (cachedData.isNotEmpty() && SessionManager.isAttendanceDataFresh()) {
+                Log.d(TAG, "Using cached attendance data: ${cachedData.size} records")
+                serverAttendanceData = cachedData.associateBy { "${it.staffId}_${it.date}" }
+                syncToLocalDatabase(cachedData)
+                return
+            }
+
+            // Fetch from server
+            val result = RetrofitClient.attendanceService.getStoreAttendanceRecords(storeId)
+
+            if (result.isSuccess) {
+                val attendanceList = result.getOrNull() ?: emptyList()
+                Log.d(TAG, "Loaded ${attendanceList.size} attendance records from server")
+
+                // Cache the data
+                SessionManager.setAttendanceData(attendanceList)
+
+                // Create a map for quick lookup: "staffId_date" -> AttendanceRecord
+                serverAttendanceData = attendanceList.associateBy { "${it.staffId}_${it.date}" }
+
+                // Sync to local database
+                syncToLocalDatabase(attendanceList)
+
+            } else {
+                Log.e(TAG, "Failed to load attendance data: ${result.exceptionOrNull()?.message}")
+                withContext(Dispatchers.Main) {
+                    showToast("Failed to load attendance data from server")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading server attendance data", e)
+            withContext(Dispatchers.Main) {
+                showToast("Error loading attendance data: ${e.message}")
+            }
+        }
+    }
+
+    private suspend fun syncToLocalDatabase(serverData: List<com.example.possystembw.DAO.ServerAttendanceRecord>) {
+        withContext(Dispatchers.IO) {
+            try {
+                serverData.forEach { serverRecord ->
+                    // Convert server record to local record
+                    val localRecord = AttendanceRecord(
+                        id = serverRecord.id.toLong(),
+                        staffId = serverRecord.staffId,
+                        storeId = serverRecord.storeId,
+                        date = serverRecord.date,
+                        timeIn = serverRecord.timeIn ?: "",
+                        timeInPhoto = serverRecord.timeInPhoto ?: "",
+                        breakIn = serverRecord.breakIn,
+                        breakInPhoto = serverRecord.breakInPhoto,
+                        breakOut = serverRecord.breakOut,
+                        breakOutPhoto = serverRecord.breakOutPhoto,
+                        timeOut = serverRecord.timeOut,
+                        timeOutPhoto = serverRecord.timeOutPhoto,
+                        status = serverRecord.status
+                    )
+
+                    // Check if record exists
+                    val existing = attendanceDao.getAttendanceForStaffOnDate(
+                        serverRecord.staffId,
+                        serverRecord.date
+                    )
+
+                    if (existing == null) {
+                        attendanceDao.insertAttendance(localRecord)
+                    } else {
+                        attendanceDao.updateAttendance(localRecord)
+                    }
+                }
+                Log.d(TAG, "Synced ${serverData.size} records to local database")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error syncing to local database", e)
+            }
+        }
+    }
+
+    // Update this method to use server data
+    private fun loadAttendanceForDate(date: Calendar) {
+        lifecycleScope.launch {
+            try {
+                val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(date.time)
+                val storeId = SessionManager.getCurrentUser()?.storeid ?: return@launch
+
+                withContext(Dispatchers.IO) {
+                    val staffList = AppDatabase.getDatabase(application)
+                        .staffDao()
+                        .getStaffByStore(storeId)
+
+                    withContext(Dispatchers.Main) {
+                        adapter.updateDate(dateStr)
+                        adapter.updateServerAttendanceData(serverAttendanceData)
+                        adapter.submitList(staffList)
+                        adapter.notifyDataSetChanged()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading attendance for date", e)
+                showToast("Failed to load attendance data")
+            }
+        }
+    }
+
+    // Add method to refresh server data
+    private fun refreshAttendanceData() {
+        lifecycleScope.launch {
+            showLoading("Refreshing attendance data...")
+            loadServerAttendanceData()
+
+            // Refresh the current view
+            loadAttendanceForDate(selectedDate)
+
+            hideLoading()
+        }
+    }
+
+    // Update cleanupAndRefresh to refresh server data
+    private fun cleanupAndRefresh() {
+        binding.progressIndicator.visibility = View.GONE
+        binding.viewFinder.visibility = View.GONE
+
+        // Only cleanup camera if it's a photo-requiring action
+        if (selectedAttendanceType == StaffAttendanceAdapter.AttendanceType.TIME_IN ||
+            selectedAttendanceType == StaffAttendanceAdapter.AttendanceType.TIME_OUT
+        ) {
+            cleanupCamera()
+        }
+
+        // Refresh server data after any attendance action
+        refreshAttendanceData()
+    }
+
+    // Update the attendance submission methods to refresh data after success
+    private fun handleTimeIn(photoFile: File) {
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.Main) {
+                    showLoading("Submitting Time In to server...")
+                }
+
+                // Re-verify server time connection before submission
+                if (!PhilippinesServerTime.isInternetAvailable(this@AttendanceActivity)) {
+                    throw NoInternetException("Internet connection required to verify time")
+                }
+
+                val timeSync = PhilippinesServerTime.syncTimeWithRetry(this@AttendanceActivity)
+                if (!timeSync) {
+                    throw ServerTimeException("Failed to sync with server time")
+                }
+
+                val currentTime = PhilippinesServerTime.formatDatabaseTime()
+                val today = PhilippinesServerTime.formatDatabaseDate()
+                val storeId = SessionManager.getCurrentUser()?.storeid ?: return@launch
+                val staffId = "${selectedStaff?.name}_$storeId"
+
+                attendanceManager.validateAndCleanupAttendance(staffId, today)
+
+                if (!attendanceManager.validateAttendanceSequence(staffId, today)) {
+                    showToast("Invalid attendance sequence")
+                    hideLoading()
+                    return@launch
+                }
+
+                // Upload to backend first
+                val result = RetrofitClient.attendanceService.uploadAttendanceRecord(
+                    staffId = staffId,
+                    storeId = storeId,
+                    date = today,
+                    time = currentTime,
+                    type = "TIME_IN",
+                    photoFile = photoFile
+                )
+
+                if (result.isSuccess) {
+                    // Save to local database
+                    val attendance = AttendanceRecord(
+                        staffId = staffId,
+                        storeId = storeId,
+                        date = today,
+                        timeIn = currentTime,
+                        timeInPhoto = photoFile.absolutePath
+                    )
+
+                    withContext(Dispatchers.IO) {
+                        attendanceDao.insertAttendance(attendance)
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        showToast("Time In recorded and uploaded successfully")
+                        // Clear cached attendance data to force refresh
+                        SessionManager.clearAttendanceData()
+                        cleanupAndRefresh()
+                    }
+                } else {
+                    throw result.exceptionOrNull() ?: Exception("Upload failed")
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    hideLoading()
+                }
+                Log.e(TAG, "Error during time in", e)
+                showToast("Failed to record Time In: ${e.message}")
+                cleanupAndRefresh()
+            }
+        }
+    }
+
+    private fun handleTimeOut(photoFile: File) {
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.Main) {
+                    showLoading("Submitting Time Out to server...")
+                }
+
+                if (!PhilippinesServerTime.isInternetAvailable(this@AttendanceActivity)) {
+                    throw NoInternetException("Internet connection required to verify time")
+                }
+
+                val timeSync = PhilippinesServerTime.syncTimeWithRetry(this@AttendanceActivity)
+                if (!timeSync) {
+                    throw ServerTimeException("Failed to sync with server time")
+                }
+
+                val currentTime = PhilippinesServerTime.formatDatabaseTime()
+                val today = PhilippinesServerTime.formatDatabaseDate()
+                val storeId = SessionManager.getCurrentUser()?.storeid ?: return@launch
+                val staffId = "${selectedStaff?.name}_$storeId"
+
+                val existingAttendance = withContext(Dispatchers.IO) {
+                    attendanceDao.getAttendanceForStaffOnDate(staffId, today)
+                }
+
+                if (existingAttendance == null || existingAttendance.timeIn == null) {
+                    showToast("Please time in first")
+                    hideLoading()
+                    return@launch
+                }
+
+                if (existingAttendance.timeOut != null) {
+                    showToast("Already timed out today")
+                    hideLoading()
+                    return@launch
+                }
+
+                if (existingAttendance.breakIn != null && existingAttendance.breakOut == null) {
+                    showToast("Please break out first")
+                    hideLoading()
+                    return@launch
+                }
+
+                val result = RetrofitClient.attendanceService.uploadAttendanceRecord(
+                    staffId = staffId,
+                    storeId = storeId,
+                    date = today,
+                    time = currentTime,
+                    type = "TIME_OUT",
+                    photoFile = photoFile
+                )
+
+                if (result.isSuccess) {
+                    val updatedAttendance = existingAttendance.copy(
+                        timeOut = currentTime,
+                        timeOutPhoto = photoFile.absolutePath,
+                        status = "COMPLETED"
+                    )
+                    withContext(Dispatchers.IO) {
+                        attendanceDao.updateAttendance(updatedAttendance)
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        showToast("Time Out recorded and uploaded successfully")
+                        // Clear cached attendance data to force refresh
+                        SessionManager.clearAttendanceData()
+                        cleanupAndRefresh()
+                    }
+                } else {
+                    throw result.exceptionOrNull() ?: Exception("Upload failed")
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    hideLoading()
+                }
+                Log.e(TAG, "Error during time out", e)
+                showToast("Failed to record Time Out: ${e.message}")
+                cleanupAndRefresh()
+            }
+        }
+    }
+
+    private fun handleBreakStatus(staff: StaffEntity) {
+        lifecycleScope.launch {
+            try {
+                showLoading("Updating break status...")
+
+                if (!PhilippinesServerTime.isInternetAvailable(this@AttendanceActivity)) {
+                    throw NoInternetException("Internet connection required to verify time")
+                }
+
+                val timeSync = PhilippinesServerTime.syncTimeWithRetry(this@AttendanceActivity)
+                if (!timeSync) {
+                    throw ServerTimeException("Failed to sync with server time")
+                }
+
+                val currentTime = PhilippinesServerTime.formatDatabaseTime()
+                val today = PhilippinesServerTime.formatDatabaseDate()
+                val storeId = SessionManager.getCurrentUser()?.storeid ?: return@launch
+                val staffId = "${staff.name}_$storeId"
+
+                val attendance = withContext(Dispatchers.IO) {
+                    attendanceDao.getAttendanceForStaffOnDate(staffId, today)
+                }
+
+                if (attendance == null || attendance.timeIn == null) {
+                    showToast("Please time in first")
+                    hideLoading()
+                    return@launch
+                }
+
+                val isStartingBreak = attendance.breakIn == null
+
+                // Create a temp file from drawable resource
+                val defaultPhotoFile = File(cacheDir, "temp_break.jpg")
+                withContext(Dispatchers.IO) {
+                    try {
+                        val drawable = ContextCompat.getDrawable(
+                            this@AttendanceActivity,
+                            R.drawable.ic_camera_placeholder
+                        )
+                        val bitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
+                        val canvas = Canvas(bitmap)
+                        drawable?.setBounds(0, 0, canvas.width, canvas.height)
+                        drawable?.draw(canvas)
+
+                        FileOutputStream(defaultPhotoFile).use { out ->
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 50, out)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error creating default photo", e)
+                    }
+                }
+
+                try {
+                    val result = RetrofitClient.attendanceService.uploadAttendanceRecord(
+                        staffId = staffId,
+                        storeId = storeId,
+                        date = today,
+                        time = currentTime,
+                        type = if (isStartingBreak) "BREAK_IN" else "BREAK_OUT",
+                        photoFile = defaultPhotoFile
+                    )
+
+                    if (result.isSuccess) {
+                        val updatedAttendance = if (isStartingBreak) {
+                            attendance.copy(
+                                breakIn = currentTime,
+                                breakInPhoto = ""
+                            )
+                        } else {
+                            attendance.copy(
+                                breakOut = currentTime,
+                                breakOutPhoto = ""
+                            )
+                        }
+
+                        withContext(Dispatchers.IO) {
+                            attendanceDao.updateAttendance(updatedAttendance)
+                        }
+
+                        withContext(Dispatchers.Main) {
+                            showToast(if (isStartingBreak) "Break started" else "Break ended")
+                            // Clear cached attendance data to force refresh
+                            SessionManager.clearAttendanceData()
+                        }
+                    } else {
+                        throw result.exceptionOrNull() ?: Exception("Failed to update break status")
+                    }
+                } finally {
+                    withContext(Dispatchers.IO) {
+                        if (defaultPhotoFile.exists()) {
+                            defaultPhotoFile.delete()
+                        }
+                    }
+                }
+
+                hideLoading()
+                refreshAttendanceData()
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error handling break status", e)
+                showToast("Failed to update break status: ${e.message}")
+                hideLoading()
+                refreshAttendanceData()
+            }
+        }
+    }
+
+    // ... (keep all your existing methods like setupRecyclerView, setupCamera, etc.)
+    // ... (include all the remaining methods from your original code)
+
     private fun handleInitializationError(error: Exception) {
         when (error) {
             is NoInternetException -> showNoInternetDialog()
@@ -217,7 +601,6 @@ class AttendanceActivity : AppCompatActivity() {
                 "Time Sync Failed",
                 "Could not synchronize with server time. This is required to prevent attendance manipulation."
             )
-
             else -> showErrorDialog(
                 "Initialization Failed",
                 "Could not initialize attendance system: ${error.message}"
@@ -225,16 +608,262 @@ class AttendanceActivity : AppCompatActivity() {
         }
     }
 
-    private fun initializeApp() {
-        // Initialize your existing setup code here
-        setupButtonListeners()
-        setupRecyclerView()
-        loadStaffList()
-        setupTimeUpdate()
-        setupTimeAndDate()
-        setupWeekDayButtons()
-        setupInitialViews()
-        checkPermissions()
+    private fun setupRecyclerView() {
+        adapter = StaffAttendanceAdapter(this) { staff, attendanceType ->
+            selectedStaff = staff
+            selectedAttendanceType = attendanceType
+
+            // Check attendance status first before any action
+            lifecycleScope.launch {
+                val attendanceRecord = getAttendanceRecord(staff)
+                val today = PhilippinesServerTime.formatDatabaseDate()
+                val selectedDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(selectedDate.time)
+                val isToday = selectedDateStr == today
+
+                when (attendanceType) {
+                    StaffAttendanceAdapter.AttendanceType.TIME_IN -> {
+                        val hasTimeIn = attendanceRecord?.timeIn != null && attendanceRecord.timeIn.isNotEmpty()
+
+                        when {
+                            hasTimeIn -> {
+                                // Already has time in - show info, DO NOT allow override
+                                if (attendanceRecord != null) {
+                                    showAttendanceInfoDialog(
+                                        "Time In Already Recorded",
+                                        "Time In: ${attendanceRecord.timeIn}\nDate: ${attendanceRecord.date}",
+                                        "This attendance cannot be changed."
+                                    )
+                                }
+                                return@launch
+                            }
+                            !isToday -> {
+                                showToast("Can only record Time In for today")
+                                return@launch
+                            }
+                            else -> {
+                                // Can actually time in - verify passcode
+                                verifyPasscode(staff, AttendanceAction.TIME_IN) {
+                                    if (allPermissionsGranted()) {
+                                        binding.viewFinder.visibility = View.VISIBLE
+                                        setupCamera()
+                                    } else {
+                                        ActivityCompat.requestPermissions(
+                                            this@AttendanceActivity,
+                                            REQUIRED_PERMISSIONS,
+                                            REQUEST_CODE_PERMISSIONS
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    StaffAttendanceAdapter.AttendanceType.TIME_OUT -> {
+                        val hasTimeIn = attendanceRecord?.timeIn != null && attendanceRecord.timeIn.isNotEmpty()
+                        val hasTimeOut = attendanceRecord?.timeOut != null && attendanceRecord.timeOut.isNotEmpty()
+                        val isOnBreak = attendanceRecord?.breakIn != null && attendanceRecord.breakOut == null
+
+                        when {
+                            !hasTimeIn -> {
+                                showToast("Please Time In first")
+                                return@launch
+                            }
+                            hasTimeOut -> {
+                                // Already has time out - show info, DO NOT allow override
+                                if (attendanceRecord != null) {
+                                    showAttendanceInfoDialog(
+                                        "Time Out Already Recorded",
+                                        "Time Out: ${attendanceRecord.timeOut}\nDate: ${attendanceRecord.date}",
+                                        "This attendance cannot be changed."
+                                    )
+                                }
+                                return@launch
+                            }
+                            isOnBreak -> {
+                                showToast("Please end break first before timing out")
+                                return@launch
+                            }
+                            !isToday -> {
+                                showToast("Can only record Time Out for today")
+                                return@launch
+                            }
+                            else -> {
+                                // Can actually time out - verify passcode
+                                verifyPasscode(staff, AttendanceAction.TIME_OUT) {
+                                    if (allPermissionsGranted()) {
+                                        binding.viewFinder.visibility = View.VISIBLE
+                                        setupCamera()
+                                    } else {
+                                        ActivityCompat.requestPermissions(
+                                            this@AttendanceActivity,
+                                            REQUIRED_PERMISSIONS,
+                                            REQUEST_CODE_PERMISSIONS
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    StaffAttendanceAdapter.AttendanceType.BREAK_STATUS -> {
+                        val hasTimeIn = attendanceRecord?.timeIn != null && attendanceRecord.timeIn.isNotEmpty()
+                        val hasTimeOut = attendanceRecord?.timeOut != null && attendanceRecord.timeOut.isNotEmpty()
+                        val breakCompleted = attendanceRecord?.breakIn != null && attendanceRecord.breakOut != null
+                        val isOnBreak = attendanceRecord?.breakIn != null && attendanceRecord.breakOut == null
+
+                        when {
+                            !hasTimeIn -> {
+                                showToast("Please Time In first")
+                                return@launch
+                            }
+                            hasTimeOut -> {
+                                if (attendanceRecord != null) {
+                                    showAttendanceInfoDialog(
+                                        "Shift Already Completed",
+                                        "Time Out: ${attendanceRecord.timeOut}\nDate: ${attendanceRecord.date}",
+                                        "Cannot modify break status after shift completion."
+                                    )
+                                }
+                                return@launch
+                            }
+                            breakCompleted -> {
+                                // Break already completed - show info, DO NOT allow override
+                                val breakDuration = calculateBreakDuration(attendanceRecord?.breakIn!!, attendanceRecord.breakOut!!)
+                                if (attendanceRecord != null) {
+                                    showAttendanceInfoDialog(
+                                        "Break Already Completed",
+                                        "Break In: ${attendanceRecord.breakIn}\nBreak Out: ${attendanceRecord.breakOut}\nDuration: $breakDuration",
+                                        "This break record cannot be changed."
+                                    )
+                                }
+                                return@launch
+                            }
+                            !isToday -> {
+                                showToast("Can only manage break status for today")
+                                return@launch
+                            }
+                            else -> {
+                                // Can actually manage break - verify passcode
+                                val action = if (isOnBreak) "End Break" else "Start Break"
+                                val currentStatus = if (isOnBreak) "Currently on break since ${attendanceRecord?.breakIn}" else "Ready to start break"
+
+                                AlertDialog.Builder(this@AttendanceActivity)
+                                    .setTitle("Break Status")
+                                    .setMessage("$currentStatus\n\nDo you want to $action?")
+                                    .setPositiveButton("Yes") { _, _ ->
+                                        verifyPasscode(staff, AttendanceAction.BREAK) {
+                                            handleBreakStatus(staff)
+                                        }
+                                    }
+                                    .setNegativeButton("No") { dialog, _ ->
+                                        dialog.dismiss()
+                                    }
+                                    .show()
+                            }
+                        }
+                    }
+
+                    else -> {}
+                }
+            }
+        }
+
+        binding.recyclerView.apply {
+            layoutManager = LinearLayoutManager(this@AttendanceActivity)
+            adapter = this@AttendanceActivity.adapter
+        }
+    }
+
+    private fun showAttendanceInfoDialog(title: String, message: String, note: String) {
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage("$message\n\n$note")
+            .setPositiveButton("OK") { dialog, _ -> dialog.dismiss() }
+            .setIcon(R.drawable.baseline_person_24) // Add info icon if available
+            .show()
+    }
+
+    private fun calculateBreakDuration(breakIn: String, breakOut: String): String {
+        return try {
+            val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
+            val startTime = timeFormat.parse(breakIn)
+            val endTime = timeFormat.parse(breakOut)
+
+            if (startTime != null && endTime != null) {
+                val durationMinutes = (endTime.time - startTime.time) / (60 * 1000)
+                val hours = durationMinutes / 60
+                val minutes = durationMinutes % 60
+
+                when {
+                    hours > 0 -> "${hours}h ${minutes}m"
+                    else -> "${minutes}m"
+                }
+            } else {
+                "Unknown duration"
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error calculating break duration", e)
+            "Unknown duration"
+        }
+    }
+
+    private suspend fun getAttendanceRecord(staff: StaffEntity): com.example.possystembw.DAO.ServerAttendanceRecord? {
+        return try {
+            val staffId = "${staff.name}_${staff.storeId}"
+            val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(selectedDate.time)
+            val key = "${staffId}_${dateStr}"
+
+            // First try server data
+            serverAttendanceData[key]?.let { return it }
+
+            // Fallback to local database
+            val localRecord = withContext(Dispatchers.IO) {
+                AppDatabase.getDatabase(application).attendanceDao()
+                    .getAttendanceForStaffOnDate(staffId, dateStr)
+            }
+
+            localRecord?.let {
+                com.example.possystembw.DAO.ServerAttendanceRecord(
+                    id = it.id.toInt(),
+                    staffId = it.staffId,
+                    storeId = it.storeId,
+                    date = it.date,
+                    timeIn = it.timeIn.takeIf { time -> time.isNotEmpty() },
+                    timeInPhoto = it.timeInPhoto.takeIf { photo -> photo.isNotEmpty() },
+                    breakIn = it.breakIn,
+                    breakInPhoto = it.breakInPhoto,
+                    breakOut = it.breakOut,
+                    breakOutPhoto = it.breakOutPhoto,
+                    timeOut = it.timeOut,
+                    timeOutPhoto = it.timeOutPhoto,
+                    status = it.status,
+                    created_at = "",
+                    updated_at = ""
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting attendance record", e)
+            null
+        }
+    }
+
+    // ... (include all your other existing methods)
+
+    companion object {
+        private const val TAG = "AttendanceActivity"
+        private const val REQUEST_CODE_PERMISSIONS = 10
+
+        private val REQUIRED_PERMISSIONS = if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            arrayOf(
+                Manifest.permission.CAMERA,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            )
+        } else {
+            arrayOf(
+                Manifest.permission.CAMERA
+            )
+        }
     }
 
     private fun checkPermissions() {
@@ -247,21 +876,9 @@ class AttendanceActivity : AppCompatActivity() {
         }
     }
 
-
     private fun setupTimeAndDate() {
         binding.currentDate.text = SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault())
             .format(Date())
-    }
-
-    private fun setupTimeUpdate() {
-        timeUpdateHandler = Handler(Looper.getMainLooper())
-        timeUpdateRunnable = object : Runnable {
-            override fun run() {
-                binding.currentTime.text = PhilippinesServerTime.formatDisplayTime()
-                binding.currentDate.text = PhilippinesServerTime.formatDisplayDate()
-                timeUpdateHandler.postDelayed(this, 1000)
-            }
-        }
     }
 
     private fun showNoInternetDialog() {
@@ -310,10 +927,8 @@ class AttendanceActivity : AppCompatActivity() {
         }
     }
 
-
     private fun setupWeekDayButtons() {
-        val days =
-            listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+        val days = listOf("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
         val calendar = Calendar.getInstance()
         calendar.firstDayOfWeek = Calendar.MONDAY
 
@@ -401,31 +1016,6 @@ class AttendanceActivity : AppCompatActivity() {
         loadAttendanceForDate(selectedDate)
     }
 
-    private fun loadAttendanceForDate(date: Calendar) {
-        lifecycleScope.launch {
-            try {
-                val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                    .format(date.time)
-                val storeId = SessionManager.getCurrentUser()?.storeid ?: return@launch
-
-                withContext(Dispatchers.IO) {
-                    val staffList = AppDatabase.getDatabase(application)
-                        .staffDao()
-                        .getStaffByStore(storeId)
-
-                    withContext(Dispatchers.Main) {
-                        adapter.submitList(staffList)
-                        adapter.notifyDataSetChanged()
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error loading attendance for date", e)
-                showToast("Failed to load attendance data")
-            }
-        }
-    }
-
-
     private fun setupButtonListeners() {
         binding.apply {
             captureButton.setOnClickListener {
@@ -436,8 +1026,6 @@ class AttendanceActivity : AppCompatActivity() {
                 capturedPhotoFile?.let { file ->
                     when (selectedAttendanceType) {
                         StaffAttendanceAdapter.AttendanceType.TIME_IN -> handleTimeIn(file)
-//                        StaffAttendanceAdapter.AttendanceType.BREAK_IN -> handleBreakIn(file)
-//                        StaffAttendanceAdapter.AttendanceType.BREAK_OUT -> handleBreakOut(file)
                         StaffAttendanceAdapter.AttendanceType.TIME_OUT -> handleTimeOut(file)
                         else -> cleanupCamera()
                     }
@@ -472,7 +1060,6 @@ class AttendanceActivity : AppCompatActivity() {
             }
         }, ContextCompat.getMainExecutor(this))
     }
-
 
     private fun bindCameraPreview() {
         try {
@@ -524,8 +1111,19 @@ class AttendanceActivity : AppCompatActivity() {
             ContextCompat.getMainExecutor(this),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    capturedPhotoFile = photoFile
-                    showPreviewAndConfirmation(photoFile)
+                    // Add timestamp overlay to the captured image
+                    lifecycleScope.launch {
+                        try {
+                            val timestampedFile = addTimestampToImage(photoFile)
+                            capturedPhotoFile = timestampedFile
+                            showPreviewAndConfirmation(timestampedFile)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error adding timestamp to image", e)
+                            // Fallback to original image if timestamp overlay fails
+                            capturedPhotoFile = photoFile
+                            showPreviewAndConfirmation(photoFile)
+                        }
+                    }
                 }
 
                 override fun onError(exc: ImageCaptureException) {
@@ -535,6 +1133,137 @@ class AttendanceActivity : AppCompatActivity() {
                 }
             }
         )
+    }
+
+    private suspend fun addTimestampToImage(originalFile: File): File = withContext(Dispatchers.IO) {
+        try {
+            // Read the original image
+            val originalBitmap = BitmapFactory.decodeFile(originalFile.absolutePath)
+                ?: throw Exception("Could not decode image file")
+
+            // Create a mutable copy of the bitmap
+            val mutableBitmap = originalBitmap.copy(Bitmap.Config.ARGB_8888, true)
+            val canvas = Canvas(mutableBitmap)
+
+            // Get current date and time using your Philippines server time
+            val currentDateTime = getCurrentDisplayDateTime()
+            val staffName = selectedStaff?.name ?: "Unknown Staff"
+            val attendanceType = when (selectedAttendanceType) {
+                StaffAttendanceAdapter.AttendanceType.TIME_IN -> "TIME IN"
+                StaffAttendanceAdapter.AttendanceType.TIME_OUT -> "TIME OUT"
+                StaffAttendanceAdapter.AttendanceType.BREAK_STATUS -> "BREAK"
+                else -> "ATTENDANCE"
+            }
+
+            // Create timestamp text
+            val timestampText = """
+            $currentDateTime
+            $staffName - $attendanceType
+            Store: ${SessionManager.getCurrentUser()?.storeid ?: ""}
+        """.trimIndent()
+
+            // Setup paint for the background rectangle
+            val backgroundPaint = Paint().apply {
+                color = Color.parseColor("#CC000000") // Semi-transparent black
+                style = Paint.Style.FILL
+            }
+
+            // Setup paint for the text
+            val textPaint = Paint().apply {
+                color = Color.WHITE
+                textSize = mutableBitmap.width * 0.04f // Responsive text size based on image width
+                typeface = Typeface.DEFAULT_BOLD
+                isAntiAlias = true
+                textAlign = Paint.Align.LEFT
+            }
+
+            // Measure text dimensions
+            val textBounds = Rect()
+            val lines = timestampText.split("\n")
+            var maxTextWidth = 0f
+            val lineHeight = textPaint.fontMetrics.let { it.descent - it.ascent }
+            val totalTextHeight = lineHeight * lines.size
+
+            // Find the maximum width among all lines
+            lines.forEach { line ->
+                textPaint.getTextBounds(line, 0, line.length, textBounds)
+                maxTextWidth = maxOf(maxTextWidth, textBounds.width().toFloat())
+            }
+
+            // Calculate position (bottom-left corner with some padding)
+            val padding = mutableBitmap.width * 0.02f
+            val rectLeft = padding
+            val rectTop = mutableBitmap.height - totalTextHeight - (padding * 2)
+            val rectRight = rectLeft + maxTextWidth + (padding * 2)
+            val rectBottom = mutableBitmap.height.toFloat() - padding
+
+            // Draw background rectangle
+            canvas.drawRect(rectLeft, rectTop, rectRight, rectBottom, backgroundPaint)
+
+            // Draw each line of text
+            var currentY = rectTop + padding + textPaint.textSize
+            lines.forEach { line ->
+                canvas.drawText(line, rectLeft + padding, currentY, textPaint)
+                currentY += lineHeight
+            }
+
+            // Create new file for timestamped image
+            val timestampedFile = File(
+                originalFile.parent,
+                "timestamped_${originalFile.name}"
+            )
+
+            // Save the bitmap with timestamp overlay
+            FileOutputStream(timestampedFile).use { out ->
+                mutableBitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+            }
+
+            // Copy EXIF data from original to timestamped image
+            try {
+                val originalExif = ExifInterface(originalFile.absolutePath)
+                val timestampedExif = ExifInterface(timestampedFile.absolutePath)
+
+                // Copy important EXIF attributes
+                val attributes = arrayOf(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.TAG_DATETIME,
+                    ExifInterface.TAG_MAKE,
+                    ExifInterface.TAG_MODEL,
+                    ExifInterface.TAG_GPS_LATITUDE,
+                    ExifInterface.TAG_GPS_LONGITUDE
+                )
+
+                attributes.forEach { attribute ->
+                    val value = originalExif.getAttribute(attribute)
+                    if (value != null) {
+                        timestampedExif.setAttribute(attribute, value)
+                    }
+                }
+                timestampedExif.saveAttributes()
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not copy EXIF data", e)
+            }
+
+            // Clean up original file
+            originalFile.delete()
+
+            timestampedFile
+        } catch (e: Exception) {
+            Log.e(TAG, "Error adding timestamp overlay", e)
+            throw e
+        }
+    }
+
+    private fun getCurrentDisplayDateTime(): String {
+        return try {
+            // Use your existing Philippines server time if available
+            val currentTime = PhilippinesServerTime.formatDisplayTime()
+            val currentDate = PhilippinesServerTime.formatDisplayDate()
+            "$currentDate $currentTime"
+        } catch (e: Exception) {
+            // Fallback to local time
+            SimpleDateFormat("MMM dd, yyyy hh:mm:ss a", Locale.getDefault()).format(Date())
+        }
     }
 
     private fun showPreviewAndConfirmation(photoFile: File) {
@@ -565,373 +1294,6 @@ class AttendanceActivity : AppCompatActivity() {
             retakeButton.visibility = View.GONE
             progressIndicator.visibility = View.GONE
         }
-    }
-
-    private fun handleTimeIn(photoFile: File) {
-        lifecycleScope.launch {
-            try {
-                // Show loading before starting upload
-                withContext(Dispatchers.Main) {
-                    showLoading("Submitting Time In to server...")
-                }
-
-                // Re-verify server time connection before submission
-                if (!PhilippinesServerTime.isInternetAvailable(this@AttendanceActivity)) {
-                    throw NoInternetException("Internet connection required to verify time")
-                }
-
-                // Force time sync before submission
-                val timeSync = PhilippinesServerTime.syncTimeWithRetry(this@AttendanceActivity)
-                if (!timeSync) {
-                    throw ServerTimeException("Failed to sync with server time")
-                }
-
-                // Get fresh server time after sync
-                val currentTime = PhilippinesServerTime.formatDatabaseTime()
-                val today = PhilippinesServerTime.formatDatabaseDate()
-                val storeId = SessionManager.getCurrentUser()?.storeid ?: return@launch
-                val staffId = "${selectedStaff?.name}_$storeId"
-
-                // Validate and cleanup any incorrect records
-                attendanceManager.validateAndCleanupAttendance(staffId, today)
-
-                if (!attendanceManager.validateAttendanceSequence(staffId, today)) {
-                    showToast("Invalid attendance sequence")
-                    hideLoading()
-                    return@launch
-                }
-
-                // Upload to backend first
-                val result = RetrofitClient.attendanceService.uploadAttendanceRecord(
-                    staffId = staffId,
-                    storeId = storeId,
-                    date = today,
-                    time = currentTime,
-                    type = "TIME_IN",
-                    photoFile = photoFile
-                )
-
-                if (result.isSuccess) {
-                    // If upload successful, save to local database
-                    val attendance = AttendanceRecord(
-                        staffId = staffId,
-                        storeId = storeId,
-                        date = today,
-                        timeIn = currentTime,
-                        timeInPhoto = photoFile.absolutePath
-                    )
-
-                    withContext(Dispatchers.IO) {
-                        attendanceDao.insertAttendance(attendance)
-                    }
-
-                    withContext(Dispatchers.Main) {
-                        showToast("Time In recorded and uploaded successfully")
-                        cleanupAndRefresh()
-                    }
-                } else {
-                    throw result.exceptionOrNull() ?: Exception("Upload failed")
-                }
-            } catch (e: Exception) {
-                // Hide loading on error
-                withContext(Dispatchers.Main) {
-                    hideLoading()
-                }
-                Log.e(TAG, "Error during time in", e)
-                showToast("Failed to record Time In: ${e.message}")
-                cleanupAndRefresh()
-            }
-        }
-    }
-
-    private fun handleBreakIn(photoFile: File) {
-        lifecycleScope.launch {
-            try {
-                // Show loading before starting upload
-                withContext(Dispatchers.Main) {
-                    showLoading("Submitting Time In to server...")
-                }
-
-                // Re-verify server time connection before submission
-                if (!PhilippinesServerTime.isInternetAvailable(this@AttendanceActivity)) {
-                    throw NoInternetException("Internet connection required to verify time")
-                }
-
-                // Force time sync before submission
-                val timeSync = PhilippinesServerTime.syncTimeWithRetry(this@AttendanceActivity)
-                if (!timeSync) {
-                    throw ServerTimeException("Failed to sync with server time")
-                }
-
-                // Get fresh server time after sync
-                val currentTime = PhilippinesServerTime.formatDatabaseTime()
-                val today = PhilippinesServerTime.formatDatabaseDate()
-                val storeId = SessionManager.getCurrentUser()?.storeid ?: return@launch
-                val staffId = "${selectedStaff?.name}_$storeId"
-
-                // Validate attendance sequence
-                if (!attendanceManager.validateAttendanceSequence(staffId, today)) {
-                    showToast("Please time in first")
-                    hideLoading()
-                    return@launch
-                }
-
-                val existingAttendance = withContext(Dispatchers.IO) {
-                    attendanceDao.getAttendanceForStaffOnDate(staffId, today)
-                }
-
-                if (existingAttendance?.breakIn != null) {
-                    showToast("Already on break")
-                    hideLoading()
-                    return@launch
-                }
-
-                // Upload to backend
-                val result = RetrofitClient.attendanceService.uploadAttendanceRecord(
-                    staffId = staffId,
-                    storeId = storeId,
-                    date = today,
-                    time = currentTime,
-                    type = "BREAK_IN",
-                    photoFile = photoFile
-                )
-
-                if (result.isSuccess) {
-                    // Update local database
-                    val existingAttendance = withContext(Dispatchers.IO) {
-                        attendanceDao.getAttendanceForStaffOnDate(staffId, today)
-                    }
-
-                    if (existingAttendance != null) {
-                        val updatedAttendance = existingAttendance.copy(
-                            breakIn = currentTime,
-                            breakInPhoto = photoFile.absolutePath
-                        )
-                        withContext(Dispatchers.IO) {
-                            attendanceDao.updateAttendance(updatedAttendance)
-                        }
-
-                        withContext(Dispatchers.Main) {
-                            showToast("Break In recorded and uploaded successfully")
-                            cleanupAndRefresh()
-                        }
-                    } else {
-                        showToast("No Time In record found")
-                        hideLoading()
-                        cleanupCamera()
-                    }
-                } else {
-                    throw result.exceptionOrNull() ?: Exception("Upload failed")
-                }
-            } catch (e: Exception) {
-                // Hide loading on error
-                withContext(Dispatchers.Main) {
-                    hideLoading()
-                }
-                Log.e(TAG, "Error during break in", e)
-                showToast("Failed to record Break In: ${e.message}")
-                cleanupAndRefresh()
-            }
-        }
-    }
-
-    private fun handleBreakOut(photoFile: File) {
-        lifecycleScope.launch {
-            try {
-                // Show loading before starting upload
-                withContext(Dispatchers.Main) {
-                    showLoading("Submitting Time In to server...")
-                }
-
-                // Re-verify server time connection before submission
-                if (!PhilippinesServerTime.isInternetAvailable(this@AttendanceActivity)) {
-                    throw NoInternetException("Internet connection required to verify time")
-                }
-
-                // Force time sync before submission
-                val timeSync = PhilippinesServerTime.syncTimeWithRetry(this@AttendanceActivity)
-                if (!timeSync) {
-                    throw ServerTimeException("Failed to sync with server time")
-                }
-
-                // Get fresh server time after sync
-                val currentTime = PhilippinesServerTime.formatDatabaseTime()
-                val today = PhilippinesServerTime.formatDatabaseDate()
-                val storeId = SessionManager.getCurrentUser()?.storeid ?: return@launch
-                val staffId = "${selectedStaff?.name}_$storeId"
-
-                val existingAttendance = withContext(Dispatchers.IO) {
-                    attendanceDao.getAttendanceForStaffOnDate(staffId, today)
-                }
-
-                if (existingAttendance?.breakIn == null) {
-                    showToast("Please break in first")
-                    hideLoading()
-                    return@launch
-                }
-
-                if (existingAttendance.breakOut != null) {
-                    showToast("Already broken out")
-                    hideLoading()
-                    return@launch
-                }
-
-                // Upload to backend
-                val result = RetrofitClient.attendanceService.uploadAttendanceRecord(
-                    staffId = staffId,
-                    storeId = storeId,
-                    date = today,
-                    time = currentTime,
-                    type = "BREAK_OUT",
-                    photoFile = photoFile
-                )
-
-                if (result.isSuccess) {
-                    val updatedAttendance = existingAttendance.copy(
-                        breakOut = currentTime,
-                        breakOutPhoto = photoFile.absolutePath
-                    )
-                    withContext(Dispatchers.IO) {
-                        attendanceDao.updateAttendance(updatedAttendance)
-                    }
-
-                    withContext(Dispatchers.Main) {
-                        showToast("Break Out recorded and uploaded successfully")
-                        cleanupAndRefresh()
-                    }
-                } else {
-                    throw result.exceptionOrNull() ?: Exception("Upload failed")
-                }
-            } catch (e: Exception) {
-                // Hide loading on error
-                withContext(Dispatchers.Main) {
-                    hideLoading()
-                }
-                Log.e(TAG, "Error during break out", e)
-                showToast("Failed to record Break Out: ${e.message}")
-                cleanupAndRefresh()
-            }
-        }
-    }
-
-    private fun handleTimeOut(photoFile: File) {
-        lifecycleScope.launch {
-            try {
-                // Show loading before starting upload
-                withContext(Dispatchers.Main) {
-                    showLoading("Submitting Time In to server...")
-                }
-
-                // Re-verify server time connection before submission
-                if (!PhilippinesServerTime.isInternetAvailable(this@AttendanceActivity)) {
-                    throw NoInternetException("Internet connection required to verify time")
-                }
-
-                // Force time sync before submission
-                val timeSync = PhilippinesServerTime.syncTimeWithRetry(this@AttendanceActivity)
-                if (!timeSync) {
-                    throw ServerTimeException("Failed to sync with server time")
-                }
-
-                // Get fresh server time after sync
-                val currentTime = PhilippinesServerTime.formatDatabaseTime()
-                val today = PhilippinesServerTime.formatDatabaseDate()
-                val storeId = SessionManager.getCurrentUser()?.storeid ?: return@launch
-                val staffId = "${selectedStaff?.name}_$storeId"
-
-                val existingAttendance = withContext(Dispatchers.IO) {
-                    attendanceDao.getAttendanceForStaffOnDate(staffId, today)
-                }
-
-                if (existingAttendance == null || existingAttendance.timeIn == null) {
-                    showToast("Please time in first")
-                    hideLoading()
-                    return@launch
-                }
-
-                if (existingAttendance.timeOut != null) {
-                    showToast("Already timed out today")
-                    hideLoading()
-                    return@launch
-                }
-
-                // If on break, must break out first
-                if (existingAttendance.breakIn != null && existingAttendance.breakOut == null) {
-                    showToast("Please break out first")
-                    hideLoading()
-                    return@launch
-                }
-
-                // Upload to backend
-                val result = RetrofitClient.attendanceService.uploadAttendanceRecord(
-                    staffId = staffId,
-                    storeId = storeId,
-                    date = today,
-                    time = currentTime,
-                    type = "TIME_OUT",
-                    photoFile = photoFile
-                )
-
-                if (result.isSuccess) {
-                    val updatedAttendance = existingAttendance.copy(
-                        timeOut = currentTime,
-                        timeOutPhoto = photoFile.absolutePath,
-                        status = "COMPLETED"
-                    )
-                    withContext(Dispatchers.IO) {
-                        attendanceDao.updateAttendance(updatedAttendance)
-                    }
-
-                    withContext(Dispatchers.Main) {
-                        showToast("Time Out recorded and uploaded successfully")
-                        cleanupAndRefresh()
-                    }
-                } else {
-                    throw result.exceptionOrNull() ?: Exception("Upload failed")
-                }
-            } catch (e: Exception) {
-                // Hide loading on error
-                withContext(Dispatchers.Main) {
-                    hideLoading()
-                }
-                Log.e(TAG, "Error during time out", e)
-                showToast("Failed to record Time Out: ${e.message}")
-                cleanupAndRefresh()
-            }
-        }
-    }
-
-
-    private fun checkAttendanceStatus(attendance: AttendanceRecord?): Boolean {
-        if (attendance == null) return false
-
-        // Get today's date in the correct format
-        val today = PhilippinesServerTime.formatDatabaseDate()
-
-        // Check if the attendance record is for today and has a time in
-        return attendance.date == today && attendance.timeIn != null
-    }
-
-    //    private fun cleanupAndRefresh() {
-//        binding.progressIndicator.visibility = View.GONE
-//        binding.viewFinder.visibility = View.GONE
-//        cleanupCamera()
-//        loadStaffList()
-//        recreateActivity()
-//    }
-    private fun cleanupAndRefresh() {
-        binding.progressIndicator.visibility = View.GONE
-        binding.viewFinder.visibility = View.GONE
-
-        // Only cleanup camera if it's a photo-requiring action
-        if (selectedAttendanceType == StaffAttendanceAdapter.AttendanceType.TIME_IN ||
-            selectedAttendanceType == StaffAttendanceAdapter.AttendanceType.TIME_OUT
-        ) {
-            cleanupCamera()
-        }
-
-        loadStaffList()
-        recreateActivity()
     }
 
     private fun verifyPasscode(
@@ -976,189 +1338,15 @@ class AttendanceActivity : AppCompatActivity() {
         TIME_IN, TIME_OUT, BREAK
     }
 
-    private fun setupRecyclerView() {
-        adapter = StaffAttendanceAdapter(this) { staff, attendanceType ->
-            selectedStaff = staff
-            selectedAttendanceType = attendanceType
-
-            when (attendanceType) {
-                StaffAttendanceAdapter.AttendanceType.TIME_IN -> {
-                    verifyPasscode(staff, AttendanceAction.TIME_IN) {
-                        if (allPermissionsGranted()) {
-                            binding.viewFinder.visibility = View.VISIBLE
-                            setupCamera()
-                        } else {
-                            ActivityCompat.requestPermissions(
-                                this,
-                                REQUIRED_PERMISSIONS,
-                                REQUEST_CODE_PERMISSIONS
-                            )
-                        }
-                    }
-                }
-
-                StaffAttendanceAdapter.AttendanceType.TIME_OUT -> {
-                    verifyPasscode(staff, AttendanceAction.TIME_OUT) {
-                        if (allPermissionsGranted()) {
-                            binding.viewFinder.visibility = View.VISIBLE
-                            setupCamera()
-                        } else {
-                            ActivityCompat.requestPermissions(
-                                this,
-                                REQUIRED_PERMISSIONS,
-                                REQUEST_CODE_PERMISSIONS
-                            )
-                        }
-                    }
-                }
-
-                StaffAttendanceAdapter.AttendanceType.BREAK_STATUS -> {
-                    verifyPasscode(staff, AttendanceAction.BREAK) {
-                        handleBreakStatus(staff)
-                    }
-                }
-
-                else -> {}
-            }
-        }
-
-        binding.recyclerView.apply {
-            layoutManager = LinearLayoutManager(this@AttendanceActivity)
-            adapter = this@AttendanceActivity.adapter
-        }
-    }
-
-
-    private fun handleBreakStatus(staff: StaffEntity) {
-        lifecycleScope.launch {
-            try {
-                showLoading("Updating break status...")
-
-                withContext(Dispatchers.Main) {
-                    showLoading("Submitting Time In to server...")
-                }
-
-                // Re-verify server time connection before submission
-                if (!PhilippinesServerTime.isInternetAvailable(this@AttendanceActivity)) {
-                    throw NoInternetException("Internet connection required to verify time")
-                }
-
-                // Force time sync before submission
-                val timeSync = PhilippinesServerTime.syncTimeWithRetry(this@AttendanceActivity)
-                if (!timeSync) {
-                    throw ServerTimeException("Failed to sync with server time")
-                }
-
-                // Get fresh server time after sync
-                val currentTime = PhilippinesServerTime.formatDatabaseTime()
-                val today = PhilippinesServerTime.formatDatabaseDate()
-                val storeId = SessionManager.getCurrentUser()?.storeid ?: return@launch
-                val staffId = "${staff.name}_$storeId"
-
-                val attendance = withContext(Dispatchers.IO) {
-                    attendanceDao.getAttendanceForStaffOnDate(staffId, today)
-                }
-
-                if (attendance == null || attendance.timeIn == null) {
-                    showToast("Please time in first")
-                    hideLoading()
-                    return@launch
-                }
-
-                val isStartingBreak = attendance.breakIn == null
-
-                // Create a temp file from drawable resource
-                val defaultPhotoFile = File(cacheDir, "temp_break.jpg")
-                withContext(Dispatchers.IO) {
-                    try {
-                        // Get the drawable as a bitmap
-                        val drawable = ContextCompat.getDrawable(
-                            this@AttendanceActivity,
-                            R.drawable.ic_camera_placeholder
-                        )
-                        val bitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
-                        val canvas = Canvas(bitmap)
-                        drawable?.setBounds(0, 0, canvas.width, canvas.height)
-                        drawable?.draw(canvas)
-
-                        // Save bitmap to file
-                        FileOutputStream(defaultPhotoFile).use { out ->
-                            bitmap.compress(Bitmap.CompressFormat.JPEG, 50, out)
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error creating default photo", e)
-                    }
-                }
-
-                try {
-                    val result = RetrofitClient.attendanceService.uploadAttendanceRecord(
-                        staffId = staffId,
-                        storeId = storeId,
-                        date = today,
-                        time = currentTime,
-                        type = if (isStartingBreak) "BREAK_IN" else "BREAK_OUT",
-                        photoFile = defaultPhotoFile
-                    )
-
-                    if (result.isSuccess) {
-                        val updatedAttendance = if (isStartingBreak) {
-                            attendance.copy(
-                                breakIn = currentTime,
-                                breakInPhoto = ""
-                            )
-                        } else {
-                            attendance.copy(
-                                breakOut = currentTime,
-                                breakOutPhoto = ""
-                            )
-                        }
-
-                        withContext(Dispatchers.IO) {
-                            attendanceDao.updateAttendance(updatedAttendance)
-                        }
-
-                        withContext(Dispatchers.Main) {
-                            showToast(if (isStartingBreak) "Break started" else "Break ended")
-                        }
-                    } else {
-                        throw result.exceptionOrNull() ?: Exception("Failed to update break status")
-                    }
-                } finally {
-                    // Clean up the temp file
-                    withContext(Dispatchers.IO) {
-                        if (defaultPhotoFile.exists()) {
-                            defaultPhotoFile.delete()
-                        }
-                    }
-                }
-
-                hideLoading()
-                binding.progressIndicator.visibility = View.GONE
-                binding.viewFinder.visibility = View.GONE
-                loadStaffList()
-                recreateActivity()
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error handling break status", e)
-                showToast("Failed to update break status: ${e.message}")
-                hideLoading()
-                binding.progressIndicator.visibility = View.GONE
-                binding.viewFinder.visibility = View.GONE
-                loadStaffList()
-                recreateActivity()
-            }
-        }
-    }
-
     private fun loadStaffList() {
         lifecycleScope.launch {
             try {
                 withContext(Dispatchers.IO) {
                     val storeId = SessionManager.getCurrentUser()?.storeid ?: return@withContext
                     // Get unique staff list directly from staff table instead of attendance records
-                    val staffList =
-                        AppDatabase.getDatabase(application).staffDao().getStaffByStore(storeId)
+                    val staffList = AppDatabase.getDatabase(application).staffDao().getStaffByStore(storeId)
                     withContext(Dispatchers.Main) {
+                        adapter.updateServerAttendanceData(serverAttendanceData)
                         adapter.submitList(staffList)
                     }
                 }
@@ -1178,7 +1366,6 @@ class AttendanceActivity : AppCompatActivity() {
             Log.e(TAG, "Error cleaning up camera", e)
         }
     }
-
 
     private fun createImageFile(): File {
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
@@ -1221,77 +1408,6 @@ class AttendanceActivity : AppCompatActivity() {
                 }
             }
         }
-    }
-
-    private fun showSettingsPrompt() {
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Permissions Required")
-            .setMessage("Camera and storage permissions are required but have been permanently denied. Please enable them in Settings.")
-            .setPositiveButton("Settings") { _, _ ->
-                // Open app settings
-                val intent =
-                    Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                        data = android.net.Uri.fromParts("package", packageName, null)
-                    }
-                startActivity(intent)
-            }
-            .setNegativeButton("Cancel") { dialog, _ ->
-                dialog.dismiss()
-                finish()
-            }
-            .show()
-    }
-
-    private fun showPermissionRationale() {
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Permissions Required")
-            .setMessage("Camera and storage permissions are required for attendance tracking. Would you like to grant these permissions?")
-            .setPositiveButton("Yes") { _, _ ->
-                checkAndRequestPermissions()
-            }
-            .setNegativeButton("No") { dialog, _ ->
-                dialog.dismiss()
-                finish()
-            }
-            .show()
-    }
-
-    private fun showCustomDialog(
-        title: String,
-        message: String,
-        positiveButton: String? = null,
-        negativeButton: String? = null,
-        onPositive: (() -> Unit)? = null,
-        onNegative: (() -> Unit)? = null,
-        isCancelable: Boolean = true,
-        style: Int = R.style.CustomDialogStyle
-    ) {
-        val dialogView = layoutInflater.inflate(R.layout.custom_alert_dialog, null)
-//        val titleTextView = dialogView.findViewById<TextView>(R.id.dialogTitle)
-//        val messageTextView = dialogView.findViewById<TextView>(R.id.dialogMessage)
-
-//        titleTextView.text = title
-//        messageTextView.text = message
-
-        val builder = AlertDialog.Builder(this, style)
-            .setView(dialogView)
-            .setCancelable(isCancelable)
-
-        if (positiveButton != null) {
-            builder.setPositiveButton(positiveButton) { dialog, _ ->
-                dialog.dismiss()
-                onPositive?.invoke()
-            }
-        }
-
-        if (negativeButton != null) {
-            builder.setNegativeButton(negativeButton) { dialog, _ ->
-                dialog.dismiss()
-                onNegative?.invoke()
-            }
-        }
-
-        builder.create().show()
     }
 
     override fun onResume() {
@@ -1387,7 +1503,6 @@ class AttendanceActivity : AppCompatActivity() {
         toggleButton = findViewById(R.id.toggleButton)
         buttonContainer = findViewById(R.id.buttonContainer)
         ecposTitle = findViewById(R.id.ecposTitle)
-
     }
 
     private fun setupSidebar() {
@@ -1413,17 +1528,12 @@ class AttendanceActivity : AppCompatActivity() {
             startActivity(intent)
         }
 
-//        findViewById<ImageButton>(R.id.button4).setOnClickListener {
-//            val intent = Intent(this, MainActivity::class.java)
-//            intent.putExtra("web_url", "https://eljin.org/StockCounting")
-//            startActivity(intent)
-//        }
         findViewById<ImageButton>(R.id.stockcounting).setOnClickListener {
             val intent = Intent(this, StockCountingActivity::class.java)
             startActivity(intent)
             showToast("Stock Counting")
-
         }
+
         findViewById<ImageButton>(R.id.button5).setOnClickListener {
             val intent = Intent(this, MainActivity::class.java)
             intent.putExtra("web_url", "https://eljin.org/StockTransfer")
@@ -1585,22 +1695,5 @@ class AttendanceActivity : AppCompatActivity() {
 
     private fun dpToPx(dp: Int): Int {
         return (dp * resources.displayMetrics.density).toInt()
-    }
-
-    companion object {
-        private const val TAG = "AttendanceActivity"
-        private const val REQUEST_CODE_PERMISSIONS = 10
-
-        private val REQUIRED_PERMISSIONS = if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
-            arrayOf(
-                Manifest.permission.CAMERA,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                Manifest.permission.READ_EXTERNAL_STORAGE
-            )
-        } else {
-            arrayOf(
-                Manifest.permission.CAMERA
-            )
-        }
     }
 }

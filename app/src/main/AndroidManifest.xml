@@ -67,6 +67,10 @@
             android:label="Show/Hide Products"
             android:parentActivityName=".ui.RequestActivity" />
         <activity
+            android:name=".ui.WindowVisibilityActivity"
+            android:label="Show/Hide Products"
+            android:parentActivityName=".ui.RequestActivity" />
+        <activity
             android:name=".ui.LineTransactionVisibilityActivity"
             android:label="Show/Hide Products"
             android:parentActivityName=".ui.RequestActivity" />

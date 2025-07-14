@@ -499,7 +499,23 @@
             android:scrollbars="vertical"
 
             tools:listitem="@layout/item_product" />
+
+
+
     </ScrollView>
+
+    <ProgressBar
+        android:id="@+id/productLoadingIndicator"
+        android:layout_width="50dp"
+        android:layout_height="50dp"
+        android:layout_gravity="center"
+        android:indeterminateTint="@color/navy"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="@+id/scrollView2"
+        app:layout_constraintEnd_toStartOf="@+id/constraintLayout"
+        app:layout_constraintStart_toEndOf="@+id/sidebarLayout"
+        app:layout_constraintTop_toBottomOf="@+id/categoryRecyclerView" />
+    <!-- Optional: Loading text -->
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/constraintLayout"

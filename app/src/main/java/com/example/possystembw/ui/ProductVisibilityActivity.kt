@@ -7,6 +7,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.SearchView
+import android.widget.TextView
 import androidx.appcompat.widget.Toolbar
 import androidx.appcompat.app.AppCompatActivity
 import androidx.cardview.widget.CardView
@@ -16,7 +17,6 @@ import androidx.lifecycle.asFlow
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.example.possystembw.DAO.LineTransaction
 import com.example.possystembw.R
 import com.example.possystembw.adapter.ProductVisibilityAdapter
 import com.example.possystembw.database.Category
@@ -36,10 +36,23 @@ class ProductVisibilityActivity : AppCompatActivity() {
     private lateinit var cardToggleAllOn: CardView
     private lateinit var cardToggleAllOff: CardView
     private lateinit var categoryButtonsContainer: LinearLayout
+    private lateinit var tvResultsInfo: TextView
+    private var isLoading = false
 
     private var selectedCategory: Category? = null
+    private var selectedVisibilityType: String = "PURCHASE"
     private var allProductsWithVisibility: List<ProductWithVisibility> = emptyList()
     private var categories: List<Category> = emptyList()
+
+    companion object {
+        const val VISIBILITY_GENERAL = "PURCHASE"
+        const val VISIBILITY_FOODPANDA = "FOODPANDA"
+        const val VISIBILITY_GRABFOOD = "GRABFOOD"
+        const val VISIBILITY_MANILARATE = "MANILARATE"
+        const val VISIBILITY_MALLPRICE = "MALLPRICE"
+        const val VISIBILITY_GRABFOODMALL = "GRABFOODMALL"
+        const val VISIBILITY_FOODPANDAMALL = "FOODPANDAMALL"
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,6 +63,7 @@ class ProductVisibilityActivity : AppCompatActivity() {
         initializeViewModel()
         setupRecyclerView()
         setupToggleButtons()
+        setupVisibilityTypeChips()
         observeData()
     }
 
@@ -57,7 +71,7 @@ class ProductVisibilityActivity : AppCompatActivity() {
         val toolbar = findViewById<Toolbar>(R.id.toolbar)
         setSupportActionBar(toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.title = "Show/Hide Products"
+        supportActionBar?.title = "Product Visibility Management"
         toolbar.setNavigationOnClickListener {
             onBackPressed()
         }
@@ -69,6 +83,7 @@ class ProductVisibilityActivity : AppCompatActivity() {
         cardToggleAllOn = findViewById(R.id.cardToggleAllOn)
         cardToggleAllOff = findViewById(R.id.cardToggleAllOff)
         categoryButtonsContainer = findViewById(R.id.categoryButtonsContainer)
+        tvResultsInfo = findViewById(R.id.tvResultsInfo)
 
         searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(query: String?): Boolean {
@@ -120,6 +135,133 @@ class ProductVisibilityActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupVisibilityTypeChips() {
+        val cardGeneral = findViewById<CardView>(R.id.cardGeneral)
+        val cardFoodPanda = findViewById<CardView>(R.id.cardFoodPanda)
+        val cardGrabFood = findViewById<CardView>(R.id.cardGrabFood)
+        val cardManilaRate = findViewById<CardView>(R.id.cardManilaRate)
+        val cardMallPrice = findViewById<CardView>(R.id.cardMallPrice)
+        val cardGrabFoodMall = findViewById<CardView>(R.id.cardGrabFoodMall)
+        val cardFoodPandaMall = findViewById<CardView>(R.id.cardFoodPandaMall)
+
+        // Ensure all cards are enabled and clickable
+        listOf(cardGeneral, cardFoodPanda, cardGrabFood, cardManilaRate, cardMallPrice, cardGrabFoodMall, cardFoodPandaMall).forEach { card ->
+            card?.let {
+                it.isEnabled = true
+                it.isClickable = true
+                it.isFocusable = true
+            }
+        }
+
+        // Set initial selection
+        updateCardSelection(cardGeneral, true)
+
+        cardGeneral.setOnClickListener {
+            Log.d("CardViewClick", "General/Purchase clicked")
+            if (selectedVisibilityType != VISIBILITY_GENERAL) {
+                selectedVisibilityType = VISIBILITY_GENERAL
+                updateAllCardSelections(cardGeneral, cardFoodPanda, cardGrabFood, cardManilaRate, cardMallPrice, cardGrabFoodMall, cardFoodPandaMall)
+                updateToolbarTitle()
+                loadProductsForVisibilityType()
+            }
+        }
+
+        cardFoodPanda.setOnClickListener {
+            Log.d("CardViewClick", "FoodPanda clicked")
+            if (selectedVisibilityType != VISIBILITY_FOODPANDA) {
+                selectedVisibilityType = VISIBILITY_FOODPANDA
+                updateAllCardSelections(cardFoodPanda, cardGeneral, cardGrabFood, cardManilaRate, cardMallPrice, cardGrabFoodMall, cardFoodPandaMall)
+                updateToolbarTitle()
+                loadProductsForVisibilityType()
+            }
+        }
+
+        cardGrabFood.setOnClickListener {
+            Log.d("CardViewClick", "GrabFood clicked")
+            if (selectedVisibilityType != VISIBILITY_GRABFOOD) {
+                selectedVisibilityType = VISIBILITY_GRABFOOD
+                updateAllCardSelections(cardGrabFood, cardGeneral, cardFoodPanda, cardManilaRate, cardMallPrice, cardGrabFoodMall, cardFoodPandaMall)
+                updateToolbarTitle()
+                loadProductsForVisibilityType()
+            }
+        }
+
+        cardManilaRate.setOnClickListener {
+            Log.d("CardViewClick", "ManilaRate clicked")
+            if (selectedVisibilityType != VISIBILITY_MANILARATE) {
+                selectedVisibilityType = VISIBILITY_MANILARATE
+                updateAllCardSelections(cardManilaRate, cardGeneral, cardFoodPanda, cardGrabFood, cardMallPrice, cardGrabFoodMall, cardFoodPandaMall)
+                updateToolbarTitle()
+                loadProductsForVisibilityType()
+            }
+        }
+
+        // New visibility type buttons - prepared for future use
+        cardMallPrice?.setOnClickListener {
+            Log.d("CardViewClick", "MallPrice clicked")
+            if (selectedVisibilityType != VISIBILITY_MALLPRICE) {
+                selectedVisibilityType = VISIBILITY_MALLPRICE
+                updateAllCardSelections(cardMallPrice, cardGeneral, cardFoodPanda, cardGrabFood, cardManilaRate, cardGrabFoodMall, cardFoodPandaMall)
+                updateToolbarTitle()
+                loadProductsForVisibilityType()
+            }
+        }
+
+        cardGrabFoodMall?.setOnClickListener {
+            Log.d("CardViewClick", "GrabFoodMall clicked")
+            if (selectedVisibilityType != VISIBILITY_GRABFOODMALL) {
+                selectedVisibilityType = VISIBILITY_GRABFOODMALL
+                updateAllCardSelections(cardGrabFoodMall, cardGeneral, cardFoodPanda, cardGrabFood, cardManilaRate, cardMallPrice, cardFoodPandaMall)
+                updateToolbarTitle()
+                loadProductsForVisibilityType()
+            }
+        }
+
+        cardFoodPandaMall?.setOnClickListener {
+            Log.d("CardViewClick", "FoodPandaMall clicked")
+            if (selectedVisibilityType != VISIBILITY_FOODPANDAMALL) {
+                selectedVisibilityType = VISIBILITY_FOODPANDAMALL
+                updateAllCardSelections(cardFoodPandaMall, cardGeneral, cardFoodPanda, cardGrabFood, cardManilaRate, cardMallPrice, cardGrabFoodMall)
+                updateToolbarTitle()
+                loadProductsForVisibilityType()
+            }
+        }
+    }
+
+    private fun updateAllCardSelections(selectedCard: CardView, vararg otherCards: CardView?) {
+        updateCardSelection(selectedCard, true)
+        otherCards.forEach { card ->
+            card?.let { updateCardSelection(it, false) }
+        }
+    }
+
+    private fun updateCardSelection(card: CardView?, isSelected: Boolean) {
+        card?.let {
+            val textView = it.getChildAt(0) as TextView
+            if (isSelected) {
+                it.setCardBackgroundColor(ContextCompat.getColor(this, R.color.colorPrimary))
+                textView.setTextColor(ContextCompat.getColor(this, android.R.color.white))
+            } else {
+                it.setCardBackgroundColor(ContextCompat.getColor(this, R.color.light_gray))
+                textView.setTextColor(ContextCompat.getColor(this, android.R.color.black))
+            }
+        }
+    }
+
+    private fun updateToolbarTitle() {
+        val title = when (selectedVisibilityType) {
+            VISIBILITY_GENERAL -> "Purchase Product Visibility"
+            VISIBILITY_FOODPANDA -> "FoodPanda Visibility"
+            VISIBILITY_GRABFOOD -> "GrabFood Visibility"
+            VISIBILITY_MANILARATE -> "Manila Rate Visibility"
+            VISIBILITY_MALLPRICE -> "Mall Price Visibility"
+            VISIBILITY_GRABFOODMALL -> "GrabFood Mall Visibility"
+            VISIBILITY_FOODPANDAMALL -> "FoodPanda Mall Visibility"
+            else -> "Product Visibility"
+        }
+        supportActionBar?.title = title
+    }
+
     private fun updateToggleButtonStates() {
         val currentList = adapter.currentList
         val visibleCount = currentList.count { it.isVisible }
@@ -138,7 +280,6 @@ class ProductVisibilityActivity : AppCompatActivity() {
     }
 
     private fun observeData() {
-        // Observe categories from all aligned products
         lifecycleScope.launch {
             productViewModel.allAlignedProducts.collect { allAlignedProducts ->
                 Log.d("ProductVisibility", "All aligned products received: ${allAlignedProducts.size} categories")
@@ -158,25 +299,132 @@ class ProductVisibilityActivity : AppCompatActivity() {
             }
         }
 
-        // FIXED: Observe all products and their visibility status
-        lifecycleScope.launch {
-            combine(
-                productViewModel.allProducts.asFlow(),
-                productViewModel.getHiddenProducts()
-            ) { allProducts, hiddenProducts ->
-                val hiddenProductIds = hiddenProducts.map { it.productId }.toSet()
+        loadProductsForVisibilityType()
+    }
 
-                allProducts.map { product ->
-                    ProductWithVisibility(
-                        product = product,
-                        isVisible = product.id !in hiddenProductIds
-                    )
+    private fun loadProductsForVisibilityType() {
+        lifecycleScope.launch {
+            showLoadingState(true)
+            try {
+                when (selectedVisibilityType) {
+                    VISIBILITY_GENERAL -> loadGeneralVisibilityProducts()
+                    VISIBILITY_FOODPANDA -> loadDeliveryPlatformProducts("foodpanda")
+                    VISIBILITY_GRABFOOD -> loadDeliveryPlatformProducts("grabfood")
+                    VISIBILITY_MANILARATE -> loadDeliveryPlatformProducts("manilarate")
+                    VISIBILITY_MALLPRICE -> loadDeliveryPlatformProducts("mallprice")
+                    VISIBILITY_GRABFOODMALL -> loadDeliveryPlatformProducts("grabfoodmall")
+                    VISIBILITY_FOODPANDAMALL -> loadDeliveryPlatformProducts("foodpandamall")
                 }
-            }.collect { productsWithVisibility ->
-                allProductsWithVisibility = productsWithVisibility
-                Log.d("ProductVisibility", "Updated products with visibility: ${allProductsWithVisibility.size}")
+            } catch (e: Exception) {
+                Log.e("ProductVisibility", "Error loading products", e)
+                withContext(Dispatchers.Main) {
+                    Snackbar.make(recyclerView, "Error loading products", Snackbar.LENGTH_SHORT).show()
+                }
+            } finally {
+                showLoadingState(false)
+            }
+        }
+    }
+
+    private suspend fun loadGeneralVisibilityProducts() {
+        combine(
+            productViewModel.allProducts.asFlow(),
+            productViewModel.getHiddenProducts()
+        ) { allProducts, hiddenProducts ->
+            val hiddenProductIds = hiddenProducts.map { it.productId }.toSet()
+
+            allProducts.map { product ->
+                ProductWithVisibility(
+                    product = product,
+                    isVisible = product.id !in hiddenProductIds
+                )
+            }
+        }.collect { productsWithVisibility ->
+            allProductsWithVisibility = productsWithVisibility
+            Log.d("ProductVisibility", "Updated general products with visibility: ${allProductsWithVisibility.size}")
+            withContext(Dispatchers.Main) {
                 filterProducts()
             }
+        }
+    }
+
+    private suspend fun loadDeliveryPlatformProducts(platform: String) {
+        withContext(Dispatchers.Main) {
+            tvResultsInfo.text = "Loading $platform products..."
+        }
+
+        val allProducts = productViewModel.allProducts.value ?: emptyList()
+
+        // Filter products that have prices for the selected platform
+        val platformProducts = allProducts.filter { product ->
+            when (platform) {
+                "foodpanda" -> product.foodpanda > 0.0
+                "grabfood" -> product.grabfood > 0.0
+                "manilarate" -> product.manilaprice > 0.0
+                "mallprice" -> {
+                    // For future implementation - when you add mallprice field to Product
+                    // product.mallprice > 0.0
+                    // For now, return empty list as placeholder
+                    false
+                }
+                "grabfoodmall" -> {
+                    // For future implementation - when you add grabfoodmall field to Product
+                    // product.grabfoodmall > 0.0
+                    // For now, return empty list as placeholder
+                    false
+                }
+                "foodpandamall" -> {
+                    // For future implementation - when you add foodpandamall field to Product
+                    // product.foodpandamall > 0.0
+                    // For now, return empty list as placeholder
+                    false
+                }
+                else -> false
+            }
+        }
+
+        // Get platform-specific hidden products
+        val platformName = platform.uppercase()
+        val hiddenProducts = try {
+            productViewModel.getHiddenProductsForPlatform(platformName)
+        } catch (e: Exception) {
+            Log.e("ProductVisibility", "Error getting hidden products for $platformName, using general visibility", e)
+            productViewModel.getHiddenProducts().value ?: emptyList()
+        }
+        val hiddenProductIds = hiddenProducts.map { it.productId }.toSet()
+
+        allProductsWithVisibility = platformProducts.map { product ->
+            ProductWithVisibility(
+                product = product.copy(
+                    price = when (platform) {
+                        "foodpanda" -> product.foodpanda
+                        "grabfood" -> product.grabfood
+                        "manilarate" -> product.manilaprice
+                        "mallprice" -> {
+                            // For future implementation
+                            // product.mallprice
+                            0.0
+                        }
+                        "grabfoodmall" -> {
+                            // For future implementation
+                            // product.grabfoodmall
+                            0.0
+                        }
+                        "foodpandamall" -> {
+                            // For future implementation
+                            // product.foodpandamall
+                            0.0
+                        }
+                        else -> product.price
+                    }
+                ),
+                isVisible = product.id !in hiddenProductIds
+            )
+        }
+
+        Log.d("ProductVisibility", "Updated $platform products: ${allProductsWithVisibility.size}")
+        withContext(Dispatchers.Main) {
+            filterProducts()
         }
     }
 
@@ -243,7 +491,7 @@ class ProductVisibilityActivity : AppCompatActivity() {
 
     private fun filterProducts() {
         val query = searchView.query?.toString()
-        Log.d("ProductVisibility", "Filtering products - Query: '$query', Selected Category: '${selectedCategory?.name}'")
+        Log.d("ProductVisibility", "Filtering products - Query: '$query', Selected Category: '${selectedCategory?.name}', Visibility Type: '$selectedVisibilityType'")
 
         val filteredList = allProductsWithVisibility.filter { productWithVisibility ->
             val product = productWithVisibility.product
@@ -275,52 +523,216 @@ class ProductVisibilityActivity : AppCompatActivity() {
     }
 
     private fun updateResultsInfo(filtered: Int, total: Int) {
-        supportActionBar?.subtitle = if (filtered == total) {
-            "$total products"
+        val platformText = when (selectedVisibilityType) {
+            VISIBILITY_GENERAL -> "products"
+            VISIBILITY_FOODPANDA -> "FoodPanda products"
+            VISIBILITY_GRABFOOD -> "GrabFood products"
+            VISIBILITY_MANILARATE -> "Manila Rate products"
+            VISIBILITY_MALLPRICE -> "Mall Price products"
+            VISIBILITY_GRABFOODMALL -> "GrabFood Mall products"
+            VISIBILITY_FOODPANDAMALL -> "FoodPanda Mall products"
+            else -> "products"
+        }
+
+        tvResultsInfo.text = if (filtered == total) {
+            "$total $platformText"
         } else {
-            "$filtered of $total products"
+            "$filtered of $total $platformText"
         }
     }
 
     private fun toggleProductVisibility(product: Product, isEnabled: Boolean) {
         lifecycleScope.launch {
-            if (isEnabled) {
-                productViewModel.showProduct(product.id)
-            } else {
-                productViewModel.hideProduct(product.id)
-            }
+            try {
+                showLoadingState(true)
 
-            // The UI will automatically update through the Flow observation
-            // No need to manually update allProductsWithVisibility here
+                // Use platform-specific visibility for delivery platforms
+                when (selectedVisibilityType) {
+                    VISIBILITY_GENERAL -> {
+                        if (isEnabled) {
+                            productViewModel.showProduct(product.id)
+                        } else {
+                            productViewModel.hideProduct(product.id)
+                        }
+                    }
+                    VISIBILITY_FOODPANDA -> {
+                        try {
+                            if (isEnabled) {
+                                productViewModel.showProductOnPlatform(product.id, "FOODPANDA")
+                            } else {
+                                productViewModel.hideProductFromPlatform(product.id, "FOODPANDA")
+                            }
+                        } catch (e: Exception) {
+                            Log.e("ProductVisibility", "Platform visibility not available, using general", e)
+                            if (isEnabled) {
+                                productViewModel.showProduct(product.id)
+                            } else {
+                                productViewModel.hideProduct(product.id)
+                            }
+                        }
+                    }
+                    VISIBILITY_GRABFOOD -> {
+                        try {
+                            if (isEnabled) {
+                                productViewModel.showProductOnPlatform(product.id, "GRABFOOD")
+                            } else {
+                                productViewModel.hideProductFromPlatform(product.id, "GRABFOOD")
+                            }
+                        } catch (e: Exception) {
+                            Log.e("ProductVisibility", "Platform visibility not available, using general", e)
+                            if (isEnabled) {
+                                productViewModel.showProduct(product.id)
+                            } else {
+                                productViewModel.hideProduct(product.id)
+                            }
+                        }
+                    }
+                    VISIBILITY_MANILARATE -> {
+                        try {
+                            if (isEnabled) {
+                                productViewModel.showProductOnPlatform(product.id, "MANILARATE")
+                            } else {
+                                productViewModel.hideProductFromPlatform(product.id, "MANILARATE")
+                            }
+                        } catch (e: Exception) {
+                            Log.e("ProductVisibility", "Platform visibility not available, using general", e)
+                            if (isEnabled) {
+                                productViewModel.showProduct(product.id)
+                            } else {
+                                productViewModel.hideProduct(product.id)
+                            }
+                        }
+                    }
+                }
+
+                kotlinx.coroutines.delay(100)
+                loadProductsForVisibilityType()
+
+                val message = when (selectedVisibilityType) {
+                    VISIBILITY_GENERAL -> if (isEnabled) "Product shown" else "Product hidden"
+                    VISIBILITY_FOODPANDA -> if (isEnabled) "Product shown on FoodPanda" else "Product hidden from FoodPanda"
+                    VISIBILITY_GRABFOOD -> if (isEnabled) "Product shown on GrabFood" else "Product hidden from GrabFood"
+                    VISIBILITY_MANILARATE -> if (isEnabled) "Product shown on Manila Rate" else "Product hidden from Manila Rate"
+                    else -> if (isEnabled) "Product shown" else "Product hidden"
+                }
+
+                withContext(Dispatchers.Main) {
+                    Snackbar.make(recyclerView, message, Snackbar.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e("ProductVisibility", "Error toggling product visibility", e)
+                withContext(Dispatchers.Main) {
+                    Snackbar.make(recyclerView, "Error updating product visibility", Snackbar.LENGTH_SHORT).show()
+                }
+            } finally {
+                showLoadingState(false)
+            }
         }
     }
 
     private fun toggleAllProducts(showAll: Boolean) {
         val currentList = adapter.currentList
+        if (currentList.isEmpty()) return
 
         lifecycleScope.launch {
-            currentList.forEach { productWithVisibility ->
-                val product = productWithVisibility.product
-                if (showAll) {
-                    productViewModel.showProduct(product.id)
-                } else {
-                    productViewModel.hideProduct(product.id)
-                }
-            }
+            try {
+                showLoadingState(true)
 
-            withContext(Dispatchers.Main) {
-                val message = if (showAll) "All products shown" else "All products hidden"
-                Snackbar.make(recyclerView, message, Snackbar.LENGTH_SHORT).show()
+                currentList.forEach { productWithVisibility ->
+                    val product = productWithVisibility.product
+
+                    when (selectedVisibilityType) {
+                        VISIBILITY_GENERAL -> {
+                            if (showAll) {
+                                productViewModel.showProduct(product.id)
+                            } else {
+                                productViewModel.hideProduct(product.id)
+                            }
+                        }
+                        VISIBILITY_FOODPANDA -> {
+                            try {
+                                if (showAll) {
+                                    productViewModel.showProductOnPlatform(product.id, "FOODPANDA")
+                                } else {
+                                    productViewModel.hideProductFromPlatform(product.id, "FOODPANDA")
+                                }
+                            } catch (e: Exception) {
+                                if (showAll) {
+                                    productViewModel.showProduct(product.id)
+                                } else {
+                                    productViewModel.hideProduct(product.id)
+                                }
+                            }
+                        }
+                        VISIBILITY_GRABFOOD -> {
+                            try {
+                                if (showAll) {
+                                    productViewModel.showProductOnPlatform(product.id, "GRABFOOD")
+                                } else {
+                                    productViewModel.hideProductFromPlatform(product.id, "GRABFOOD")
+                                }
+                            } catch (e: Exception) {
+                                if (showAll) {
+                                    productViewModel.showProduct(product.id)
+                                } else {
+                                    productViewModel.hideProduct(product.id)
+                                }
+                            }
+                        }
+                        VISIBILITY_MANILARATE -> {
+                            try {
+                                if (showAll) {
+                                    productViewModel.showProductOnPlatform(product.id, "MANILARATE")
+                                } else {
+                                    productViewModel.hideProductFromPlatform(product.id, "MANILARATE")
+                                }
+                            } catch (e: Exception) {
+                                if (showAll) {
+                                    productViewModel.showProduct(product.id)
+                                } else {
+                                    productViewModel.hideProduct(product.id)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                kotlinx.coroutines.delay(200)
+                loadProductsForVisibilityType()
+
+                val message = when (selectedVisibilityType) {
+                    VISIBILITY_GENERAL -> if (showAll) "All products shown" else "All products hidden"
+                    VISIBILITY_FOODPANDA -> if (showAll) "All products shown on FoodPanda" else "All products hidden from FoodPanda"
+                    VISIBILITY_GRABFOOD -> if (showAll) "All products shown on GrabFood" else "All products hidden from GrabFood"
+                    VISIBILITY_MANILARATE -> if (showAll) "All products shown on Manila Rate" else "All products hidden from Manila Rate"
+                    else -> if (showAll) "All products shown" else "All products hidden"
+                }
+
+                withContext(Dispatchers.Main) {
+                    Snackbar.make(recyclerView, message, Snackbar.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e("ProductVisibility", "Error toggling all products", e)
+                withContext(Dispatchers.Main) {
+                    Snackbar.make(recyclerView, "Error updating products", Snackbar.LENGTH_SHORT).show()
+                }
+            } finally {
+                showLoadingState(false)
             }
+        }
+    }
+
+    private fun showLoadingState(loading: Boolean) {
+        isLoading = loading
+        Log.d("LoadingState", "Setting loading state: $loading")
+
+        if (loading) {
+            tvResultsInfo.text = "Loading..."
         }
     }
 }
 
 data class ProductWithVisibility(
     val product: Product,
-    val isVisible: Boolean
-)
-data class LineTransactionWithVisibility(
-    val lineTransaction: LineTransaction,
     val isVisible: Boolean
 )

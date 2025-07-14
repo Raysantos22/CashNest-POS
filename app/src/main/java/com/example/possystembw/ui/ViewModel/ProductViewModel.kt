@@ -182,27 +182,44 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // Rest of your existing methods remain the same...
-    fun hideProduct(productId: Int) {
+    fun hideProductFromPlatform(productId: Int, platform: String) {
         viewModelScope.launch {
-            repository.hideProduct(productId)
+            repository.hideProduct(productId, platform)
         }
+    }
+
+    fun showProductOnPlatform(productId: Int, platform: String) {
+        viewModelScope.launch {
+            repository.showProduct(productId, platform)
+        }
+    }
+
+    suspend fun isProductHiddenOnPlatform(productId: Int, platform: String): Boolean {
+        return repository.isProductHidden(productId, platform)
+    }
+
+    suspend fun getHiddenProductsForPlatform(platform: String): List<ProductVisibility> {
+        return repository.getHiddenProductsSync(platform)
+    }
+
+    // Keep existing methods for backward compatibility
+    fun hideProduct(productId: Int) {
+        hideProductFromPlatform(productId, "PURCHASE")
+
     }
 
     fun showProduct(productId: Int) {
-        viewModelScope.launch {
-            repository.showProduct(productId)
-        }
+        showProductOnPlatform(productId, "PURCHASE")
     }
 
     suspend fun isProductHidden(productId: Int): Boolean {
-        return repository.isProductHidden(productId)
+        return isProductHiddenOnPlatform(productId, "PURCHASE")
     }
 
     fun getHiddenProducts(): StateFlow<List<ProductVisibility>> {
-        return repository.getHiddenProducts()
+        return repository.getHiddenProducts("PURCHASE")
             .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
     }
-
     // Add this method to force refresh visible products after visibility changes
     fun refreshVisibleProducts() {
         viewModelScope.launch {

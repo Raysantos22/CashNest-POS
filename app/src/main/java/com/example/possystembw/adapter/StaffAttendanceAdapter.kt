@@ -1,12 +1,16 @@
 package com.example.possystembw.adapter
 
+import android.app.Dialog
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
+import android.view.Window
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -16,12 +20,16 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.bumptech.glide.Glide
+import com.bumptech.glide.load.DataSource
 import com.bumptech.glide.load.engine.DiskCacheStrategy
+import com.bumptech.glide.load.engine.GlideException
+import com.bumptech.glide.request.RequestListener
 import com.bumptech.glide.request.RequestOptions
+import com.bumptech.glide.request.target.Target
 import com.example.possystembw.R
 import com.example.possystembw.DAO.PhilippinesServerTime
+import com.example.possystembw.DAO.ServerAttendanceRecord
 import com.example.possystembw.data.AppDatabase
-import com.example.possystembw.database.AttendanceRecord
 import com.example.possystembw.database.StaffEntity
 import com.example.possystembw.databinding.StaffAttendanceCardBinding
 import com.example.possystembw.ui.AttendanceHistoryActivity
@@ -30,7 +38,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.io.File
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -44,10 +55,162 @@ class StaffAttendanceAdapter(
     }
 
     private var selectedDate: String = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+    private var serverAttendanceData: Map<String, ServerAttendanceRecord> = emptyMap()
+    private val BASE_URL = "http://10.151.5.239:8000"
+
+    // Cache for loading states
+    private val loadingStates = mutableMapOf<String, Set<String>>() // staffId -> set of loading image types
 
     fun updateDate(newDate: String) {
         selectedDate = newDate
         notifyDataSetChanged()
+    }
+
+    fun updateServerAttendanceData(data: Map<String, ServerAttendanceRecord>) {
+        serverAttendanceData = data
+        notifyDataSetChanged()
+
+        // Start background image loading for all visible items
+        loadImagesInBackground()
+    }
+
+    private fun loadImagesInBackground() {
+        val scope = CoroutineScope(Dispatchers.IO)
+        scope.launch {
+            serverAttendanceData.values.forEach { record ->
+                if (record.date == selectedDate) {
+                    // Load time in photo
+                    record.timeInPhoto?.let { photoPath ->
+                        if (photoPath.startsWith("/storage")) {
+                            downloadAndCacheImage(record.staffId, "timeIn", photoPath)
+                        }
+                    }
+
+                    // Load time out photo
+                    record.timeOutPhoto?.let { photoPath ->
+                        if (photoPath.startsWith("/storage")) {
+                            downloadAndCacheImage(record.staffId, "timeOut", photoPath)
+                        }
+                    }
+
+                    // Load break photos if needed
+                    record.breakInPhoto?.let { photoPath ->
+                        if (photoPath.startsWith("/storage")) {
+                            downloadAndCacheImage(record.staffId, "breakIn", photoPath)
+                        }
+                    }
+
+                    record.breakOutPhoto?.let { photoPath ->
+                        if (photoPath.startsWith("/storage")) {
+                            downloadAndCacheImage(record.staffId, "breakOut", photoPath)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun downloadAndCacheImage(staffId: String, imageType: String, serverPath: String) {
+        try {
+            // Check if already cached locally
+            val localFile = getLocalImageFile(staffId, imageType, selectedDate)
+            if (localFile.exists()) {
+                return
+            }
+
+            // Set loading state
+            withContext(Dispatchers.Main) {
+                setImageLoadingState(staffId, imageType, true)
+            }
+
+            val imageUrl = BASE_URL + serverPath
+
+            // Download image
+            val client = OkHttpClient()
+            val request = Request.Builder().url(imageUrl).build()
+            val response = client.newCall(request).execute()
+
+            if (response.isSuccessful) {
+                response.body?.let { responseBody ->
+                    localFile.parentFile?.mkdirs()
+
+                    FileOutputStream(localFile).use { outputStream ->
+                        responseBody.byteStream().use { inputStream ->
+                            inputStream.copyTo(outputStream)
+                        }
+                    }
+
+                    // Update database with local path
+                    updateAttendanceRecordWithLocalPath(staffId, imageType, localFile.absolutePath)
+
+                    // Notify UI to refresh this specific item
+                    withContext(Dispatchers.Main) {
+                        setImageLoadingState(staffId, imageType, false)
+                        notifyItemChanged(getPositionForStaffId(staffId))
+                    }
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    setImageLoadingState(staffId, imageType, false)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("StaffAttendanceAdapter", "Error downloading image", e)
+            withContext(Dispatchers.Main) {
+                setImageLoadingState(staffId, imageType, false)
+            }
+        }
+    }
+
+    private fun getLocalImageFile(staffId: String, imageType: String, date: String): File {
+        val cacheDir = File(context.cacheDir, "attendance_images")
+        return File(cacheDir, "${staffId}_${imageType}_${date}.jpg")
+    }
+
+    private suspend fun updateAttendanceRecordWithLocalPath(staffId: String, imageType: String, localPath: String) {
+        withContext(Dispatchers.IO) {
+            try {
+                val attendanceDao = AppDatabase.getDatabase(context).attendanceDao()
+                val existingRecord = attendanceDao.getAttendanceForStaffOnDate(staffId, selectedDate)
+
+                existingRecord?.let { record ->
+                    val updatedRecord = when (imageType) {
+                        "timeIn" -> record.copy(timeInPhoto = localPath)
+                        "timeOut" -> record.copy(timeOutPhoto = localPath)
+                        "breakIn" -> record.copy(breakInPhoto = localPath)
+                        "breakOut" -> record.copy(breakOutPhoto = localPath)
+                        else -> record
+                    }
+                    attendanceDao.updateAttendance(updatedRecord)
+                }
+            } catch (e: Exception) {
+                Log.e("StaffAttendanceAdapter", "Error updating database with local path", e)
+            }
+        }
+    }
+
+    private fun setImageLoadingState(staffId: String, imageType: String, isLoading: Boolean) {
+        val currentSet = loadingStates[staffId]?.toMutableSet() ?: mutableSetOf()
+        if (isLoading) {
+            currentSet.add(imageType)
+        } else {
+            currentSet.remove(imageType)
+        }
+        loadingStates[staffId] = currentSet
+    }
+
+    private fun isImageLoading(staffId: String, imageType: String): Boolean {
+        return loadingStates[staffId]?.contains(imageType) == true
+    }
+
+    private fun getPositionForStaffId(staffId: String): Int {
+        for (i in 0 until itemCount) {
+            val staff = getItem(i)
+            if ("${staff.name}_${staff.storeId}" == staffId) {
+                return i
+            }
+        }
+        return -1
     }
 
     inner class ViewHolder(private val binding: StaffAttendanceCardBinding) :
@@ -55,11 +218,7 @@ class StaffAttendanceAdapter(
 
         fun bind(staff: StaffEntity) {
             binding.apply {
-                val displayDate = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(
-                    SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(selectedDate)!!
-                )
-                staffInfo.text = "${staff.name}"
-
+                staffInfo.text = staff.name
                 setupDefaultImages()
                 setupClickListeners(staff)
                 loadAttendanceData(staff)
@@ -95,48 +254,78 @@ class StaffAttendanceAdapter(
             }
         }
 
-
         private fun setupClickListeners(staff: StaffEntity) {
             val scope = (context as? AppCompatActivity)?.lifecycleScope ?: CoroutineScope(Dispatchers.Main)
 
             scope.launch {
                 try {
-                    val attendance = withContext(Dispatchers.IO) {
-                        AppDatabase.getDatabase(context).attendanceDao()
-                            .getAttendanceForStaffOnDate(
-                                "${staff.name}_${staff.storeId}",
-                                PhilippinesServerTime.formatDatabaseDate()
-                            )
-                    }
+                    val attendance = getAttendanceRecord(staff)
+                    val today = PhilippinesServerTime.formatDatabaseDate()
+                    val isToday = selectedDate == today
 
                     binding.apply {
                         // Time In handling
+                        val hasTimeIn = attendance?.timeIn != null && attendance.timeIn.isNotEmpty()
                         timeInImage.apply {
-                            isClickable = attendance?.timeIn == null
-                            setOnClickListener {
-                                if (isClickable) onImageClick(staff, AttendanceType.TIME_IN)
-                            }
-                            alpha = if (isClickable) 1.0f else 0.5f
-                        }
-
-                        // Break Status handling
-                        breakButton.apply {
-                            isClickable = attendance?.timeIn != null && attendance.timeOut == null
+                            isClickable = !hasTimeIn && isToday
                             setOnClickListener {
                                 if (isClickable) {
-                                    showBreakConfirmationDialog(staff, attendance)
+                                    onImageClick(staff, AttendanceType.TIME_IN)
+                                } else if (hasTimeIn) {
+                                    // Show zoom dialog for existing time in
+                                    showImageZoomDialog(
+                                        "Time In",
+                                        attendance?.timeIn,
+                                        getImagePath(attendance, "timeIn")
+                                    )
                                 }
                             }
-                            alpha = if (isClickable) 1.0f else 0.5f
+                            alpha = if (isClickable) 1.0f else 0.7f
+                        }
+
+                        // Break Status handling - FIXED to prevent clicks on completed breaks
+                        val hasTimeOut = attendance?.timeOut != null && attendance.timeOut.isNotEmpty()
+                        val breakCompleted = attendance?.breakIn != null && attendance.breakOut != null
+                        val isOnBreak = attendance?.breakIn != null && attendance.breakOut == null
+
+                        val canUseBreak = hasTimeIn && !hasTimeOut && !breakCompleted && isToday
+
+                        breakButton.apply {
+                            // Make completely non-clickable if break is completed or shift is done
+                            isClickable = canUseBreak
+                            isEnabled = canUseBreak
+
+                            setOnClickListener {
+                                if (canUseBreak) {
+                                    // Only allow action if break is not completed
+                                    showBreakConfirmationDialog(staff, attendance)
+                                } else {
+                                    // Show simple status for completed/non-actionable breaks
+                                    showSimpleBreakStatus(attendance)
+                                }
+                            }
+                            alpha = if (canUseBreak) 1.0f else 0.6f
                         }
 
                         // Time Out handling
+                        val canTimeOut = hasTimeIn && !hasTimeOut && isToday &&
+                                (attendance?.breakIn == null || attendance.breakOut != null)
+
                         timeOutImage.apply {
-                            isClickable = attendance?.timeIn != null && attendance.timeOut == null
+                            isClickable = canTimeOut
                             setOnClickListener {
-                                if (isClickable) onImageClick(staff, AttendanceType.TIME_OUT)
+                                if (isClickable) {
+                                    onImageClick(staff, AttendanceType.TIME_OUT)
+                                } else if (hasTimeOut) {
+                                    // Show zoom dialog for existing time out
+                                    showImageZoomDialog(
+                                        "Time Out",
+                                        attendance?.timeOut,
+                                        getImagePath(attendance, "timeOut")
+                                    )
+                                }
                             }
-                            alpha = if (isClickable) 1.0f else 0.5f
+                            alpha = if (isClickable) 1.0f else 0.7f
                         }
                     }
                 } catch (e: Exception) {
@@ -145,9 +334,148 @@ class StaffAttendanceAdapter(
             }
         }
 
-        private fun showBreakConfirmationDialog(staff: StaffEntity, attendance: AttendanceRecord?) {
+        private fun showSimpleBreakStatus(attendance: ServerAttendanceRecord?) {
+            val message = when {
+                attendance?.breakIn != null && attendance.breakOut != null -> {
+                    val duration = calculateBreakDuration(attendance.breakIn, attendance.breakOut)
+                    "Break completed\n\nBreak In: ${attendance.breakIn}\nBreak Out: ${attendance.breakOut}\nDuration: $duration"
+                }
+                attendance?.breakIn != null && attendance.breakOut == null -> {
+                    "Currently on break since ${attendance.breakIn}"
+                }
+                attendance?.timeOut != null -> {
+                    "Shift completed\nNo break actions available"
+                }
+                attendance?.timeIn == null -> {
+                    "Please time in first to manage breaks"
+                }
+                else -> {
+                    "Break not started yet"
+                }
+            }
+
+            AlertDialog.Builder(context)
+                .setTitle("Break Status")
+                .setMessage(message)
+                .setPositiveButton("OK") { dialog, _ -> dialog.dismiss() }
+                .show()
+        }
+
+        private fun getImagePath(attendance: ServerAttendanceRecord?, imageType: String): String? {
+            return when (imageType) {
+                "timeIn" -> attendance?.timeInPhoto
+                "timeOut" -> attendance?.timeOutPhoto
+                "breakIn" -> attendance?.breakInPhoto
+                "breakOut" -> attendance?.breakOutPhoto
+                else -> null
+            }
+        }
+
+        private fun showImageZoomDialog(title: String, time: String?, imagePath: String?) {
+            val dialog = Dialog(context)
+            dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+            dialog.setContentView(R.layout.dialog_image_zoom)
+            dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            dialog.window?.setLayout(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+
+            val titleText = dialog.findViewById<TextView>(R.id.dialogTitle)
+            val timeText = dialog.findViewById<TextView>(R.id.dialogTime)
+            val imageView = dialog.findViewById<ImageView>(R.id.dialogImage)
+            val closeButton = dialog.findViewById<TextView>(R.id.closeButton)
+
+            titleText.text = title
+            timeText.text = time ?: "No time recorded"
+
+            // Load image
+            if (!imagePath.isNullOrEmpty()) {
+                if (imagePath.startsWith("/storage")) {
+                    // Server image
+                    Glide.with(context)
+                        .load(BASE_URL + imagePath)
+                        .placeholder(R.drawable.ic_camera_placeholder)
+                        .error(R.drawable.ic_camera_placeholder)
+                        .into(imageView)
+                } else {
+                    // Local image
+                    Glide.with(context)
+                        .load(File(imagePath))
+                        .placeholder(R.drawable.ic_camera_placeholder)
+                        .error(R.drawable.ic_camera_placeholder)
+                        .into(imageView)
+                }
+            } else {
+                imageView.setImageResource(R.drawable.ic_camera_placeholder)
+            }
+
+            closeButton.setOnClickListener { dialog.dismiss() }
+            dialog.show()
+        }
+
+        private fun showBreakStatusDialog(attendance: ServerAttendanceRecord?) {
+            val breakInfo = when {
+                attendance?.breakIn != null && attendance.breakOut == null ->
+                    "Currently on break since ${attendance.breakIn}"
+                attendance?.breakIn != null && attendance.breakOut != null ->
+                    "Break taken from ${attendance.breakIn} to ${attendance.breakOut}\nDuration: ${calculateBreakDuration(attendance.breakIn, attendance.breakOut)}"
+                else -> "No break taken today"
+            }
+
+            AlertDialog.Builder(context)
+                .setTitle("Break Status")
+                .setMessage(breakInfo)
+                .setPositiveButton("OK") { dialog, _ -> dialog.dismiss() }
+                .show()
+        }
+
+        private suspend fun getAttendanceRecord(staff: StaffEntity): ServerAttendanceRecord? {
+            val staffId = "${staff.name}_${staff.storeId}"
+            val key = "${staffId}_${selectedDate}"
+
+            // First try server data
+            serverAttendanceData[key]?.let { return it }
+
+            // Fallback to local database
+            return try {
+                val localRecord = withContext(Dispatchers.IO) {
+                    AppDatabase.getDatabase(context).attendanceDao()
+                        .getAttendanceForStaffOnDate(staffId, selectedDate)
+                }
+
+                localRecord?.let {
+                    ServerAttendanceRecord(
+                        id = it.id.toInt(),
+                        staffId = it.staffId,
+                        storeId = it.storeId,
+                        date = it.date,
+                        timeIn = it.timeIn.takeIf { time -> time.isNotEmpty() },
+                        timeInPhoto = it.timeInPhoto.takeIf { photo -> photo.isNotEmpty() },
+                        breakIn = it.breakIn,
+                        breakInPhoto = it.breakInPhoto,
+                        breakOut = it.breakOut,
+                        breakOutPhoto = it.breakOutPhoto,
+                        timeOut = it.timeOut,
+                        timeOutPhoto = it.timeOutPhoto,
+                        status = it.status,
+                        created_at = "",
+                        updated_at = ""
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e("StaffAttendanceAdapter", "Error getting local attendance record", e)
+                null
+            }
+        }
+
+        private fun showBreakConfirmationDialog(staff: StaffEntity, attendance: ServerAttendanceRecord?) {
             val isOnBreak = attendance?.breakIn != null && attendance.breakOut == null
-            val message = if (isOnBreak) "Are you sure you want to end your break?" else "Are you sure you want to start your break?"
+            val message = if (isOnBreak) {
+                "Are you sure you want to end your break?"
+            } else {
+                "Are you sure you want to start your break?"
+            }
 
             AlertDialog.Builder(context)
                 .setTitle("Break Status")
@@ -161,28 +489,21 @@ class StaffAttendanceAdapter(
                 }
                 .show()
         }
+
         private fun loadAttendanceData(staff: StaffEntity) {
             val scope = (context as? AppCompatActivity)?.lifecycleScope ?: CoroutineScope(Dispatchers.Main)
 
             scope.launch {
                 try {
-                    val attendance = withContext(Dispatchers.IO) {
-                        AppDatabase.getDatabase(context).attendanceDao()
-                            .getAttendanceForStaffOnDate(
-                                "${staff.name}_${staff.storeId}",
-                                selectedDate
-                            )
-                    }
+                    val attendance = getAttendanceRecord(staff)
+                    val staffId = "${staff.name}_${staff.storeId}"
 
                     attendance?.let { record ->
                         binding.apply {
                             // Time In
                             record.timeIn?.let { time ->
                                 timeInTime.text = time
-                                if (record.timeInPhoto.isNotEmpty()) {
-                                    loadImageWithGlide(timeInImage, record.timeInPhoto)
-                                    timeInImage.borderColor = ContextCompat.getColor(context, R.color.green)
-                                }
+                                loadAttendanceImage(timeInImage, record.timeInPhoto, staffId, "timeIn")
                             }
 
                             // Break Status
@@ -191,16 +512,20 @@ class StaffAttendanceAdapter(
                             // Time Out
                             record.timeOut?.let { time ->
                                 timeOutTime.text = time
-                                if (record.timeOutPhoto?.isNotEmpty() == true) {
-                                    record.timeOutPhoto?.let {
-                                        loadImageWithGlide(timeOutImage, it)
-                                    }
-                                    timeOutImage.borderColor = ContextCompat.getColor(context, R.color.green)
-                                }
+                                loadAttendanceImage(timeOutImage, record.timeOutPhoto, staffId, "timeOut")
                             }
 
-                            // Add this line to update the time breakdown
+                            // Update time breakdown
                             updateTimeBreakdown(record)
+                        }
+                    } ?: run {
+                        // No attendance record found
+                        binding.apply {
+                            staffStatus.text = "Not Started"
+                            staffStatus.setTextColor(ContextCompat.getColor(context, R.color.gray))
+                            workDuration.text = "0 hrs 0 mins"
+                            breakDuration.text = "0 mins"
+                            totalHours.text = "0 hrs 0 mins"
                         }
                     }
                 } catch (e: Exception) {
@@ -208,7 +533,40 @@ class StaffAttendanceAdapter(
                 }
             }
         }
-        private fun updateTimeBreakdown(record: AttendanceRecord) {
+
+        private fun loadAttendanceImage(imageView: CircleImageView, photoPath: String?, staffId: String, imageType: String) {
+            if (photoPath.isNullOrEmpty()) return
+
+            // Check if currently loading
+            if (isImageLoading(staffId, imageType)) {
+                showLoadingState(imageView)
+                return
+            }
+
+            // Try local file first
+            val localFile = getLocalImageFile(staffId, imageType, selectedDate)
+            if (localFile.exists()) {
+                loadImageWithGlide(imageView, localFile.absolutePath)
+                imageView.borderColor = ContextCompat.getColor(context, R.color.green)
+                return
+            }
+
+            // If server path, check if it's being downloaded
+            if (photoPath.startsWith("/storage")) {
+                showLoadingState(imageView)
+            } else {
+                // Local path - load directly
+                loadImageWithGlide(imageView, photoPath)
+                imageView.borderColor = ContextCompat.getColor(context, R.color.green)
+            }
+        }
+
+        private fun showLoadingState(imageView: CircleImageView) {
+            imageView.setImageResource(R.drawable.ic_camera_placeholder)
+            imageView.borderColor = ContextCompat.getColor(context, R.color.orange)
+        }
+
+        private fun updateTimeBreakdown(record: ServerAttendanceRecord) {
             try {
                 binding.apply {
                     // Update staff status
@@ -231,159 +589,142 @@ class StaffAttendanceAdapter(
                         )
                     }
 
-                    // Time calculations
+                    // Time calculations with accurate computation
                     if (record.timeIn != null) {
-                        val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
+                        val result = calculateAccurateWorkTime(record)
 
-                        // Convert times to minutes since midnight for easier calculation
-                        fun getMinutesSinceMidnight(timeStr: String): Long {
-                            val time = timeFormat.parse(timeStr) ?: return 0
-                            val calendar = Calendar.getInstance().apply { this.time = time }
-                            return (calendar.get(Calendar.HOUR_OF_DAY) * 60 + calendar.get(Calendar.MINUTE)).toLong()
-                        }
-
-                        // Calculate work minutes
-                        var totalWorkMinutes = 0L
-                        var breakMinutes = 0L
-
-                        val timeInMinutes = getMinutesSinceMidnight(record.timeIn)
-
-                        if (record.breakIn != null) {
-                            // First work period: time in to break in
-                            val breakInMinutes = getMinutesSinceMidnight(record.breakIn)
-                            totalWorkMinutes = breakInMinutes - timeInMinutes
-
-                            if (record.breakOut != null) {
-                                // Break duration
-                                val breakOutMinutes = getMinutesSinceMidnight(record.breakOut)
-                                breakMinutes = breakOutMinutes - breakInMinutes
-
-                                // Second work period if applicable
-                                if (record.timeOut != null) {
-                                    val timeOutMinutes = getMinutesSinceMidnight(record.timeOut)
-                                    totalWorkMinutes += timeOutMinutes - breakOutMinutes
-                                } else {
-                                    // Still working after break
-                                    val currentMinutes = getMinutesSinceMidnight(
-                                        timeFormat.format(Date())
-                                    )
-                                    totalWorkMinutes += currentMinutes - breakOutMinutes
-                                }
-                            } else {
-                                // Currently on break
-                                val currentMinutes = getMinutesSinceMidnight(
-                                    timeFormat.format(Date())
-                                )
-                                breakMinutes = currentMinutes - breakInMinutes
-                            }
-                        } else if (record.timeOut != null) {
-                            // Completed work without break
-                            val timeOutMinutes = getMinutesSinceMidnight(record.timeOut)
-                            totalWorkMinutes = timeOutMinutes - timeInMinutes
+                        workDuration.text = formatDuration(result.workMinutes)
+                        breakDuration.text = if (result.breakMinutes > 0) {
+                            formatDuration(result.breakMinutes)
                         } else {
-                            // Still working, no break
-                            val currentMinutes = getMinutesSinceMidnight(
-                                timeFormat.format(Date())
-                            )
-                            totalWorkMinutes = currentMinutes - timeInMinutes
+                            "0 mins"
                         }
-
-                        // Format and display durations
-                        fun formatDuration(minutes: Long): String {
-                            val hours = minutes / 60
-                            val mins = minutes % 60
-                            return String.format("%d hrs %d mins", hours, mins)
-                        }
-
-                        workDuration.text = formatDuration(totalWorkMinutes)
-                        breakDuration.text = if (breakMinutes > 0) {
-                            formatDuration(breakMinutes)
-                        } else {
-                            "No break taken"
-                        }
-                        totalHours.text = formatDuration(totalWorkMinutes + breakMinutes)
+                        totalHours.text = formatDuration(result.workMinutes + result.breakMinutes)
                     } else {
-                        // Reset displays if no time in
-                        workDuration.text = "Not started"
-                        breakDuration.text = "No break taken"
+                        workDuration.text = "0 hrs 0 mins"
+                        breakDuration.text = "0 mins"
                         totalHours.text = "0 hrs 0 mins"
                     }
-
-                    // Strictly enforce clickable states
-                    val today = PhilippinesServerTime.formatDatabaseDate()
-                    val isToday = record.date == today
-                    val breakCompleted = record.breakIn != null && record.breakOut != null
-
-                    // Time In: Only clickable if no time in record exists and it's today
-                    timeInImage.isEnabled = record.timeIn == null && isToday
-                    timeInImage.isClickable = timeInImage.isEnabled
-//                    timeInImage.alpha = if (timeInImage.isEnabled) 1.0f else 0.5f
-
-                    // Break Button: Never clickable if break is completed
-                    val canBreak = record.timeIn != null && record.timeOut == null &&
-                            !breakCompleted && isToday
-                    breakButton.isEnabled = canBreak
-                    breakButton.isClickable = canBreak
-//                    breakButton.alpha = if (canBreak) 1.0f else 0.5f
-
-                    // Time Out: Only clickable if time in exists, no time out, not on break, and it's today
-                    val canTimeOut = record.timeIn != null && record.timeOut == null &&
-                            (record.breakIn == null || record.breakOut != null) && isToday
-                    timeOutImage.isEnabled = canTimeOut
-                    timeOutImage.isClickable = canTimeOut
-//                    timeOutImage.alpha = if (canTimeOut) 1.0f else 0.5f
                 }
             } catch (e: Exception) {
                 Log.e("StaffAttendanceAdapter", "Error updating time breakdown", e)
             }
         }
-        private fun updateBreakStatus(record: AttendanceRecord) {
+
+        private fun calculateAccurateWorkTime(record: ServerAttendanceRecord): TimeCalculationResult {
+            val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
+            var totalWorkMinutes = 0L
+            var totalBreakMinutes = 0L
+
+            try {
+                val timeInDate = timeFormat.parse(record.timeIn!!) ?: return TimeCalculationResult(0, 0)
+                val currentTime = Calendar.getInstance().time
+
+                // Determine end time for work calculation
+                val workEndTime = when {
+                    record.timeOut != null -> timeFormat.parse(record.timeOut)
+                    record.breakIn != null && record.breakOut == null -> timeFormat.parse(record.breakIn) // Currently on break
+                    else -> currentTime // Still working
+                } ?: currentTime
+
+                // Calculate total time from time in to end
+                val totalMinutes = (workEndTime.time - timeInDate.time) / (60 * 1000)
+
+                // Calculate break time
+                if (record.breakIn != null) {
+                    val breakInDate = timeFormat.parse(record.breakIn) ?: timeInDate
+
+                    if (record.breakOut != null) {
+                        // Break completed
+                        val breakOutDate = timeFormat.parse(record.breakOut) ?: breakInDate
+                        totalBreakMinutes = (breakOutDate.time - breakInDate.time) / (60 * 1000)
+
+                        // If there's time after break out
+                        if (record.timeOut != null) {
+                            val timeOutDate = timeFormat.parse(record.timeOut) ?: breakOutDate
+                            val workAfterBreak = (timeOutDate.time - breakOutDate.time) / (60 * 1000)
+                            totalWorkMinutes = totalMinutes - totalBreakMinutes
+                        } else {
+                            // Still working after break
+                            val workAfterBreak = (currentTime.time - breakOutDate.time) / (60 * 1000)
+                            totalWorkMinutes = totalMinutes - totalBreakMinutes + workAfterBreak
+                        }
+                    } else {
+                        // Currently on break
+                        totalBreakMinutes = (currentTime.time - breakInDate.time) / (60 * 1000)
+                        totalWorkMinutes = (breakInDate.time - timeInDate.time) / (60 * 1000)
+                    }
+                } else {
+                    // No break taken
+                    totalWorkMinutes = totalMinutes
+                }
+
+                // Ensure no negative values
+                totalWorkMinutes = maxOf(0, totalWorkMinutes)
+                totalBreakMinutes = maxOf(0, totalBreakMinutes)
+
+            } catch (e: Exception) {
+                Log.e("StaffAttendanceAdapter", "Error calculating work time", e)
+            }
+
+            return TimeCalculationResult(totalWorkMinutes, totalBreakMinutes)
+        }
+
+        private fun formatDuration(minutes: Long): String {
+            val hours = minutes / 60
+            val mins = minutes % 60
+            return when {
+                hours > 0 -> "${hours} hrs ${mins} mins"
+                else -> "${mins} mins"
+            }
+        }
+
+        private fun updateBreakStatus(record: ServerAttendanceRecord) {
             binding.apply {
                 val breakStarted = record.breakIn != null && record.breakOut == null
                 val breakCompleted = record.breakIn != null && record.breakOut != null
+                val hasTimeOut = record.timeOut != null && record.timeOut.isNotEmpty()
 
-                // Update break button appearance
                 breakButton.apply {
+                    // Set background color based on status
                     setCardBackgroundColor(ContextCompat.getColor(context, when {
-                        breakStarted -> R.color.red
-                        breakCompleted -> R.color.green
-                        else -> R.color.orange
+                        breakCompleted -> R.color.green  // Completed - green (non-clickable)
+                        breakStarted -> R.color.red      // On break - red (clickable to end)
+                        hasTimeOut -> R.color.gray       // Shift completed - gray (non-clickable)
+                        else -> R.color.orange           // Available - orange (clickable to start)
                     }))
 
-                    // Break button should not be clickable if completed
-                    isClickable = false
-                    isEnabled = false
-//                    alpha = 0.5f
-
-                    if (!breakCompleted && record.timeIn != null && record.timeOut == null) {
-                        isClickable = true
-                        isEnabled = true
-                        alpha = 1.0f
+                    // Ensure visual feedback matches clickability
+                    alpha = when {
+                        breakCompleted || hasTimeOut -> 0.6f  // Visually disabled
+                        else -> 1.0f  // Visually enabled
                     }
                 }
 
-                // Update break button text
                 breakButtonText.text = when {
-                    breakStarted -> "End\nBreak"
                     breakCompleted -> "Break\nCompleted"
+                    breakStarted -> "End\nBreak"
+                    hasTimeOut -> "Shift\nCompleted"
                     else -> "Start\nBreak"
                 }
 
-                // Update break status text
                 breakStatus.apply {
                     text = when {
+                        breakCompleted -> "Break: ${calculateBreakDuration(record.breakIn!!, record.breakOut!!)}"
                         breakStarted -> "On Break (${record.breakIn})"
-                        breakCompleted -> calculateBreakDuration(record.breakIn!!, record.breakOut!!)
-                        else -> "Not on break"
+                        hasTimeOut -> "Shift completed"
+                        else -> "No break taken"
                     }
                     setTextColor(ContextCompat.getColor(context, when {
-                        breakStarted -> R.color.red
                         breakCompleted -> R.color.green
+                        breakStarted -> R.color.red
+                        hasTimeOut -> R.color.gray
                         else -> R.color.gray
                     }))
                 }
             }
         }
+
         private fun calculateBreakDuration(breakIn: String, breakOut: String): String {
             try {
                 val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
@@ -392,127 +733,13 @@ class StaffAttendanceAdapter(
 
                 if (startTime != null && endTime != null) {
                     val durationMinutes = (endTime.time - startTime.time) / (60 * 1000)
-                    val hours = durationMinutes / 60
-                    val minutes = durationMinutes % 60
-
-                    return if (hours > 0) {
-                        "Break taken: ${hours}h ${minutes}m"
-                    } else {
-                        "Break taken: ${minutes}m"
-                    }
+                    return formatDuration(durationMinutes)
                 }
             } catch (e: Exception) {
                 Log.e("StaffAttendanceAdapter", "Error calculating break duration", e)
             }
-            return "Break completed"
+            return "Unknown duration"
         }
-//        private fun updateWorkDuration(record: AttendanceRecord) {
-//            try {
-//                if (record.timeIn != null) {
-//                    val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
-//                    val startTime = timeFormat.parse(record.timeIn)
-//                    val endTime = if (record.timeOut != null) {
-//                        timeFormat.parse(record.timeOut)
-//                    } else {
-//                        Date() // Current time for ongoing work
-//                    }
-//
-//                    if (startTime != null && endTime != null) {
-//                        var totalMinutes = (endTime.time - startTime.time) / (60 * 1000)
-//
-//                        // Subtract break time if any
-//                        if (record.breakIn != null && record.breakOut != null) {
-//                            val breakStart = timeFormat.parse(record.breakIn)
-//                            val breakEnd = timeFormat.parse(record.breakOut)
-//                            if (breakStart != null && breakEnd != null) {
-//                                val breakMinutes = (breakEnd.time - breakStart.time) / (60 * 1000)
-//                                totalMinutes -= breakMinutes
-//                            }
-//                        }
-//
-//                        val hours = totalMinutes / 60
-//                        val minutes = totalMinutes % 60
-//
-//                        workTimeText.text = when {
-//                            record.timeOut != null -> "Total: ${hours}h ${minutes}m"
-//                            hours > 0 -> "Working: ${hours}h ${minutes}m"
-//                            else -> "Working: ${minutes}m"
-//                        }
-//                        workTimeText.visibility = View.VISIBLE
-//                    }
-//                } else {
-//                    workTimeText.visibility = View.GONE
-//                }
-//            } catch (e: Exception) {
-//                Log.e("StaffAttendanceAdapter", "Error calculating work duration", e)
-//                workTimeText.visibility = View.GONE
-//            }
-//        }
-
-//            private fun updateAccumulatedTime(record: AttendanceRecord) {
-//                try {
-//                    val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
-//                        .apply { timeZone = TimeZone.getTimeZone("Asia/Manila") }
-//
-//                    var totalMinutes = 0L
-//                    var breakMinutes = 0L
-//
-//                    if (record.timeIn != null) {
-//                        val timeIn = timeFormat.parse(record.timeIn)
-//                        val currentPhTime =
-//                            Calendar.getInstance(TimeZone.getTimeZone("Asia/Manila")).time
-//                        val timeOut = if (record.timeOut != null) {
-//                            timeFormat.parse(record.timeOut)
-//                        } else {
-//                            currentPhTime // Current Philippine time if not timed out
-//                        }
-//
-//                        if (timeIn != null && timeOut != null) {
-//                            totalMinutes = (timeOut.time - timeIn.time) / (60 * 1000)
-//
-//                            // Calculate break time if applicable
-//                            if (record.breakIn != null && record.breakOut != null) {
-//                                val breakIn = timeFormat.parse(record.breakIn)
-//                                val breakOut = timeFormat.parse(record.breakOut)
-//                                if (breakIn != null && breakOut != null) {
-//                                    breakMinutes = (breakOut.time - breakIn.time) / (60 * 1000)
-//                                }
-//                            } else if (record.breakIn != null) {
-//                                // Currently on break
-//                                val breakIn = timeFormat.parse(record.breakIn)
-//                                if (breakIn != null) {
-//                                    breakMinutes = (currentPhTime.time - breakIn.time) / (60 * 1000)
-//                                }
-//                            }
-//
-//                            // Subtract break time from total time
-//                            val workMinutes = totalMinutes - breakMinutes
-//                            val hours = workMinutes / 60
-//                            val minutes = workMinutes % 60
-//
-//                            binding.accumulatedTime.text = if (record.timeOut != null) {
-//                                String.format(
-//                                    "%d hrs %d mins",
-//                                    hours,
-//                                    minutes
-//                                )
-//                            } else {
-//                                String.format(
-//                                    "%d hrs %d mins",
-//                                    hours,
-//                                    minutes
-//                                )
-//                            }
-//                        }
-//                    }
-//                } catch (e: Exception) {
-//                    Log.e("StaffAttendanceAdapter", "Error calculating accumulated time", e)
-//                    binding.accumulatedTime.text = ""
-//                }
-//            }
-
-
-
 
         private fun loadImageWithGlide(imageView: CircleImageView, photoPath: String) {
             Glide.with(context)
@@ -525,9 +752,35 @@ class StaffAttendanceAdapter(
                         .diskCacheStrategy(DiskCacheStrategy.NONE)
                         .skipMemoryCache(true)
                 )
+                .listener(object : RequestListener<android.graphics.drawable.Drawable> {
+                    override fun onLoadFailed(
+                        e: GlideException?,
+                        model: Any?,
+                        target: Target<android.graphics.drawable.Drawable>?,
+                        isFirstResource: Boolean
+                    ): Boolean {
+                        Log.e("StaffAttendanceAdapter", "Failed to load image: $photoPath", e)
+                        return false
+                    }
+
+                    override fun onResourceReady(
+                        resource: android.graphics.drawable.Drawable?,
+                        model: Any?,
+                        target: Target<android.graphics.drawable.Drawable>?,
+                        dataSource: DataSource?,
+                        isFirstResource: Boolean
+                    ): Boolean {
+                        return false
+                    }
+                })
                 .into(imageView)
         }
     }
+
+    data class TimeCalculationResult(
+        val workMinutes: Long,
+        val breakMinutes: Long
+    )
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val binding = StaffAttendanceCardBinding.inflate(
@@ -548,4 +801,3 @@ class StaffAttendanceAdapter(
             oldItem == newItem
     }
 }
-

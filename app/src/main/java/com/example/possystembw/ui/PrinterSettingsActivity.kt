@@ -125,18 +125,20 @@ class PrinterSettingsActivity : AppCompatActivity() {
         // Initialize Bluetooth
         BluetoothPrinterHelper.initialize(this)
         bluetoothPrinterHelper = BluetoothPrinterHelper(this)
+
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-        bluetoothAdapter = bluetoothManager.adapter
+
+        // Fix: Check if adapter is null before assignment
+        val adapter = bluetoothManager.adapter
+        if (adapter == null) {
+            Toast.makeText(this, "Bluetooth is not available on this device - continuing without Bluetooth features", Toast.LENGTH_LONG).show()
+            // Create a dummy adapter or handle null case
+            // bluetoothAdapter will remain uninitialized, so we need to handle this in other methods
+        } else {
+            bluetoothAdapter = adapter
+        }
 
         localDataManager = LocalDataManager(this)
-
-
-        if (bluetoothAdapter == null) {
-            Toast.makeText(this, "Bluetooth is not available on this device", Toast.LENGTH_LONG)
-                .show()
-            finish()
-            return
-        }
 
         initializeSidebarComponents()
         setupSidebar()
@@ -146,10 +148,9 @@ class PrinterSettingsActivity : AppCompatActivity() {
         setupPrinterListView()
         updateConnectionStatus()
         startConnectionStatusCheck()
-        setupExpenseList() // Add this line
+        // Remove duplicate setupExpenseList() call
 
         setupEmergencyResync()
-
 
         findViewById<Button>(R.id.btnViewLocalData).setOnClickListener {
             toggleLocalDataServer()
@@ -166,7 +167,6 @@ class PrinterSettingsActivity : AppCompatActivity() {
             startActivity(intent)
         }
     }
-
 //    private fun setupExpenseList() {
 //        expenseRecyclerView = findViewById(R.id.expenseRecyclerView)
 //        expenseAdapter = StoreExpenseAdapter(

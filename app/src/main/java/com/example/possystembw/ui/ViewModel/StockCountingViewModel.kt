@@ -33,8 +33,8 @@ class StockCountingViewModel(application: Application) : AndroidViewModel(applic
         val stockCountingDao = database.stockCountingDao()
 
         val retrofit = Retrofit.Builder()
-            .baseUrl("https://eljin.org/")
-//            .baseUrl("http://10.151.5.239:8000/")
+//            .baseUrl("https://eljin.org/")
+            .baseUrl("http://10.151.5.239:8000/")
 //            .baseUrl("https://ecposmiddleware-aj1882pz3-progenxs-projects.vercel.app/")
 
             .addConverterFactory(GsonConverterFactory.create())

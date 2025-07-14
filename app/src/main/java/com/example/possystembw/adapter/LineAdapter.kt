@@ -40,6 +40,12 @@ class LineAdapter : RecyclerView.Adapter<LineAdapter.LineViewHolder>() {
     fun setItems(newItems: List<LineTransaction>) {
         originalItems = newItems
         filteredItems = newItems
+        items = newItems // Add this line to keep items in sync
+
+        // Clear input cache when setting new items to prevent stale data
+        inputCache.clear()
+        modifiedItems.clear()
+
         notifyDataSetChanged()
     }
 
@@ -58,8 +64,8 @@ class LineAdapter : RecyclerView.Adapter<LineAdapter.LineViewHolder>() {
 
     fun updateItems(newItems: List<LineTransaction>) {
         items = newItems
-        modifiedItems.clear()
-        inputCache.clear()
+        filteredItems = newItems
+        // Don't clear caches on update to preserve user input
         notifyDataSetChanged()
     }
 
@@ -69,35 +75,46 @@ class LineAdapter : RecyclerView.Adapter<LineAdapter.LineViewHolder>() {
 
     fun getAllItems(): List<LineTransaction> = originalItems
 
-    fun getCurrentList(): List<LineTransaction> = items
+    fun getCurrentList(): List<LineTransaction> = filteredItems
 
     fun getUpdatedItems(): List<LineTransaction> {
         return originalItems.map { original ->
             val itemId = original.itemId
             val cachedInput = inputCache[itemId]
             if (cachedInput != null) {
-                original.copy(
-                    adjustment = cachedInput.adjustment,
-                    receivedCount = cachedInput.receivedCount,
-                    transferCount = cachedInput.transferCount,
-                    wasteCount = cachedInput.wasteCount,
-                    counted = cachedInput.counted,
-                    wasteType = cachedInput.wasteType,
-                    syncStatus = 0
-                )
+                // Check if any values have actually changed
+                val hasChanged = cachedInput.adjustment != formatNumber(original.adjustment) ||
+                        cachedInput.receivedCount != formatNumber(original.receivedCount) ||
+                        cachedInput.transferCount != formatNumber(original.transferCount) ||
+                        cachedInput.wasteCount != formatNumber(original.wasteCount) ||
+                        cachedInput.counted != formatNumber(original.counted) ||
+                        cachedInput.wasteType != original.wasteType
+
+                if (hasChanged) {
+                    original.copy(
+                        adjustment = cachedInput.adjustment,
+                        receivedCount = cachedInput.receivedCount,
+                        transferCount = cachedInput.transferCount,
+                        wasteCount = cachedInput.wasteCount,
+                        counted = cachedInput.counted,
+                        wasteType = cachedInput.wasteType,
+                        syncStatus = 0 // Mark as unsynced only if changed
+                    )
+                } else {
+                    original // Keep original if no changes
+                }
             } else {
-                original
+                original // Keep original if no input cached
             }
         }
     }
 
     fun hasModifications(): Boolean {
-        // Check if there are any changes in the input cache
+        // Check if there are any real changes in the input cache
         for ((itemId, cachedValues) in inputCache) {
-            // Find the original item
             val originalItem = originalItems.find { it.itemId == itemId } ?: continue
 
-            // Compare values
+            // Compare values to see if anything actually changed
             if (cachedValues.adjustment != formatNumber(originalItem.adjustment) ||
                 cachedValues.receivedCount != formatNumber(originalItem.receivedCount) ||
                 cachedValues.transferCount != formatNumber(originalItem.transferCount) ||
@@ -107,7 +124,6 @@ class LineAdapter : RecyclerView.Adapter<LineAdapter.LineViewHolder>() {
                 return true
             }
         }
-
         return false
     }
 
@@ -125,6 +141,25 @@ class LineAdapter : RecyclerView.Adapter<LineAdapter.LineViewHolder>() {
     fun markItemAsSent(itemId: String) {
         if (!itemId.isNullOrEmpty()) {
             successfullySentItems.add(itemId)
+
+            // Find and update the item in originalItems to mark as synced
+            originalItems = originalItems.map { item ->
+                if (item.itemId == itemId) {
+                    item.copy(syncStatus = 1)
+                } else {
+                    item
+                }
+            }
+
+            // Update filtered items as well
+            filteredItems = filteredItems.map { item ->
+                if (item.itemId == itemId) {
+                    item.copy(syncStatus = 1)
+                } else {
+                    item
+                }
+            }
+
             notifyDataSetChanged()
         }
     }
@@ -143,7 +178,11 @@ class LineAdapter : RecyclerView.Adapter<LineAdapter.LineViewHolder>() {
                 onItemModified?.invoke(getUpdatedItems())
             },
             { itemId -> inputCache[itemId] },
-            { itemId, values -> inputCache[itemId] = values }
+            { itemId, values ->
+                inputCache[itemId] = values
+                // Notify that item was modified but don't auto-save
+                onItemModified?.invoke(getUpdatedItems())
+            }
         )
     }
 
@@ -199,38 +238,34 @@ class LineAdapter : RecyclerView.Adapter<LineAdapter.LineViewHolder>() {
             etWasteCount.addTextChangedListener(textWatcher)
             etActualCount.addTextChangedListener(textWatcher)
 
-            // Add OnFocusChangeListener to automatically set "0" when clicked
+            // Improved focus handling - don't auto-set to "0"
             etActualReceived.setOnFocusChangeListener { _, hasFocus ->
-                if (hasFocus) {
-                    etActualReceived.setText("0")
-                    etActualReceived.selectAll() // This will select the "0" so user can immediately type over it
+                if (hasFocus && etActualReceived.text.toString() == "0") {
+                    etActualReceived.selectAll()
                 }
             }
 
             etTransfer.setOnFocusChangeListener { _, hasFocus ->
-                if (hasFocus) {
-                    etTransfer.setText("0")
+                if (hasFocus && etTransfer.text.toString() == "0") {
                     etTransfer.selectAll()
                 }
             }
 
             etWasteCount.setOnFocusChangeListener { _, hasFocus ->
-                if (hasFocus) {
-                    etWasteCount.setText("0")
+                if (hasFocus && etWasteCount.text.toString() == "0") {
                     etWasteCount.selectAll()
                 }
             }
 
             etActualCount.setOnFocusChangeListener { _, hasFocus ->
-                if (hasFocus) {
-                    etActualCount.setText("0")
+                if (hasFocus && etActualCount.text.toString() == "0") {
                     etActualCount.selectAll()
                 }
             }
 
             spinnerWasteType.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                 override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                    if (position > 0) {
+                    if (textWatchersEnabled && position > 0) {
                         saveCurrentValues()
                         updateItemValues()
                     }
@@ -309,7 +344,7 @@ class LineAdapter : RecyclerView.Adapter<LineAdapter.LineViewHolder>() {
                 }
             }
 
-            // Update sync status dot
+            // Update sync status dot based on actual sync status
             when {
                 item.syncStatus == 0 -> {
                     tvSyncStatus.text = "●"
@@ -352,6 +387,7 @@ class LineAdapter : RecyclerView.Adapter<LineAdapter.LineViewHolder>() {
                     etWasteCount.error = null
                 }
 
+                // Check if values have actually changed from original
                 val hasChanged = newAdjustment != formatNumber(item.adjustment) ||
                         newReceivedCount != formatNumber(item.receivedCount) ||
                         newTransferCount != formatNumber(item.transferCount) ||
@@ -368,10 +404,11 @@ class LineAdapter : RecyclerView.Adapter<LineAdapter.LineViewHolder>() {
                         counted = newCounted,
                         wasteType = newWasteType,
                         variantId = variance.toString(),
-                        syncStatus = 0
+                        syncStatus = 0 // Mark as unsynced when modified
                     )
                     onItemUpdated(currentPosition, updatedItem)
-                    // Update dot immediately
+
+                    // Update sync status dot immediately to show unsaved changes
                     tvSyncStatus.text = "●"
                     tvSyncStatus.setTextColor(ContextCompat.getColor(itemView.context, R.color.orange))
                 }

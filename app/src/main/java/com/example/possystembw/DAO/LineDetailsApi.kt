@@ -81,22 +81,42 @@ data class LineTransaction(
     val isModified: Boolean = false  //
 
 
-){
+) {
     fun hasModifications(): Boolean {
         return syncStatus == 0
     }
 
     fun hasAnyValue(): Boolean {
-        return (adjustment?.toDoubleOrNull() ?: 0.0) > 0 ||
-                (receivedCount?.toDoubleOrNull() ?: 0.0) > 0 ||
-                (transferCount?.toDoubleOrNull() ?: 0.0) > 0 ||
-                (wasteCount?.toDoubleOrNull() ?: 0.0) > 0 ||
-                (counted?.toDoubleOrNull() ?: 0.0) > 0 ||
-                !wasteType.isNullOrBlank()
+        val adjustmentValue = adjustment?.toDoubleOrNull() ?: 0.0
+        val receivedValue = receivedCount?.toDoubleOrNull() ?: 0.0
+        val transferValue = transferCount?.toDoubleOrNull() ?: 0.0
+        val wasteValue = wasteCount?.toDoubleOrNull() ?: 0.0
+        val countedValue = counted?.toDoubleOrNull() ?: 0.0
+
+        return adjustmentValue > 0 ||
+                receivedValue > 0 ||
+                transferValue > 0 ||
+                wasteValue > 0 ||
+                countedValue > 0 ||
+                (!wasteType.isNullOrBlank() && wasteType != "none" && wasteType != "Select type")
+    }
+
+    // Add this method to check if item has meaningful changes for syncing
+    fun hasSignificantChanges(): Boolean {
+        val adjustmentValue = adjustment?.toDoubleOrNull() ?: 0.0
+        val receivedValue = receivedCount?.toDoubleOrNull() ?: 0.0
+        val transferValue = transferCount?.toDoubleOrNull() ?: 0.0
+        val wasteValue = wasteCount?.toDoubleOrNull() ?: 0.0
+        val countedValue = counted?.toDoubleOrNull() ?: 0.0
+
+        // Consider it significant if there are any non-zero values
+        return adjustmentValue != receivedValue || // Variance exists
+                wasteValue > 0 ||                    // Has waste
+                transferValue > 0 ||                 // Has transfer
+                countedValue > 0 ||                  // Has manual count
+                (!wasteType.isNullOrBlank() && wasteType != "none")
     }
 }
-
-
 data class LineDetailsResponse(
     @SerializedName("journalid") val journalId: String? = null,
     @SerializedName("stockcountingtrans") val transactions: List<LineTransaction> = emptyList()

@@ -357,6 +357,7 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
         try {
             // Detect layout type
             detectLayoutType()
+            loadDiscountsForWindow()
 
             // Initialize views based on layout
             initializeLayoutSpecificViews()
@@ -2979,6 +2980,8 @@ override fun onDestroy() {
             searchView.clearFocus()
             productViewModel.clearSearch()
             hideKeyboard(searchView)
+            // Reload products after clearing search
+            loadWindowSpecificProducts()
         }
 
         // Setup suggestions adapter
@@ -2995,6 +2998,8 @@ override fun onDestroy() {
                 productViewModel.filterProducts(query)
                 searchView.clearFocus()
                 hideKeyboard(searchView)
+                // Reload products with new search
+                loadWindowSpecificProducts()
                 return true
             }
 
@@ -3006,15 +3011,15 @@ override fun onDestroy() {
                     closeButton.visibility = View.VISIBLE
                     productViewModel.filterProducts(newText)
                 }
+                // Reload products with current search
+                loadWindowSpecificProducts()
                 return true
             }
         })
 
         // Update suggestions when products change
-//        productViewModel.visibleProducts.observe(this) { products ->
         productViewModel.visibleProducts.observe(this) { products ->
-
-        val newSuggestions = products.mapNotNull { product ->
+            val newSuggestions = products.mapNotNull { product ->
                 listOfNotNull(
                     product.itemName.takeIf { it.isNotBlank() },
                     product.itemGroup.takeIf { it.isNotBlank() },
@@ -4100,6 +4105,24 @@ private fun showMixMatchProductSelection(mixMatch: MixMatchWithDetails) {
                 Log.d("WindowFilter", "MANILARATE filter: ${result.size} products (manilaprice > 0)")
                 result
             }
+            description.contains("MALLPRICE") -> {
+                val result = allProducts.filter { it.mallprice > 0 }
+                    .map { it.copy(price = it.mallprice) }
+                Log.d("WindowFilter", "MALLPRICE filter: ${result.size} products (mallprice > 0)")
+                result
+            }
+            description.contains("GRABFOODMALL") -> {
+                val result = allProducts.filter { it.grabfoodmall > 0 }
+                    .map { it.copy(price = it.grabfoodmall) }
+                Log.d("WindowFilter", "GRABFOODMALL filter: ${result.size} products (grabfoodmall > 0)")
+                result
+            }
+            description.contains("FOODPANDAMALL") -> {
+                val result = allProducts.filter { it.foodpandamall > 0 }
+                    .map { it.copy(price = it.foodpandamall) }
+                Log.d("WindowFilter", "FOODPANDAMALL filter: ${result.size} products (foodpandamall > 0)")
+                result
+            }
             description.contains("PARTYCAKES") -> {
                 val result = allProducts.filter {
                     it.itemGroup.equals("PARTY CAKES", ignoreCase = true)
@@ -4108,20 +4131,9 @@ private fun showMixMatchProductSelection(mixMatch: MixMatchWithDetails) {
                 result
             }
             description.contains("PURCHASE") -> {
-                // FIXED: Include products that have a regular price > 0, regardless of delivery pricing
-                val result = allProducts.filter { product ->
-                    product.price > 0  // Just check if the product has a price, ignore delivery pricing
-                }
-
-                Log.d("WindowFilter", "PURCHASE filter: ${result.size} products (price > 0)")
-
-                // Debug: Show HOPIA products specifically
-                val hopiaFiltered = result.filter { it.itemGroup.equals("HOPIA", ignoreCase = true) }
-                Log.d("WindowFilter", "HOPIA products after PURCHASE filter: ${hopiaFiltered.size}")
-                hopiaFiltered.forEach {
-                    Log.d("WindowFilter", "  ✅ HOPIA included: '${it.itemName}' (price: ${it.price})")
-                }
-
+                // Show ALL products in PURCHASE window
+                val result = allProducts
+                Log.d("WindowFilter", "PURCHASE filter: ${result.size} products (showing all)")
                 result
             }
             else -> {
@@ -6903,6 +6915,149 @@ private fun connectToPrinter() {
         }
     }
 
+//    private fun showDiscountDialog() {
+//        lifecycleScope.launch {
+//            try {
+//                val cartItems = cartViewModel.getAllCartItems(windowId).first()
+//                if (cartItems.isEmpty()) {
+//                    Toast.makeText(
+//                        this@Window1,
+//                        "No items in cart. Please add items before applying discount.",
+//                        Toast.LENGTH_SHORT
+//                    ).show()
+//                    return@launch
+//                }
+//
+//                withContext(Dispatchers.Main) {
+//                    val dialogView = layoutInflater.inflate(R.layout.dialog_discount, null)
+//                    val discountRecyclerView = dialogView.findViewById<RecyclerView>(R.id.discountRecyclerView)
+//                    val cartItemsLayout = dialogView.findViewById<LinearLayout>(R.id.cartItemsLayout)
+//                    val cartItemsTitle = dialogView.findViewById<TextView>(R.id.cartItemsTitle)
+//                    val searchEditText = dialogView.findViewById<EditText>(R.id.searchDiscounts)
+//                    val selectAllCheckbox = dialogView.findViewById<CheckBox>(R.id.selectAllCheckbox)
+//
+//                    var selectedDiscount: Discount? = null
+//                    var adapter: DiscountAdapter? = null
+//
+//                    val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle)
+//                        .setTitle("Apply Discount")
+//                        .setView(dialogView)
+//                        .setPositiveButton("Apply") { dialog, _ ->
+//                            applySelectedDiscount(dialogView, selectedDiscount)
+//                            dialog.dismiss()
+//                        }
+//                        .setNegativeButton("Cancel") { dialog, _ ->
+//                            dialog.cancel()
+//                        }
+//                        .create()
+//
+//                    dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+//
+//                    // Show loading state for discount recycler view
+//                    showDiscountRecyclerLoading(dialogView, true)
+//
+//                    // Set up search functionality
+//                    searchEditText.addTextChangedListener(object : TextWatcher {
+//                        override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+//                        override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+//                        override fun afterTextChanged(s: Editable?) {
+//                            adapter?.filter(s.toString())
+//                        }
+//                    })
+//
+//                    // Handle "Done" action on keyboard
+//                    searchEditText.setOnEditorActionListener { v, actionId, event ->
+//                        if (actionId == EditorInfo.IME_ACTION_DONE) {
+//                            hideKeyboard(v)
+//                            true
+//                        } else {
+//                            false
+//                        }
+//                    }
+//
+//                    // Initialize adapter first
+//                    adapter = DiscountAdapter { discount ->
+//                        selectedDiscount = discount
+//                        updateCartItemsForDiscount(cartItemsLayout, cartItemsTitle, selectAllCheckbox, discount)
+//                    }
+//                    discountRecyclerView.adapter = adapter
+//                    val layoutManager = LinearLayoutManager(this@Window1, LinearLayoutManager.HORIZONTAL, false)
+//                    discountRecyclerView.layoutManager = layoutManager
+//
+//                    // Load discounts from local data first for fast loading
+//                    lifecycleScope.launch {
+//                        try {
+//                            // Get cached discounts first for immediate display
+//                            val cachedDiscounts = discountViewModel.discounts.value
+//                            if (!cachedDiscounts.isNullOrEmpty()) {
+//                                withContext(Dispatchers.Main) {
+//                                    adapter?.setDiscounts(cachedDiscounts)
+//                                    showDiscountRecyclerLoading(dialogView, false)
+//                                }
+//                            }
+//
+//                            // Fetch fresh discounts in background
+//                            discountViewModel.fetchDiscounts()
+//                        } catch (e: Exception) {
+//                            Log.e(TAG, "Error loading discounts: ${e.message}", e)
+//                            withContext(Dispatchers.Main) {
+//                                showDiscountRecyclerLoading(dialogView, false)
+//                                Toast.makeText(
+//                                    this@Window1,
+//                                    "Error loading discounts",
+//                                    Toast.LENGTH_SHORT
+//                                ).show()
+//                            }
+//                        }
+//                    }
+//
+//                    // Observe discount updates
+//                    discountViewModel.discounts.observe(this@Window1) { discounts ->
+//                        if (!discounts.isNullOrEmpty()) {
+//                            adapter?.setDiscounts(discounts)
+//                            showDiscountRecyclerLoading(dialogView, false)
+//                        }
+//                    }
+//
+//                    // Set up Select All checkbox listener
+//                    selectAllCheckbox.setOnCheckedChangeListener { _, isChecked ->
+//                        for (i in 0 until cartItemsLayout.childCount) {
+//                            val view = cartItemsLayout.getChildAt(i)
+//                            if (view is CheckBox && view.isEnabled) {
+//                                view.isChecked = isChecked
+//                            }
+//                        }
+//                    }
+//
+//                    // Populate cart items
+//                    cartItems.forEach { cartItem ->
+//                        if (cartItem.discount == 0.0) {
+//                            val checkBox = CheckBox(this@Window1).apply {
+//                                text = "${cartItem.productName} (${cartItem.quantity} x ₱${cartItem.price})"
+//                                tag = cartItem.id
+//                                setTextColor(Color.BLACK)
+//                                buttonTintList = ColorStateList.valueOf(Color.BLACK)
+//                            }
+//                            cartItemsLayout.addView(checkBox)
+//                        }
+//                    }
+//
+//                    dialog.show()
+//                }
+//            } catch (e: Exception) {
+//                Log.e(TAG, "Error showing discount dialog: ${e.message}", e)
+//                withContext(Dispatchers.Main) {
+//                    Toast.makeText(
+//                        this@Window1,
+//                        "Error loading discount dialog",
+//                        Toast.LENGTH_SHORT
+//                    ).show()
+//                }
+//            }
+//        }
+//    }
+// try
+
     private fun showDiscountDialog() {
         lifecycleScope.launch {
             try {
@@ -6916,6 +7071,10 @@ private fun connectToPrinter() {
                     return@launch
                 }
 
+                // Get current window information
+                val window = windowViewModel.allWindows.first().find { it.id == windowId }
+                val windowType = window?.description?.uppercase() ?: ""
+
                 withContext(Dispatchers.Main) {
                     val dialogView = layoutInflater.inflate(R.layout.dialog_discount, null)
                     val discountRecyclerView = dialogView.findViewById<RecyclerView>(R.id.discountRecyclerView)
@@ -6928,10 +7087,10 @@ private fun connectToPrinter() {
                     var adapter: DiscountAdapter? = null
 
                     val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle)
-                        .setTitle("Apply Discount")
+                        .setTitle("Apply Discount - ${getWindowTypeLabel(windowType)}")
                         .setView(dialogView)
                         .setPositiveButton("Apply") { dialog, _ ->
-                            applySelectedDiscount(dialogView, selectedDiscount)
+                            applySelectedDiscountWithWindowType(dialogView, selectedDiscount, windowType)
                             dialog.dismiss()
                         }
                         .setNegativeButton("Cancel") { dialog, _ ->
@@ -6963,11 +7122,15 @@ private fun connectToPrinter() {
                         }
                     }
 
-                    // Initialize adapter first
+                    // Initialize adapter - your existing adapter but with window type awareness
                     adapter = DiscountAdapter { discount ->
                         selectedDiscount = discount
                         updateCartItemsForDiscount(cartItemsLayout, cartItemsTitle, selectAllCheckbox, discount)
                     }
+
+                    // Set the window type so adapter knows which parameters to show
+                    adapter.setWindowType(windowType)
+
                     discountRecyclerView.adapter = adapter
                     val layoutManager = LinearLayoutManager(this@Window1, LinearLayoutManager.HORIZONTAL, false)
                     discountRecyclerView.layoutManager = layoutManager
@@ -7044,6 +7207,8 @@ private fun connectToPrinter() {
             }
         }
     }
+
+
     private fun showDiscountRecyclerLoading(dialogView: View, isLoading: Boolean) {
         val loadingIndicator = dialogView.findViewById<View>(R.id.discountRecyclerLoadingIndicator)
         val discountRecyclerView = dialogView.findViewById<RecyclerView>(R.id.discountRecyclerView)
@@ -7076,14 +7241,14 @@ private fun connectToPrinter() {
 
         // Reset select all checkbox state
         selectAllCheckbox.isChecked = false
-
-        for (i in 0 until cartItemsLayout.childCount) {
-            val view = cartItemsLayout.getChildAt(i)
-            if (view is CheckBox) {
-                view.isChecked = isSCOrPWD
-                view.isEnabled = !isSCOrPWD
-            }
-        }
+//
+//        for (i in 0 until cartItemsLayout.childCount) {
+//            val view = cartItemsLayout.getChildAt(i)
+//            if (view is CheckBox) {
+//                view.isChecked = isSCOrPWD
+//                view.isEnabled = !isSCOrPWD
+//            }
+//        }
     }
 
     private fun applySelectedDiscount(dialogView: View, selectedDiscount: Discount?) {
@@ -7145,6 +7310,7 @@ private fun connectToPrinter() {
                                                 selectedItems,
                                                 selectedDiscount.PARAMETER.toDouble(),
                                                 selectedDiscount.DISCOFFERNAME
+
                                             )
 
                                             delay(100) // Ensure discount application completes
@@ -7260,43 +7426,117 @@ private fun connectToPrinter() {
 
 
     // In your Window1.kt
+//    private fun applyFixedTotalDiscount(
+//        items: List<CartItem>,
+//        totalDiscountAmount: Double,
+//        discountName: String
+//    ) {
+//        // Calculate total price of all selected items
+//        val totalPrice = items.sumOf { it.price * it.quantity }
+//
+//        // Calculate discount percentage based on total discount amount
+//        val discountPercentage = (totalDiscountAmount / totalPrice).roundToTwoDecimals()
+//
+//        items.forEach { cartItem ->
+//            val itemTotal = cartItem.price * cartItem.quantity
+//
+//            // Apply the same discount percentage to each item
+//            val itemDiscountAmount = (itemTotal * discountPercentage).roundToTwoDecimals()
+//
+//            Log.d(
+//                "Discount", """
+//            Applying FIXED TOTAL discount:
+//            Item: ${cartItem.productName}
+//            Original Price: ${cartItem.price}
+//            Quantity: ${cartItem.quantity}
+//            Total: $itemTotal
+//            Discount Amount: $itemDiscountAmount
+//        """.trimIndent()
+//            )
+//
+//            val updatedCartItem = cartItem.copy(
+//                discount = totalDiscountAmount,
+//                discountType = "FIXEDTOTAL",
+//                discountAmount = totalDiscountAmount,
+//                discountName = discountName
+//            )
+//            cartViewModel.update(updatedCartItem)
+//        }
+//    }
     private fun applyFixedTotalDiscount(
         items: List<CartItem>,
         totalDiscountAmount: Double,
         discountName: String
     ) {
+        if (items.isEmpty()) return
+
         // Calculate total price of all selected items
         val totalPrice = items.sumOf { it.price * it.quantity }
 
-        // Calculate discount percentage based on total discount amount
-        val discountPercentage = (totalDiscountAmount / totalPrice).roundToTwoDecimals()
+        // If discount is greater than total price, cap it at total price
+        val actualDiscountAmount = minOf(totalDiscountAmount, totalPrice)
 
-        items.forEach { cartItem ->
-            val itemTotal = cartItem.price * cartItem.quantity
+        Log.d("Discount", """
+        Applying FIXED TOTAL discount:
+        Items count: ${items.size}
+        Total price of selected items: $totalPrice
+        Requested discount: $totalDiscountAmount
+        Actual discount applied: $actualDiscountAmount
+    """.trimIndent())
 
-            // Apply the same discount percentage to each item
-            val itemDiscountAmount = (itemTotal * discountPercentage).roundToTwoDecimals()
-
-            Log.d(
-                "Discount", """
-            Applying FIXED TOTAL discount:
-            Item: ${cartItem.productName}
-            Original Price: ${cartItem.price}
-            Quantity: ${cartItem.quantity}
-            Total: $itemTotal
-            Discount Amount: $itemDiscountAmount
-        """.trimIndent()
-            )
-
+        if (items.size == 1) {
+            // If only one item is selected, apply the full discount to that item
+            val cartItem = items.first()
             val updatedCartItem = cartItem.copy(
-                discount = totalDiscountAmount,
+                discount = actualDiscountAmount,
                 discountType = "FIXEDTOTAL",
-                discountAmount = totalDiscountAmount,
+                discountAmount = actualDiscountAmount,
                 discountName = discountName
             )
             cartViewModel.update(updatedCartItem)
+
+            Log.d("Discount", """
+            Single item discount:
+            Item: ${cartItem.productName}
+            Discount Amount: $actualDiscountAmount
+        """.trimIndent())
+        } else {
+            // If multiple items are selected, distribute the discount proportionally
+            var remainingDiscount = actualDiscountAmount
+
+            items.forEachIndexed { index, cartItem ->
+                val itemTotal = cartItem.price * cartItem.quantity
+                val proportion = itemTotal / totalPrice
+
+                val itemDiscountAmount = if (index == items.size - 1) {
+                    // For the last item, use remaining discount to avoid rounding errors
+                    remainingDiscount.roundToTwoDecimals()
+                } else {
+                    (actualDiscountAmount * proportion).roundToTwoDecimals()
+                }
+
+                remainingDiscount -= itemDiscountAmount
+
+                Log.d("Discount", """
+                Proportional discount for item ${index + 1}:
+                Item: ${cartItem.productName}
+                Item Total: $itemTotal
+                Proportion: $proportion
+                Item Discount: $itemDiscountAmount
+                Remaining Discount: $remainingDiscount
+            """.trimIndent())
+
+                val updatedCartItem = cartItem.copy(
+                    discount = itemDiscountAmount,
+                    discountType = "FIXEDTOTAL",
+                    discountAmount = itemDiscountAmount,
+                    discountName = discountName
+                )
+                cartViewModel.update(updatedCartItem)
+            }
         }
     }
+
     // Helper function for rounding
 
 
@@ -7441,6 +7681,90 @@ private fun connectToPrinter() {
             imm.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
         }
     }
+//    private fun updateTotalAmount(cartItems: List<CartItem>) {
+//        Log.d(TAG, "Updating total amount for ${cartItems.size} items")
+//
+//        var subtotal = 0.0
+//        var discount = 0.0
+//        var vatAmount = 0.0
+//        var partialPayment = 0.0
+//
+//        cartItems.forEach { cartItem ->
+//            val effectivePrice = cartItem.overriddenPrice ?: cartItem.price
+//            val itemTotal = effectivePrice * cartItem.quantity
+//            subtotal += itemTotal
+//
+//            when (cartItem.discountType.uppercase()) {
+//                "PERCENTAGE", "PWD", "SC" -> discount += itemTotal * (cartItem.discount / 100)
+//                "FIXED" -> discount += cartItem.discount * cartItem.quantity
+//                "FIXEDTOTAL" -> discount += cartItem.discount
+//            }
+//
+//            vatAmount += itemTotal * 0.12 / 1.12
+//
+//            if (cartItem.partialPayment > 0) {
+//                partialPayment = cartItem.partialPayment
+//            }
+//        }
+//
+//        val discountedTotal = subtotal - discount
+//        val finalTotal = discountedTotal - partialPayment
+//
+//        Log.d(TAG, "Calculated totals - Subtotal: $subtotal, Discount: $discount, VAT: $vatAmount, Final: $finalTotal")
+//
+//        // Update UI based on layout type
+//        if (isMobileLayout) {
+//            // Update mobile cart bottom sheet
+//            runOnUiThread {
+//                findViewById<TextView>(R.id.totalAmountTextView)?.text = "₱ %.2f".format(subtotal)
+//                findViewById<TextView>(R.id.discountAmountText)?.text = "₱ %.2f".format(discount)
+//                findViewById<TextView>(R.id.vatAmountText)?.text = "₱ %.2f".format(vatAmount)
+//
+//                if (partialPayment > 0) {
+//                    findViewById<TextView>(R.id.partialLabel)?.visibility = View.VISIBLE
+//                    findViewById<TextView>(R.id.partialPaymentTextView)?.apply {
+//                        visibility = View.VISIBLE
+//                        text = "₱ %.2f".format(partialPayment)
+//                    }
+//                    findViewById<TextView>(R.id.finalTotalText)?.text = "₱ %.2f".format(finalTotal)
+//                } else {
+//                    findViewById<TextView>(R.id.partialLabel)?.visibility = View.GONE
+//                    findViewById<TextView>(R.id.partialPaymentTextView)?.visibility = View.GONE
+//                    findViewById<TextView>(R.id.finalTotalText)?.text = "₱ %.2f".format(discountedTotal)
+//                }
+//            }
+//        } else {
+//            // Update tablet sidebar (existing code)
+//            runOnUiThread {
+//                binding.apply {
+//                    totalAmountTextView.text = "₱ %.2f".format(subtotal)
+//                    discountAmountText.text = "₱ %.2f".format(discount)
+//                    vatAmountText.text = "₱ %.2f".format(vatAmount)
+//
+//                    if (partialPayment > 0) {
+//                        partialLabel.visibility = View.VISIBLE
+//                        partialPaymentTextView.visibility = View.VISIBLE
+//                        partialPaymentTextView.text = "₱ %.2f".format(partialPayment)
+//                        finalTotalText.text = "₱ %.2f".format(finalTotal)
+//                    } else {
+//                        partialLabel.visibility = View.GONE
+//                        partialPaymentTextView.visibility = View.GONE
+//                        finalTotalText.text = "₱ %.2f".format(discountedTotal)
+//                    }
+//                }
+//            }
+//        }
+//
+//        // Handle transaction comment (both layouts)
+//        val commentText = if (transactionComment.isNotEmpty()) "Note: $transactionComment" else ""
+//        runOnUiThread {
+//            findViewById<TextView>(R.id.commentView)?.apply {
+//                text = commentText
+//                visibility = if (commentText.isNotEmpty()) View.VISIBLE else View.GONE
+//            }
+//        }
+//    }
+
     private fun updateTotalAmount(cartItems: List<CartItem>) {
         Log.d(TAG, "Updating total amount for ${cartItems.size} items")
 
@@ -7457,7 +7781,10 @@ private fun connectToPrinter() {
             when (cartItem.discountType.uppercase()) {
                 "PERCENTAGE", "PWD", "SC" -> discount += itemTotal * (cartItem.discount / 100)
                 "FIXED" -> discount += cartItem.discount * cartItem.quantity
-                "FIXEDTOTAL" -> discount += cartItem.discount
+                "FIXEDTOTAL" -> {
+                    // For FIXEDTOTAL, use discountAmount instead of discount
+                    discount += cartItem.discountAmount
+                }
             }
 
             vatAmount += itemTotal * 0.12 / 1.12
@@ -7472,6 +7799,7 @@ private fun connectToPrinter() {
 
         Log.d(TAG, "Calculated totals - Subtotal: $subtotal, Discount: $discount, VAT: $vatAmount, Final: $finalTotal")
 
+        // Rest of the updateTotalAmount function remains the same...
         // Update UI based on layout type
         if (isMobileLayout) {
             // Update mobile cart bottom sheet
@@ -7524,6 +7852,452 @@ private fun connectToPrinter() {
             }
         }
     }
+    // Enhanced loading state function with text
+    private fun showProductLoadingState(isLoading: Boolean) {
+        if (isMobileLayout) {
+            // Mobile layout loading indicators
+//            findViewById<View>(R.id.productLoadingIndicator)?.visibility = if (isLoading) View.VISIBLE else View.GONE
+            findViewById<TextView>(R.id.loadingText)?.visibility = if (isLoading) View.VISIBLE else View.GONE
+            findViewById<RecyclerView>(R.id.recyclerview)?.alpha = if (isLoading) 0.3f else 1.0f
+            findViewById<TextView>(R.id.textView3)?.alpha = if (isLoading) 0.5f else 1.0f
+            findViewById<androidx.appcompat.widget.SearchView>(R.id.searchView)?.isEnabled = !isLoading
+        } else {
+            // Tablet layout loading indicators
+            binding.apply {
+                productLoadingIndicator?.visibility = if (isLoading) View.VISIBLE else View.GONE
+//                loadingText?.visibility = if (isLoading) View.VISIBLE else View.GONE
+                recyclerview?.alpha = if (isLoading) 0.3f else 1.0f
+                textView3?.alpha = if (isLoading) 0.5f else 1.0f
+                searchView?.isEnabled = !isLoading
+            }
+        }
+    }
+
+    // Function to update loading text dynamically
+    private fun updateLoadingText(message: String) {
+        if (isMobileLayout) {
+            findViewById<TextView>(R.id.loadingText)?.text = message
+        } else {
+//            binding.loadingText?.text = message
+        }
+    }
+
+    // Enhanced loadWindowSpecificProducts with dynamic loading messages
+    private fun loadWindowSpecificProducts() {
+        lifecycleScope.launch {
+            try {
+                // Show loading state at the beginning
+                withContext(Dispatchers.Main) {
+                    showProductLoadingState(true)
+                }
+
+                val window = windowViewModel.allWindows.first().find { it.id == windowId }
+                if (window != null) {
+                    val description = window.description.uppercase()
+                    Log.d("Window1", "Loading products for window: $description")
+
+                    val allProducts = productViewModel.visibleProducts.value ?: emptyList()
+                    Log.d("Window1", "Total visible products: ${allProducts.size}")
+
+                    // Debug: Log products with zero prices
+                    val productsWithZeroPrices = allProducts.filter { product ->
+                        when {
+                            description.contains("GRABFOOD") -> product.grabfood == 0.0
+                            description.contains("FOODPANDA") -> product.foodpanda == 0.0
+                            description.contains("MANILARATE") -> product.manilaprice == 0.0
+                            description.contains("MALLPRICE") -> product.mallprice == 0.0
+                            description.contains("GRABFOODMALL") -> product.grabfoodmall == 0.0
+                            description.contains("FOODPANDAMALL") -> product.foodpandamall == 0.0
+                            description.contains("PURCHASE") -> product.price == 0.0
+                            else -> product.price == 0.0
+                        }
+                    }
+                    Log.d("Window1", "Products with zero prices for $description: ${productsWithZeroPrices.size}")
+                    productsWithZeroPrices.forEach { product ->
+                        Log.d("Window1", "Zero price product: ${product.itemName} - price: ${product.price}, grabfood: ${product.grabfood}, foodpanda: ${product.foodpanda}, manilaprice: ${product.manilaprice}")
+                    }
+
+                    // Filter products based on window description
+                    val windowFilteredProducts = when {
+                        description.contains("GRABFOOD") -> {
+                            allProducts.filter { product ->
+                                product.grabfood > 0.0
+                            }.map { product ->
+                                product.copy(price = product.grabfood)
+                            }
+                        }
+                        description.contains("FOODPANDA") -> {
+                            allProducts.filter { product ->
+                                product.foodpanda > 0.0
+                            }.map { product ->
+                                product.copy(price = product.foodpanda)
+                            }
+                        }
+                        description.contains("MANILARATE") -> {
+                            allProducts.filter { product ->
+                                product.manilaprice > 0.0
+                            }.map { product ->
+                                product.copy(price = product.manilaprice)
+                            }
+                        }
+                        description.contains("MALLPRICE") -> {
+                            allProducts.filter { product ->
+                                product.mallprice > 0.0
+                            }.map { product ->
+                                product.copy(price = product.mallprice)
+                            }
+                        }
+                        description.contains("GRABFOODMALL") -> {
+                            allProducts.filter { product ->
+                                product.grabfoodmall > 0.0
+                            }.map { product ->
+                                product.copy(price = product.grabfoodmall)
+                            }
+                        }
+                        description.contains("FOODPANDAMALL") -> {
+                            allProducts.filter { product ->
+                                product.foodpandamall > 0.0
+                            }.map { product ->
+                                product.copy(price = product.foodpandamall)
+                            }
+                        }
+                        description.contains("PARTYCAKES") -> {
+                            allProducts.filter { product ->
+                                product.itemGroup.equals("PARTY CAKES", ignoreCase = true) &&
+                                        product.price > 0.0
+                            }
+                        }
+                        description.contains("PURCHASE") -> {
+                            // Show ALL products in PURCHASE window, regardless of price
+                            val result = allProducts
+                            Log.d("WindowFilter", "PURCHASE filter: ${result.size} products (showing all)")
+                            result
+                        }
+                        else -> {
+                            // Default case: only show products with valid price
+                            allProducts.filter { product -> product.price > 0.0 }
+                        }
+                    }
+
+                    Log.d("Window1", "Window filtered products: ${windowFilteredProducts.size}")
+
+                    // Apply current search if exists
+                    val searchQuery = productViewModel.persistentSearchQuery.value
+                    val searchFilteredProducts = if (!searchQuery.isNullOrBlank()) {
+                        windowFilteredProducts.filter { product ->
+                            product.itemName.contains(searchQuery, ignoreCase = true) ||
+                                    product.itemGroup.contains(searchQuery, ignoreCase = true) ||
+                                    product.barcode.toString().contains(searchQuery, ignoreCase = true)
+                        }
+                    } else {
+                        windowFilteredProducts
+                    }
+
+                    Log.d("Window1", "Search filtered products: ${searchFilteredProducts.size}")
+
+                    // Apply category filter if exists
+                    val selectedCategory = productViewModel.selectedCategory.value
+                    val finalProducts = when {
+                        selectedCategory == null || selectedCategory.name == "All" -> {
+                            searchFilteredProducts
+                        }
+                        selectedCategory.name == "Mix & Match" -> {
+                            // Handle Mix & Match category if needed
+                            searchFilteredProducts
+                        }
+                        else -> {
+                            searchFilteredProducts.filter { product ->
+                                product.itemGroup.equals(selectedCategory.name, ignoreCase = true)
+                            }
+                        }
+                    }
+
+                    Log.d("Window1", "Final filtered products: ${finalProducts.size}")
+
+                    withContext(Dispatchers.Main) {
+                        Log.d("Window1", "Displaying ${finalProducts.size} products")
+                        productAdapter.submitList(finalProducts)
+                        updateAvailableCategories(finalProducts)
+                        findViewById<TextView>(R.id.textView3)?.text =
+                            "Products (${finalProducts.size})"
+
+                        // Hide loading state when done
+                        showProductLoadingState(false)
+                    }
+                } else {
+                    Log.e("Window1", "Window not found for id: $windowId")
+                    withContext(Dispatchers.Main) {
+                        showProductLoadingState(false)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("Window1", "Error loading window-specific products", e)
+                withContext(Dispatchers.Main) {
+                    showProductLoadingState(false)
+                    Toast.makeText(
+                        this@Window1,
+                        "Error loading products: ${e.message}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+    }
+
+
+
+//    private fun showProductLoadingState(isLoading: Boolean) {
+//        if (isMobileLayout) {
+//            // Mobile layout loading indicators
+//            findViewById<View>(R.id.productLoadingIndicator)?.visibility = if (isLoading) View.VISIBLE else View.GONE
+//            findViewById<RecyclerView>(R.id.recyclerview)?.alpha = if (isLoading) 0.5f else 1.0f
+//            findViewById<TextView>(R.id.textView3)?.alpha = if (isLoading) 0.5f else 1.0f
+//            findViewById<androidx.appcompat.widget.SearchView>(R.id.searchView)?.isEnabled = !isLoading
+//        } else {
+//            // Tablet layout loading indicators
+//            binding.apply {
+//                productLoadingIndicator?.visibility = if (isLoading) View.VISIBLE else View.GONE
+//                recyclerview?.alpha = if (isLoading) 0.5f else 1.0f
+//                textView3?.alpha = if (isLoading) 0.5f else 1.0f
+//                searchView?.isEnabled = !isLoading
+//            }
+//        }
+//    }
+
+    private fun getWindowTypeLabel(windowType: String): String {
+        return when {
+            windowType.contains("GRABFOOD") -> "GRABFOOD"
+            windowType.contains("FOODPANDA") -> "FOODPANDA"
+            windowType.contains("MANILARATE") -> "MANILARATE"
+            windowType.contains("GRABFOODMALL") -> "GRABFOODMALL"
+            windowType.contains("FOODPANDAMALL") -> "FOODPANDAMALL"
+            windowType.contains("MALLPRICE") -> "MALLPRICE"
+            else -> "Default"
+        }
+    }
+    private fun onWindowChangedFromString(newWindowIdString: String) {
+        try {
+            this.windowId = newWindowIdString.toInt()
+            loadWindowSpecificProducts()
+        } catch (e: NumberFormatException) {
+            Log.e("Window1", "Invalid window ID format: $newWindowIdString")
+            Toast.makeText(this, "Invalid window ID", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Function to handle category changes with loading
+    private fun onCategoryChanged() {
+        loadWindowSpecificProducts()
+    }
+
+//    private fun getWindowTypeLabel(windowType: String): String {
+//        return when {
+//            windowType.contains("GRABFOOD") -> "GRABFOOD"
+//            windowType.contains("FOODPANDA") -> "FOODPANDA"
+//            windowType.contains("MANILARATE") -> "MANILARATE"
+//            else -> "Default"
+//        }
+//    }
+
+
+
+//    private fun addToCart(product: Product) {
+//        // First check if transactions are disabled after Z-Read
+//        if (isTransactionDisabledAfterZRead) {
+//            Toast.makeText(
+//                this,
+//                "Transactions are disabled. Z-Read completed for today. Please wait until next day.",
+//                Toast.LENGTH_LONG
+//            ).show()
+//            return
+//        }
+//
+//        checkStaffAndProceed {
+//            if (currentCashFund <= 0) {
+//                Toast.makeText(
+//                    this,
+//                    "Cannot perform transactions. Please set a cash fund.",
+//                    Toast.LENGTH_LONG
+//                ).show()
+//                return@checkStaffAndProceed
+//            }
+//
+//            // Show loading state immediately
+//            showLoadingState(true)
+//
+//            lifecycleScope.launch {
+//                try {
+//                    // Check Z-Read status before allowing transaction
+//                    val hasZReadToday = hasZReadForToday()
+//                    if (hasZReadToday && isAfterMidnight()) {
+//                        withContext(Dispatchers.Main) {
+//                            showLoadingState(false)
+//                            Toast.makeText(
+//                                this@Window1,
+//                                "Cannot add items. Z-Read completed for today.",
+//                                Toast.LENGTH_LONG
+//                            ).show()
+//                        }
+//                        return@launch
+//                    }
+//
+//                    // Get fresh cart items data
+//                    val existingItems = cartViewModel.getAllCartItems(windowId).first()
+//                    val partialPayment = existingItems.firstOrNull()?.partialPayment ?: 0.0
+//
+//                    // Log the product we're trying to add
+//                    Log.d(TAG, "Adding product: ${product.itemName} (${product.itemid})")
+//
+//                    // Check if there's a matching discount for this product
+//                    var matchingDiscount: Discount? = null
+//
+//                    // Get loaded discounts
+//                    val loadedDiscounts = discountViewModel.discounts.value
+//
+//                    if (!loadedDiscounts.isNullOrEmpty()) {
+//                        // Try to find matching discount by comparing product name with discount offer name
+//                        matchingDiscount = loadedDiscounts.find { discount ->
+//                            discount.DISCOFFERNAME.trim().equals(product.itemName.trim(), ignoreCase = true)
+//                        }
+//
+//                        if (matchingDiscount != null) {
+//                            Log.d(TAG, "Found matching discount: ${matchingDiscount.DISCOFFERNAME} for product: ${product.itemName}")
+//                        } else {
+//                            Log.d(TAG, "No matching discount found for product: ${product.itemName}")
+//                        }
+//                    } else {
+//                        Log.d(TAG, "No discounts loaded")
+//                    }
+//
+//                    // Find matching items in cart
+//                    val existingNonDiscountedItem = existingItems.find { item ->
+//                        item.productId == product.id &&
+//                                item.discount == 0.0 &&
+//                                item.discountType.isEmpty() &&
+//                                item.bundleId == null
+//                    }
+//
+//                    val existingDiscountedItem = existingItems.find { item ->
+//                        item.productId == product.id &&
+//                                (item.discount > 0.0 ||
+//                                        item.discountType.isNotEmpty() ||
+//                                        item.bundleId != null)
+//                    }
+//
+//                    // Perform cart operations
+//                    if (matchingDiscount != null) {
+//                        Log.d(TAG, "Applying discount: ${matchingDiscount.DISCOFFERNAME} (${matchingDiscount.PARAMETER} ${matchingDiscount.DISCOUNTTYPE})")
+//
+//                        // Show toast to confirm discount application
+//                        withContext(Dispatchers.Main) {
+//                            Toast.makeText(
+//                                this@Window1,
+//                                "Applied discount: ${matchingDiscount.DISCOFFERNAME} (${matchingDiscount.PARAMETER} ${matchingDiscount.DISCOUNTTYPE})",
+//                                Toast.LENGTH_SHORT
+//                            ).show()
+//                        }
+//
+//                        // Create new item with discount applied
+//                        cartViewModel.insert(
+//                            CartItem(
+//                                productId = product.id,
+//                                quantity = 1,
+//                                windowId = windowId,
+//                                productName = product.itemName,
+//                                price = product.price,
+//                                partialPayment = partialPayment,
+//                                vatAmount = 0.0,
+//                                vatExemptAmount = 0.0,
+//                                itemGroup = product.itemGroup,
+//                                itemId = product.itemid,
+//                                discount = matchingDiscount.PARAMETER.toDouble(),
+//                                discountType = matchingDiscount.DISCOUNTTYPE,
+//                                discountName = matchingDiscount.DISCOFFERNAME
+//                            )
+//                        )
+//
+//                    } else when {
+//                        // If clicking a non-discounted item
+//                        existingNonDiscountedItem != null -> {
+//                            // Update quantity of existing non-discounted item
+//                            cartViewModel.update(
+//                                existingNonDiscountedItem.copy(
+//                                    quantity = existingNonDiscountedItem.quantity + 1,
+//                                    partialPayment = partialPayment
+//                                )
+//                            )
+//                        }
+//                        // If the product exists but only as a discounted item, create new non-discounted entry
+//                        existingDiscountedItem != null -> {
+//                            // Create new cart item without discount
+//                            cartViewModel.insert(
+//                                CartItem(
+//                                    productId = product.id,
+//                                    quantity = 1,
+//                                    windowId = windowId,
+//                                    productName = product.itemName,
+//                                    price = product.price,
+//                                    partialPayment = partialPayment,
+//                                    vatAmount = 0.0,
+//                                    vatExemptAmount = 0.0,
+//                                    itemGroup = product.itemGroup,
+//                                    itemId = product.itemid,
+//                                    discount = 0.0,
+//                                    discountType = ""
+//                                )
+//                            )
+//                        }
+//                        // If the product doesn't exist in cart at all
+//                        else -> {
+//                            cartViewModel.insert(
+//                                CartItem(
+//                                    productId = product.id,
+//                                    quantity = 1,
+//                                    windowId = windowId,
+//                                    productName = product.itemName,
+//                                    price = product.price,
+//                                    partialPayment = partialPayment,
+//                                    vatAmount = 0.0,
+//                                    vatExemptAmount = 0.0,
+//                                    itemGroup = product.itemGroup,
+//                                    itemId = product.itemid,
+//                                    discount = 0.0,
+//                                    discountType = ""
+//                                )
+//                            )
+//                        }
+//                    }
+//
+//                    Log.d(TAG, "Added/Updated cart item for product ${product.id} in window $windowId")
+//
+//                    // Wait a bit to ensure database operations complete
+//                    delay(100)
+//
+//                    // Get updated cart items and refresh totals
+//                    val updatedCartItems = cartViewModel.getAllCartItems(windowId).first()
+//
+//                    withContext(Dispatchers.Main) {
+//                        updateTotalAmount(updatedCartItems)
+//                        showLoadingState(false)
+//                    }
+//
+//                } catch (e: Exception) {
+//                    Log.e(TAG, "Error adding to cart: ${e.message}", e)
+//                    withContext(Dispatchers.Main) {
+//                        showLoadingState(false)
+//                        Toast.makeText(
+//                            this@Window1,
+//                            "Error adding item to cart. Please try again.",
+//                            Toast.LENGTH_SHORT
+//                        ).show()
+//                    }
+//                }
+//            }
+//        }
+//    } working
+
+
+
 //    private fun Double.roundToTwoDecimals(): Double {
 //        return (this * 100).roundToInt() / 100.0
 //    }
@@ -9086,6 +9860,16 @@ private fun showPointsRedemptionDialog(
                         windowDescription.contains("MANILARATE") && product.manilaprice > 0 -> {
                             product.copy(price = product.manilaprice)
                         }
+                        windowDescription.contains("GRABFOODMALL") && product.grabfoodmall > 0 -> {
+                            product.copy(price = product.grabfoodmall)
+                        }
+                        windowDescription.contains("FOODPANDAMALL") && product.foodpandamall > 0 -> {
+                            product.copy(price = product.foodpandamall)
+                        }
+                        windowDescription.contains("MALLPRICE") && product.mallprice > 0 -> {
+                            product.copy(price = product.mallprice)
+                        }
+
                         else -> product
                     }
                 }
@@ -9100,134 +9884,6 @@ private fun showPointsRedemptionDialog(
         }
     }
 
-    private fun loadWindowSpecificProducts() {
-        lifecycleScope.launch {
-            try {
-                val window = windowViewModel.allWindows.first().find { it.id == windowId }
-                if (window != null) {
-                    val description = window.description.uppercase()
-                    Log.d("Window1", "Loading products for window: $description")
-
-                    val allProducts = productViewModel.visibleProducts.value ?: emptyList()
-                    Log.d("Window1", "Total visible products: ${allProducts.size}")
-
-                    // Filter products based on window description
-                    val windowFilteredProducts = when {
-                        description.contains("GRABFOOD") -> {
-                            allProducts.filter { product ->
-                                product.grabfood > 0
-                            }.map { product ->
-                                product.copy(price = product.grabfood)
-                            }
-                        }
-                        description.contains("FOODPANDA") -> {
-                            allProducts.filter { product ->
-                                product.foodpanda > 0
-                            }.map { product ->
-                                product.copy(price = product.foodpanda)
-                            }
-                        }
-                        description.contains("MANILARATE") -> {
-                            allProducts.filter { product ->
-                                product.manilaprice > 0
-                            }.map { product ->
-                                product.copy(price = product.manilaprice)
-                            }
-                        }
-                        description.contains("PARTYCAKES") -> {
-                            allProducts.filter { product ->
-                                product.itemGroup.equals("PARTY CAKES", ignoreCase = true)
-                            }
-                        }
-                        description.contains("PURCHASE") -> {
-                            // DEBUG: Let's see what's filtering out the products
-                            Log.d("Window1", "PURCHASE filter - analyzing ${allProducts.size} products:")
-                            allProducts.forEachIndexed { index, product ->
-                                Log.d("Window1", "Product $index: ${product.itemName}")
-                                Log.d("Window1", "  - price: ${product.price}")
-                                Log.d("Window1", "  - grabfood: ${product.grabfood}")
-                                Log.d("Window1", "  - foodpanda: ${product.foodpanda}")
-                                Log.d("Window1", "  - manilaprice: ${product.manilaprice}")
-                                Log.d("Window1", "  - itemGroup: ${product.itemGroup}")
-                            }
-
-                            // OPTION 1: Show ALL visible products (recommended for PURCHASE)
-                            allProducts
-
-                            // OPTION 2: If you need price filtering, use this instead:
-                            // allProducts.filter { product -> product.price > 0 }
-
-                            // OPTION 3: Original logic (commented out to see if this was the issue)
-                            /*
-                            allProducts.filter { product ->
-                                (product.price > 0 &&
-                                        product.grabfood == 0.0 &&
-                                        product.foodpanda == 0.0 &&
-                                        product.manilaprice == 0.0) ||
-                                        product.itemName.equals("PARTY CAKES", ignoreCase = true)
-                            }
-                            */
-                        }
-                        else -> allProducts
-                    }
-
-                    Log.d("Window1", "Window filtered products: ${windowFilteredProducts.size}")
-
-                    // Apply current search if exists
-                    val searchQuery = productViewModel.persistentSearchQuery.value
-                    val searchFilteredProducts = if (!searchQuery.isNullOrBlank()) {
-                        windowFilteredProducts.filter { product ->
-                            product.itemName.contains(searchQuery, ignoreCase = true) ||
-                                    product.itemGroup.contains(searchQuery, ignoreCase = true) ||
-                                    product.barcode.toString().contains(searchQuery, ignoreCase = true)
-                        }
-                    } else {
-                        windowFilteredProducts
-                    }
-
-                    Log.d("Window1", "Search filtered products: ${searchFilteredProducts.size}")
-
-                    // Apply category filter if exists
-                    val selectedCategory = productViewModel.selectedCategory.value
-                    val finalProducts = when {
-                        selectedCategory == null || selectedCategory.name == "All" -> {
-                            searchFilteredProducts
-                        }
-                        selectedCategory.name == "Mix & Match" -> {
-                            // Handle Mix & Match category if needed
-                            searchFilteredProducts
-                        }
-                        else -> {
-                            searchFilteredProducts.filter { product ->
-                                product.itemGroup.equals(selectedCategory.name, ignoreCase = true)
-                            }
-                        }
-                    }
-
-                    Log.d("Window1", "Final filtered products: ${finalProducts.size}")
-
-                    withContext(Dispatchers.Main) {
-                        Log.d("Window1", "Displaying ${finalProducts.size} products")
-                        productAdapter.submitList(finalProducts)
-                        updateAvailableCategories(finalProducts)
-                        findViewById<TextView>(R.id.textView3)?.text =
-                            "Products (${finalProducts.size})"
-                    }
-                } else {
-                    Log.e("Window1", "Window not found for id: $windowId")
-                }
-            } catch (e: Exception) {
-                Log.e("Window1", "Error loading window-specific products", e)
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(
-                        this@Window1,
-                        "Error loading products: ${e.message}",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-            }
-        }
-    }
     private fun setupBarcodeScanning() {
         barcodeScanner = BarcodeScanning.getClient()
         cameraProviderFuture = ProcessCameraProvider.getInstance(this)
@@ -9517,7 +10173,437 @@ private fun showPointsRedemptionDialog(
 //            }
 //        }
 //    }
-private fun enableTransactionsForNewDay() {
+private fun loadDiscountsForWindow() {
+    lifecycleScope.launch {
+        try {
+            Log.d(TAG, "Loading discounts for window...")
+
+            // Fetch discounts immediately when window opens
+            discountViewModel.fetchDiscounts()
+
+            // Wait a bit for discounts to load
+            delay(500)
+
+            val loadedDiscounts = discountViewModel.discounts.value
+            Log.d(TAG, "Loaded ${loadedDiscounts?.size ?: 0} discounts")
+
+            // Log each discount for debugging
+            loadedDiscounts?.forEach { discount ->
+                Log.d(TAG, "Discount: ${discount.DISCOFFERNAME} - Default: ${discount.PARAMETER}, GF: ${discount.GRABFOOD_PARAMETER}, FP: ${discount.FOODPANDA_PARAMETER}, MR: ${discount.MANILAPRICE_PARAMETER}")
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading discounts: ${e.message}", e)
+        }
+    }
+}
+
+    // Updated addToCart function with better discount loading
+    private fun addToCart(product: Product) {
+        // First check if transactions are disabled after Z-Read
+        if (isTransactionDisabledAfterZRead) {
+            Toast.makeText(
+                this,
+                "Transactions are disabled. Z-Read completed for today. Please wait until next day.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        checkStaffAndProceed {
+            if (currentCashFund <= 0) {
+                Toast.makeText(
+                    this,
+                    "Cannot perform transactions. Please set a cash fund.",
+                    Toast.LENGTH_LONG
+                ).show()
+                return@checkStaffAndProceed
+            }
+
+            // Show loading state immediately
+            showLoadingState(true)
+
+            lifecycleScope.launch {
+                try {
+                    // Check Z-Read status before allowing transaction
+                    val hasZReadToday = hasZReadForToday()
+                    if (hasZReadToday && isAfterMidnight()) {
+                        withContext(Dispatchers.Main) {
+                            showLoadingState(false)
+                            Toast.makeText(
+                                this@Window1,
+                                "Cannot add items. Z-Read completed for today.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                        return@launch
+                    }
+
+                    // Get fresh cart items data
+                    val existingItems = cartViewModel.getAllCartItems(windowId).first()
+                    val partialPayment = existingItems.firstOrNull()?.partialPayment ?: 0.0
+
+                    // Determine current window type for discount parameter selection
+                    val window = windowViewModel.allWindows.first().find { it.id == windowId }
+                    val windowType = window?.description?.uppercase() ?: ""
+
+                    // Get the correct price based on window type
+                    val windowSpecificPrice = when {
+                        windowType.contains("GRABFOOD") -> product.grabfood
+                        windowType.contains("FOODPANDA") -> product.foodpanda
+                        windowType.contains("MANILARATE") -> product.manilaprice
+                        windowType.contains("MALLPRICE") -> product.mallprice
+                        windowType.contains("GRABFOODMALL") -> product.grabfoodmall
+                        windowType.contains("FOODPANDAMALL") -> product.foodpandamall
+                        else -> product.price
+                    }
+
+                    Log.d(TAG, "Adding product: ${product.itemName} (${product.itemid}) to window: $windowType")
+                    Log.d(TAG, "Original price: ${product.price}, Window-specific price: $windowSpecificPrice")
+
+                    // FIXED: Ensure discounts are properly loaded with timeout
+                    var loadedDiscounts = discountViewModel.discounts.value
+
+                    if (loadedDiscounts.isNullOrEmpty()) {
+                        Log.d(TAG, "No discounts loaded, fetching and waiting...")
+                        discountViewModel.fetchDiscounts()
+
+                        // Wait for discounts to load with timeout
+                        var attempts = 0
+                        while (attempts < 10) { // 5 seconds max wait
+                            delay(500)
+                            loadedDiscounts = discountViewModel.discounts.value
+                            if (!loadedDiscounts.isNullOrEmpty()) {
+                                Log.d(TAG, "✅ Discounts loaded after ${attempts * 500}ms")
+                                break
+                            }
+                            attempts++
+                        }
+
+                        if (loadedDiscounts.isNullOrEmpty()) {
+                            Log.w(TAG, "⚠️ Failed to load discounts after 5 seconds, proceeding without discounts")
+                        }
+                    }
+
+                    Log.d(TAG, "Final discount count: ${loadedDiscounts?.size ?: 0}")
+
+                    // Check if there's a matching discount for this product
+                    var matchingDiscount: Discount? = null
+                    var discountParameter: Int? = null
+
+                    if (!loadedDiscounts.isNullOrEmpty()) {
+                        Log.d(TAG, "Searching for discount matching product name: ${product.itemName}")
+
+                        // Try to find matching discount by comparing product name with discount offer name
+                        matchingDiscount = loadedDiscounts.find { discount ->
+                            val match = discount.DISCOFFERNAME.trim().equals(product.itemName.trim(), ignoreCase = true)
+                            Log.d(TAG, "Comparing '${discount.DISCOFFERNAME.trim()}' with '${product.itemName.trim()}' = $match")
+                            match
+                        }
+
+                        if (matchingDiscount != null) {
+                            // Select appropriate discount parameter based on window type
+                            discountParameter = when {
+                                windowType.contains("GRABFOOD") -> {
+                                    val param = matchingDiscount.GRABFOOD_PARAMETER ?: matchingDiscount.PARAMETER
+                                    Log.d(TAG, "🔥 Using GRABFOOD parameter: $param (specific: ${matchingDiscount.GRABFOOD_PARAMETER}, default: ${matchingDiscount.PARAMETER})")
+                                    param
+                                }
+                                windowType.contains("FOODPANDA") -> {
+                                    val param = matchingDiscount.FOODPANDA_PARAMETER ?: matchingDiscount.PARAMETER
+                                    Log.d(TAG, "🔥 Using FOODPANDA parameter: $param (specific: ${matchingDiscount.FOODPANDA_PARAMETER}, default: ${matchingDiscount.PARAMETER})")
+                                    param
+                                }
+                                windowType.contains("MANILARATE") -> {
+                                    val param = matchingDiscount.MANILAPRICE_PARAMETER ?: matchingDiscount.PARAMETER
+                                    Log.d(TAG, "🔥 Using MANILARATE parameter: $param (specific: ${matchingDiscount.MANILAPRICE_PARAMETER}, default: ${matchingDiscount.PARAMETER})")
+                                    param
+                                }
+                                windowType.contains("MALLPRICE") -> {
+                                    val param = matchingDiscount.MALLPRICE_PARAMETER ?: matchingDiscount.PARAMETER
+                                    Log.d(TAG, "🔥 Using MALLPRICE parameter: $param (specific: ${matchingDiscount.MALLPRICE_PARAMETER}, default: ${matchingDiscount.PARAMETER})")
+                                    param
+                                }
+                                windowType.contains("FOODPANDAMALL") -> {
+                                    val param = matchingDiscount.FOODPANDAMALL_PARAMETER ?: matchingDiscount.PARAMETER
+                                    Log.d(TAG, "🔥 Using FOODPANDAMALL parameter: $param (specific: ${matchingDiscount.FOODPANDAMALL_PARAMETER}, default: ${matchingDiscount.PARAMETER})")
+                                    param
+                                }
+                                windowType.contains("GRABFOODMALL") -> {
+                                    val param = matchingDiscount.GRABFOODMALL_PARAMETER ?: matchingDiscount.PARAMETER
+                                    Log.d(TAG, "🔥 Using GRABFOODMALL parameter: $param (specific: ${matchingDiscount.GRABFOODMALL_PARAMETER}, default: ${matchingDiscount.PARAMETER})")
+                                    param
+                                }
+                                else -> {
+                                    Log.d(TAG, "🔥 Using default parameter: ${matchingDiscount.PARAMETER}")
+                                    matchingDiscount.PARAMETER // Default parameter
+                                }
+                            }
+
+                            Log.d(TAG, "✅ Found matching discount: ${matchingDiscount.DISCOFFERNAME} for product: ${product.itemName}")
+                            Log.d(TAG, "✅ Using discount parameter: $discountParameter for window type: $windowType")
+                        } else {
+                            Log.d(TAG, "❌ No matching discount found for product: ${product.itemName}")
+                            // Log first few available discounts for debugging
+                            loadedDiscounts.take(5).forEach { discount ->
+                                Log.d(TAG, "Available discount: '${discount.DISCOFFERNAME}'")
+                            }
+                        }
+                    } else {
+                        Log.d(TAG, "❌ No discounts loaded at all!")
+                    }
+
+                    // Find matching items in cart
+                    val existingNonDiscountedItem = existingItems.find { item ->
+                        item.productId == product.id &&
+                                item.discount == 0.0 &&
+                                item.discountType.isEmpty() &&
+                                item.bundleId == null
+                    }
+
+                    val existingDiscountedItem = existingItems.find { item ->
+                        item.productId == product.id &&
+                                (item.discount > 0.0 ||
+                                        item.discountType.isNotEmpty() ||
+                                        item.bundleId != null)
+                    }
+
+                    // Perform cart operations
+                    if (matchingDiscount != null && discountParameter != null) {
+                        Log.d(TAG, "🎯 Applying discount: ${matchingDiscount.DISCOFFERNAME} ($discountParameter ${matchingDiscount.DISCOUNTTYPE})")
+
+                        // Show toast to confirm discount application
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(
+                                this@Window1,
+                                "Applied discount: ${matchingDiscount.DISCOFFERNAME} ($discountParameter ${matchingDiscount.DISCOUNTTYPE}) for $windowType",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+
+                        // Create new item with discount applied - USING WINDOW-SPECIFIC PRICE
+                        cartViewModel.insert(
+                            CartItem(
+                                productId = product.id,
+                                quantity = 1,
+                                windowId = windowId,
+                                productName = product.itemName,
+                                price = windowSpecificPrice, // ✅ Use window-specific price
+                                partialPayment = partialPayment,
+                                vatAmount = 0.0,
+                                vatExemptAmount = 0.0,
+                                itemGroup = product.itemGroup,
+                                itemId = product.itemid,
+                                discount = discountParameter.toDouble(),
+                                discountType = matchingDiscount.DISCOUNTTYPE,
+                                discountName = "${matchingDiscount.DISCOFFERNAME} (${getWindowTypeLabel(windowType)})"
+                            )
+                        )
+
+                    } else when {
+                        // If clicking a non-discounted item
+                        existingNonDiscountedItem != null -> {
+                            Log.d(TAG, "📦 Updating quantity of existing item")
+                            // Update quantity of existing non-discounted item
+                            cartViewModel.update(
+                                existingNonDiscountedItem.copy(
+                                    quantity = existingNonDiscountedItem.quantity + 1,
+                                    partialPayment = partialPayment
+                                )
+                            )
+                        }
+                        // If the product exists but only as a discounted item, create new non-discounted entry
+                        existingDiscountedItem != null -> {
+                            Log.d(TAG, "📦 Creating new non-discounted item (discounted version exists)")
+                            // Create new cart item without discount - USING WINDOW-SPECIFIC PRICE
+                            cartViewModel.insert(
+                                CartItem(
+                                    productId = product.id,
+                                    quantity = 1,
+                                    windowId = windowId,
+                                    productName = product.itemName,
+                                    price = windowSpecificPrice, // ✅ Use window-specific price
+                                    partialPayment = partialPayment,
+                                    vatAmount = 0.0,
+                                    vatExemptAmount = 0.0,
+                                    itemGroup = product.itemGroup,
+                                    itemId = product.itemid,
+                                    discount = 0.0,
+                                    discountType = ""
+                                )
+                            )
+                        }
+                        // If the product doesn't exist in cart at all
+                        else -> {
+                            Log.d(TAG, "📦 Creating new cart item (no existing versions)")
+                            cartViewModel.insert(
+                                CartItem(
+                                    productId = product.id,
+                                    quantity = 1,
+                                    windowId = windowId,
+                                    productName = product.itemName,
+                                    price = windowSpecificPrice, // ✅ Use window-specific price
+                                    partialPayment = partialPayment,
+                                    vatAmount = 0.0,
+                                    vatExemptAmount = 0.0,
+                                    itemGroup = product.itemGroup,
+                                    itemId = product.itemid,
+                                    discount = 0.0,
+                                    discountType = ""
+                                )
+                            )
+                        }
+                    }
+
+                    Log.d(TAG, "✅ Added/Updated cart item for product ${product.id} in window $windowId with price $windowSpecificPrice")
+
+                    // Wait a bit to ensure database operations complete
+                    delay(100)
+
+                    // Get updated cart items and refresh totals
+                    val updatedCartItems = cartViewModel.getAllCartItems(windowId).first()
+
+                    withContext(Dispatchers.Main) {
+                        updateTotalAmount(updatedCartItems)
+                        showLoadingState(false)
+                    }
+
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error adding to cart: ${e.message}", e)
+                    withContext(Dispatchers.Main) {
+                        showLoadingState(false)
+                        Toast.makeText(
+                            this@Window1,
+                            "Error adding item to cart. Please try again.",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            }
+        }
+    }
+
+
+    // Also make sure your discount application functions use the correct parameters
+    private fun applySelectedDiscountWithWindowType(
+        dialogView: View,
+        selectedDiscount: Discount?,
+        windowType: String
+    ) {
+        val cartItemsLayout = dialogView.findViewById<LinearLayout>(R.id.cartItemsLayout)
+        val selectedCartItemIds = mutableListOf<Int>()
+
+        // Show loading state
+        showDiscountLoadingState(dialogView, true)
+
+        for (i in 0 until cartItemsLayout.childCount) {
+            val view = cartItemsLayout.getChildAt(i)
+            if (view is CheckBox && view.isChecked) {
+                view.tag?.let { tag ->
+                    if (tag is Int) {
+                        selectedCartItemIds.add(tag)
+                    }
+                }
+            }
+        }
+
+        if (selectedCartItemIds.isNotEmpty() && selectedDiscount != null) {
+            lifecycleScope.launch {
+                try {
+                    val cartItems = cartViewModel.getAllCartItems(windowId).first()
+                    val selectedItems = cartItems.filter { it.id in selectedCartItemIds }
+
+                    // Get the appropriate parameter for the current window type
+                    val discountParameter = when {
+                        windowType.contains("GRABFOOD") -> {
+                            selectedDiscount.GRABFOOD_PARAMETER ?: selectedDiscount.PARAMETER
+                        }
+                        windowType.contains("FOODPANDA") -> {
+                            selectedDiscount.FOODPANDA_PARAMETER ?: selectedDiscount.PARAMETER
+                        }
+                        windowType.contains("MANILARATE") -> {
+                            selectedDiscount.MANILAPRICE_PARAMETER ?: selectedDiscount.PARAMETER
+                        }
+                        else -> {
+                            selectedDiscount.PARAMETER
+                        }
+                    }
+
+                    Log.d(TAG, "Applying manual discount with parameter: $discountParameter for window type: $windowType")
+
+                    // Apply the discount with the appropriate parameter
+                    when (selectedDiscount.DISCOUNTTYPE.uppercase()) {
+                        "FIXEDTOTAL" -> applyFixedTotalDiscount(
+                            selectedItems,
+                            discountParameter.toDouble(),
+                            "${selectedDiscount.DISCOFFERNAME}"
+                        )
+
+                        "PERCENTAGE" -> {
+                            val isVatExempt = selectedDiscount.DISCOFFERNAME.contains("SENIOR", ignoreCase = true) ||
+                                    selectedDiscount.DISCOFFERNAME.contains("PWD", ignoreCase = true)
+                            applyPercentageDiscount(
+                                selectedItems,
+                                discountParameter.toDouble(),
+                                isVatExempt,
+                                selectedDiscount.DISCOFFERNAME
+                            )
+                        }
+
+                        "FIXED" -> applyFixedDiscount(
+                            selectedItems,
+                            discountParameter.toDouble(),
+                            selectedDiscount.DISCOFFERNAME
+                        )
+                    }
+
+                    delay(100) // Ensure discount application completes
+
+                    val updatedCartItems = cartViewModel.getAllCartItems(windowId).first()
+                    withContext(Dispatchers.Main) {
+                        updateTotalAmount(updatedCartItems)
+                        showDiscountLoadingState(dialogView, false)
+
+                        val windowLabel = getWindowTypeLabel(windowType)
+                        val parameterUsed = if (discountParameter != selectedDiscount.PARAMETER) {
+                            "$discountParameter ($windowLabel)"
+                        } else {
+                            "$discountParameter (Default)"
+                        }
+
+                        Toast.makeText(
+                            this@Window1,
+                            "Applied ${selectedDiscount.DISCOFFERNAME} ($parameterUsed ${selectedDiscount.DISCOUNTTYPE}) to ${selectedItems.size} items",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error applying discount: ${e.message}", e)
+                    withContext(Dispatchers.Main) {
+                        showDiscountLoadingState(dialogView, false)
+                        Toast.makeText(
+                            this@Window1,
+                            "Error applying discount. Please try again.",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            }
+        } else {
+            showDiscountLoadingState(dialogView, false)
+            Toast.makeText(
+                this@Window1,
+                "Please select both a discount and at least one item",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+
+
+
+    private fun enableTransactionsForNewDay() {
     // Only enable if cash fund is available
     if (currentCashFund > 0) {
         enableTransactions()
@@ -9703,200 +10789,6 @@ private suspend fun performAutomaticZRead() {
     }
 
 
-    private fun addToCart(product: Product) {
-        // First check if transactions are disabled after Z-Read
-        if (isTransactionDisabledAfterZRead) {
-            Toast.makeText(
-                this,
-                "Transactions are disabled. Z-Read completed for today. Please wait until next day.",
-                Toast.LENGTH_LONG
-            ).show()
-            return
-        }
-
-        checkStaffAndProceed {
-            if (currentCashFund <= 0) {
-                Toast.makeText(
-                    this,
-                    "Cannot perform transactions. Please set a cash fund.",
-                    Toast.LENGTH_LONG
-                ).show()
-                return@checkStaffAndProceed
-            }
-
-            // Show loading state immediately
-            showLoadingState(true)
-
-            lifecycleScope.launch {
-                try {
-                    // Check Z-Read status before allowing transaction
-                    val hasZReadToday = hasZReadForToday()
-                    if (hasZReadToday && isAfterMidnight()) {
-                        withContext(Dispatchers.Main) {
-                            showLoadingState(false)
-                            Toast.makeText(
-                                this@Window1,
-                                "Cannot add items. Z-Read completed for today.",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-                        return@launch
-                    }
-
-                    // Get fresh cart items data
-                    val existingItems = cartViewModel.getAllCartItems(windowId).first()
-                    val partialPayment = existingItems.firstOrNull()?.partialPayment ?: 0.0
-
-                    // Log the product we're trying to add
-                    Log.d(TAG, "Adding product: ${product.itemName} (${product.itemid})")
-
-                    // Check if there's a matching discount for this product
-                    var matchingDiscount: Discount? = null
-
-                    // Get loaded discounts
-                    val loadedDiscounts = discountViewModel.discounts.value
-
-                    if (!loadedDiscounts.isNullOrEmpty()) {
-                        // Try to find matching discount by comparing product name with discount offer name
-                        matchingDiscount = loadedDiscounts.find { discount ->
-                            discount.DISCOFFERNAME.trim().equals(product.itemName.trim(), ignoreCase = true)
-                        }
-
-                        if (matchingDiscount != null) {
-                            Log.d(TAG, "Found matching discount: ${matchingDiscount.DISCOFFERNAME} for product: ${product.itemName}")
-                        } else {
-                            Log.d(TAG, "No matching discount found for product: ${product.itemName}")
-                        }
-                    } else {
-                        Log.d(TAG, "No discounts loaded")
-                    }
-
-                    // Find matching items in cart
-                    val existingNonDiscountedItem = existingItems.find { item ->
-                        item.productId == product.id &&
-                                item.discount == 0.0 &&
-                                item.discountType.isEmpty() &&
-                                item.bundleId == null
-                    }
-
-                    val existingDiscountedItem = existingItems.find { item ->
-                        item.productId == product.id &&
-                                (item.discount > 0.0 ||
-                                        item.discountType.isNotEmpty() ||
-                                        item.bundleId != null)
-                    }
-
-                    // Perform cart operations
-                    if (matchingDiscount != null) {
-                        Log.d(TAG, "Applying discount: ${matchingDiscount.DISCOFFERNAME} (${matchingDiscount.PARAMETER} ${matchingDiscount.DISCOUNTTYPE})")
-
-                        // Show toast to confirm discount application
-                        withContext(Dispatchers.Main) {
-                            Toast.makeText(
-                                this@Window1,
-                                "Applied discount: ${matchingDiscount.DISCOFFERNAME} (${matchingDiscount.PARAMETER} ${matchingDiscount.DISCOUNTTYPE})",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-
-                        // Create new item with discount applied
-                        cartViewModel.insert(
-                            CartItem(
-                                productId = product.id,
-                                quantity = 1,
-                                windowId = windowId,
-                                productName = product.itemName,
-                                price = product.price,
-                                partialPayment = partialPayment,
-                                vatAmount = 0.0,
-                                vatExemptAmount = 0.0,
-                                itemGroup = product.itemGroup,
-                                itemId = product.itemid,
-                                discount = matchingDiscount.PARAMETER.toDouble(),
-                                discountType = matchingDiscount.DISCOUNTTYPE,
-                                discountName = matchingDiscount.DISCOFFERNAME
-                            )
-                        )
-
-                    } else when {
-                        // If clicking a non-discounted item
-                        existingNonDiscountedItem != null -> {
-                            // Update quantity of existing non-discounted item
-                            cartViewModel.update(
-                                existingNonDiscountedItem.copy(
-                                    quantity = existingNonDiscountedItem.quantity + 1,
-                                    partialPayment = partialPayment
-                                )
-                            )
-                        }
-                        // If the product exists but only as a discounted item, create new non-discounted entry
-                        existingDiscountedItem != null -> {
-                            // Create new cart item without discount
-                            cartViewModel.insert(
-                                CartItem(
-                                    productId = product.id,
-                                    quantity = 1,
-                                    windowId = windowId,
-                                    productName = product.itemName,
-                                    price = product.price,
-                                    partialPayment = partialPayment,
-                                    vatAmount = 0.0,
-                                    vatExemptAmount = 0.0,
-                                    itemGroup = product.itemGroup,
-                                    itemId = product.itemid,
-                                    discount = 0.0,
-                                    discountType = ""
-                                )
-                            )
-                        }
-                        // If the product doesn't exist in cart at all
-                        else -> {
-                            cartViewModel.insert(
-                                CartItem(
-                                    productId = product.id,
-                                    quantity = 1,
-                                    windowId = windowId,
-                                    productName = product.itemName,
-                                    price = product.price,
-                                    partialPayment = partialPayment,
-                                    vatAmount = 0.0,
-                                    vatExemptAmount = 0.0,
-                                    itemGroup = product.itemGroup,
-                                    itemId = product.itemid,
-                                    discount = 0.0,
-                                    discountType = ""
-                                )
-                            )
-                        }
-                    }
-
-                    Log.d(TAG, "Added/Updated cart item for product ${product.id} in window $windowId")
-
-                    // Wait a bit to ensure database operations complete
-                    delay(100)
-
-                    // Get updated cart items and refresh totals
-                    val updatedCartItems = cartViewModel.getAllCartItems(windowId).first()
-
-                    withContext(Dispatchers.Main) {
-                        updateTotalAmount(updatedCartItems)
-                        showLoadingState(false)
-                    }
-
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error adding to cart: ${e.message}", e)
-                    withContext(Dispatchers.Main) {
-                        showLoadingState(false)
-                        Toast.makeText(
-                            this@Window1,
-                            "Error adding item to cart. Please try again.",
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                }
-            }
-        }
-    }
     private fun showLoadingState(isLoading: Boolean) {
         if (isMobileLayout) {
             // Mobile layout loading indicators
@@ -9916,6 +10808,8 @@ private suspend fun performAutomaticZRead() {
             }
         }
     }
+
+
 
     private fun initializeTransactionNumber() {
         loadLastTransactionNumber()
@@ -11957,7 +12851,7 @@ private fun initializeSequences() {
                     comment = cartItem.cartComment ?: "",
                     lineNum = index + 1,
                     receiptId = transactionId,
-                    itemId = cartItem.productId.toString(),
+                    itemId = cartItem.itemId.toString(),
                     itemGroup = cartItem.itemGroup.toString(),
                     netPrice = cartItem.price.roundToTwoDecimals(),
                     costAmount = splitCostAmount,

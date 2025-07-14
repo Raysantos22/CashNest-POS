@@ -46,8 +46,10 @@ import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Typeface
 import android.os.Build
 import android.provider.Settings
+import kotlinx.coroutines.delay
 
 class ReportsActivity : AppCompatActivity() {
     private lateinit var binding: ActivityReportsBinding
@@ -72,6 +74,22 @@ class ReportsActivity : AppCompatActivity() {
 
     private lateinit var transactionRepository: TransactionRepository // Add this if not already present
 
+
+    companion object {
+        private val PHILIPPINES_TIMEZONE = TimeZone.getTimeZone("Asia/Manila")
+        private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).apply {
+            timeZone = PHILIPPINES_TIMEZONE
+        }
+        private val TIME_FORMAT = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).apply {
+            timeZone = PHILIPPINES_TIMEZONE
+        }
+        private val DISPLAY_DATE_FORMAT = SimpleDateFormat("MM/dd/yyyy", Locale.getDefault()).apply {
+            timeZone = PHILIPPINES_TIMEZONE
+        }
+        private val DISPLAY_DATE_RANGE_FORMAT = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).apply {
+            timeZone = PHILIPPINES_TIMEZONE
+        }
+    }
     data class PaymentDistribution(
         val cash: Double = 0.0,
         val card: Double = 0.0,
@@ -99,10 +117,14 @@ class ReportsActivity : AppCompatActivity() {
         val totalQuantity: Int = 0,
         val totalTransactions: Int = 0,
         val totalReturns: Int = 0,
+        val totalReturnAmount: Double = 0.0,
+        val totalReturnDiscount: Double = 0.0, // Total discount from returns
         val paymentDistribution: PaymentDistribution = PaymentDistribution(),
         val itemSales: List<ItemSalesSummary> = emptyList(),
         val vatAmount: Double = 0.0,
-        val vatableSales: Double = 0.0
+        val vatableSales: Double = 0.0,
+        val startingOR: String = "N/A", // Starting OR number
+        val endingOR: String = "N/A"    // Ending OR number
     )
 
     data class ItemGroupSummary(
@@ -142,45 +164,179 @@ class ReportsActivity : AppCompatActivity() {
         }
     }
     // X-Read functionality
-    private fun performXRead() {
+    private fun showXReadPreviewDialog(
+        transactions: List<TransactionSummary>,
+        tenderDeclaration: TenderDeclaration?,
+        hasZRead: Boolean = false
+    ) {
+        lifecycleScope.launch {
+            try {
+                // Generate the X-Read report content first
+                val xReadContent = bluetoothPrinterHelper.buildReadReport(
+                    transactions,
+                    isZRead = false,
+                    tenderDeclaration = tenderDeclaration
+                )
 
+                withContext(Dispatchers.Main) {
+                    // Create a custom dialog with scrollable content
+                    val dialogView = layoutInflater.inflate(R.layout.dialog_report_preview, null)
+                    val reportTextView = dialogView.findViewById<TextView>(R.id.reportContentTextView)
+                    val printButton = dialogView.findViewById<Button>(R.id.printButton)
+                    val cancelButton = dialogView.findViewById<Button>(R.id.cancelButton)
+
+                    // Set monospace font for better alignment
+                    reportTextView.typeface = Typeface.MONOSPACE
+                    reportTextView.text = xReadContent
+
+                    val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
+                        .setTitle("X-Read Preview")
+                        .setView(dialogView)
+                        .setCancelable(true)
+                        .create()
+
+                    printButton.setOnClickListener {
+                        if (bluetoothPrinterHelper.printGenericReceipt(xReadContent)) {
+                            val message = when {
+                                transactions.isEmpty() -> "X-Read completed. No transactions for today."
+                                hasZRead -> "X-Read completed. Showing today's actual sales data (Z-Read already performed)."
+                                else -> "X-Read completed successfully"
+                            }
+                            Toast.makeText(this@ReportsActivity, message, Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(this@ReportsActivity, "Failed to print X-Read report", Toast.LENGTH_SHORT).show()
+                        }
+                        dialog.dismiss()
+                    }
+
+                    cancelButton.setOnClickListener {
+                        dialog.dismiss()
+                    }
+
+                    dialog.window?.apply {
+                        setBackgroundDrawableResource(R.drawable.dialog_background)
+                        setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    }
+
+                    dialog.show()
+                }
+
+            } catch (e: Exception) {
+                Log.e("XRead", "Error generating X-Read preview", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@ReportsActivity,
+                        "Error generating X-Read preview: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    private fun showZReadPreviewDialog(
+        transactions: List<TransactionSummary>,
+        zReportId: String,
+        tenderDeclaration: TenderDeclaration?
+    ) {
+        lifecycleScope.launch {
+            try {
+                // Generate the Z-Read report content first
+                val zReadContent = bluetoothPrinterHelper.buildReadReport(
+                    transactions,
+                    isZRead = true,
+                    zReportId = zReportId,
+                    tenderDeclaration = tenderDeclaration
+                )
+
+                withContext(Dispatchers.Main) {
+                    // Create a custom dialog with scrollable content
+                    val dialogView = layoutInflater.inflate(R.layout.dialog_report_preview, null)
+                    val reportTextView = dialogView.findViewById<TextView>(R.id.reportContentTextView)
+                    val printButton = dialogView.findViewById<Button>(R.id.printButton)
+                    val cancelButton = dialogView.findViewById<Button>(R.id.cancelButton)
+
+                    // Set monospace font for better alignment
+                    reportTextView.typeface = Typeface.MONOSPACE
+                    reportTextView.text = zReadContent
+
+                    val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
+                        .setTitle("Z-Read Preview - Report #$zReportId")
+                        .setView(dialogView)
+                        .setCancelable(true)
+                        .create()
+
+                    printButton.setOnClickListener {
+                        if (bluetoothPrinterHelper.printGenericReceipt(zReadContent)) {
+                            Toast.makeText(
+                                this@ReportsActivity,
+                                "Z-Read #$zReportId reprinted successfully",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            Toast.makeText(
+                                this@ReportsActivity,
+                                "Failed to reprint Z-Read #$zReportId",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                        dialog.dismiss()
+                    }
+
+                    cancelButton.setOnClickListener {
+                        dialog.dismiss()
+                    }
+
+                    dialog.window?.apply {
+                        setBackgroundDrawableResource(R.drawable.dialog_background)
+                        setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    }
+
+                    dialog.show()
+                }
+
+            } catch (e: Exception) {
+                Log.e("ZRead", "Error generating Z-Read preview", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@ReportsActivity,
+                        "Error generating Z-Read preview: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    // Modified performXRead method
+    private fun performXRead() {
         lifecycleScope.launch {
             try {
                 val currentDate = Date()
-                val selectedDate = endDate // Using endDate as the selected date
+                val selectedDate = endDate
 
-                // Check if the selected date is today
                 val isToday = isSameDay(currentDate, selectedDate)
 
                 if (!isToday) {
-                    // If not today, check if Z-Read exists for the selected date and offer to reprint
                     val selectedDateString = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(selectedDate)
                     val existingZRead = zReadDao.getZReadByDate(selectedDateString)
 
                     withContext(Dispatchers.Main) {
                         if (existingZRead != null) {
-                            // Show dialog to reprint Z-Read for the selected date
-                            val dialog = AlertDialog.Builder(this@ReportsActivity)
-                                .setTitle("Z-Read Available")
-                                .setMessage(
-                                    "X-Read is only available for today's transactions.\n\n" +
-                                            "A Z-Read exists for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(selectedDate)}.\n\n" +
-                                            "Would you like to reprint the Z-Read instead?"
-                                )
-                                .setPositiveButton("Reprint Z-Read") { _, _ ->
-                                    reprintZRead(existingZRead)
-                                }
-                                .setNegativeButton("Cancel") { dialog, _ ->
-                                    dialog.dismiss()
-                                }
-                                .create()
-                            dialog.show()
+                            // Show Z-Read preview instead of simple message
+                            val transactions = withContext(Dispatchers.IO) {
+                                transactionDao.getTransactionsByDateRange(startDate, endDate)
+                            }
+                            val tenderDeclaration = withContext(Dispatchers.IO) {
+                                tenderDeclarationDao.getLatestTenderDeclaration()
+                            }
+
+                            showZReadPreviewDialog(transactions, existingZRead.zReportId, tenderDeclaration)
                         } else {
-                            // No Z-Read exists for the selected date
                             val dialog = AlertDialog.Builder(this@ReportsActivity)
                                 .setTitle("X-Read Not Available")
                                 .setMessage(
-                                    "X-Read is only available for today's transactions go Z-Read first.\n\n" +
+                                    "X-Read is only available for today's transactions.\n\n" +
                                             "No Z-Read found for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(selectedDate)}."
                                 )
                                 .setPositiveButton("OK") { dialog, _ ->
@@ -193,7 +349,7 @@ class ReportsActivity : AppCompatActivity() {
                     return@launch
                 }
 
-                // Get all transactions for today (regardless of Z-Read status)
+                // Get today's transactions
                 val todayStart = Calendar.getInstance().apply {
                     time = currentDate
                     set(Calendar.HOUR_OF_DAY, 0)
@@ -210,32 +366,13 @@ class ReportsActivity : AppCompatActivity() {
                     set(Calendar.MILLISECOND, 999)
                 }.time
 
-                // Always get today's transactions - this shows actual sales data
                 val transactions = transactionDao.getTransactionsByDateRange(todayStart, todayEnd)
                 val currentTenderDeclaration = tenderDeclarationDao.getLatestTenderDeclaration()
-
-                // Check if Z-Read exists for informational purposes only
                 val hasZRead = hasZReadForCurrentDate()
 
                 withContext(Dispatchers.Main) {
-                    val dialog = AlertDialog.Builder(this@ReportsActivity)
-                        .setTitle("Confirm X-Read")
-                        .setMessage(
-                            if (hasZRead) {
-                                "X-Read will show today's actual sales data.\n(Z-Read has been completed for today)"
-                            } else {
-                                "X-Read will show current sales data for today."
-                            }
-                        )
-                        .setPositiveButton("Yes") { _, _ ->
-                            printXReadReport(transactions, currentTenderDeclaration, hasZRead)
-                        }
-                        .setNegativeButton("No") { dialog, _ ->
-                            dialog.dismiss()
-                        }
-                        .create()
-
-                    dialog.show()
+                    // Show X-Read preview dialog instead of confirmation
+                    showXReadPreviewDialog(transactions, currentTenderDeclaration, hasZRead)
                 }
 
             } catch (e: Exception) {
@@ -250,7 +387,6 @@ class ReportsActivity : AppCompatActivity() {
             }
         }
     }
-
     private fun isSameDay(date1: Date, date2: Date): Boolean {
         val cal1 = Calendar.getInstance().apply { time = date1 }
         val cal2 = Calendar.getInstance().apply { time = date2 }
@@ -1188,38 +1324,19 @@ class ReportsActivity : AppCompatActivity() {
                     tenderDeclarationDao.getLatestTenderDeclaration()
                 }
 
-                val reportContent = bluetoothPrinterHelper.buildReadReport(
-                    transactions,
-                    isZRead = true,
-                    zReportId = zRead.zReportId,
-                    tenderDeclaration = tenderDeclaration
-                )
-
-                if (bluetoothPrinterHelper.printGenericReceipt(reportContent)) {
-                    Toast.makeText(
-                        this@ReportsActivity,
-                        "Z-Read reprinted successfully",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                } else {
-                    Toast.makeText(
-                        this@ReportsActivity,
-                        "Failed to reprint Z-Read",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
+                // Show Z-Read preview instead of directly printing
+                showZReadPreviewDialog(transactions, zRead.zReportId, tenderDeclaration)
 
             } catch (e: Exception) {
-                Log.e("ReportsActivity", "Error reprinting Z-Read", e)
+                Log.e("ReportsActivity", "Error showing Z-Read preview", e)
                 Toast.makeText(
                     this@ReportsActivity,
-                    "Error reprinting Z-Read: ${e.message}",
+                    "Error showing Z-Read preview: ${e.message}",
                     Toast.LENGTH_SHORT
                 ).show()
             }
         }
     }
-
 
     private fun showZReadConfirmationDialog(
         transactionCount: Int,
@@ -1303,52 +1420,13 @@ class ReportsActivity : AppCompatActivity() {
                     return@launch
                 }
 
-                // Generate Z-Report ID asynchronously
                 val zReportId = generateZReportId()
-                Log.d("ZRead", "Generated Z-Report ID: $zReportId")
-
                 val tenderDeclaration = withContext(Dispatchers.IO) {
                     tenderDeclarationDao.getLatestTenderDeclaration()
                 }
 
-                val reportContent = bluetoothPrinterHelper.buildReadReport(
-                    transactions,
-                    true,
-                    zReportId,
-                    tenderDeclaration
-                )
-
-                // Update specific transactions with Z-Report ID and sync to server
-                val storeId = SessionManager.getCurrentUser()?.storeid
-                if (storeId != null) {
-                    val updateResult = updateSpecificTransactionsWithZReportId(storeId, zReportId, transactions)
-
-                    if (updateResult.isSuccess) {
-                        Log.d("ZRead", "Successfully updated transactions with Z-Report ID: $zReportId")
-                    } else {
-                        Log.w("ZRead", "Failed to sync Z-Report ID to server, but continuing with local update")
-                    }
-                }
-
-                if (bluetoothPrinterHelper.printGenericReceipt(reportContent)) {
-                    // Save Z-Read record after successful printing
-                    saveZReadRecord(zReportId, transactions)
-
-                    Toast.makeText(
-                        this@ReportsActivity,
-                        "Z-Read #$zReportId completed successfully",
-                        Toast.LENGTH_LONG
-                    ).show()
-
-                    // Refresh the data
-                    loadReportForDateRange()
-                } else {
-                    Toast.makeText(
-                        this@ReportsActivity,
-                        "Failed to print Z-Read #$zReportId",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
+                // Show Z-Read preview with confirmation
+                showZReadGenerationPreview(transactions, zReportId, tenderDeclaration)
 
             } catch (e: Exception) {
                 Log.e("ReportsActivity", "Error generating Z-Read", e)
@@ -1360,7 +1438,102 @@ class ReportsActivity : AppCompatActivity() {
             }
         }
     }
+    private fun showZReadGenerationPreview(
+        transactions: List<TransactionSummary>,
+        zReportId: String,
+        tenderDeclaration: TenderDeclaration?
+    ) {
+        lifecycleScope.launch {
+            try {
+                val zReadContent = bluetoothPrinterHelper.buildReadReport(
+                    transactions,
+                    isZRead = true,
+                    zReportId = zReportId,
+                    tenderDeclaration = tenderDeclaration
+                )
 
+                withContext(Dispatchers.Main) {
+                    val dialogView = layoutInflater.inflate(R.layout.dialog_report_preview, null)
+                    val reportTextView = dialogView.findViewById<TextView>(R.id.reportContentTextView)
+                    val printButton = dialogView.findViewById<Button>(R.id.printButton)
+                    val cancelButton = dialogView.findViewById<Button>(R.id.cancelButton)
+
+                    reportTextView.typeface = Typeface.MONOSPACE
+                    reportTextView.text = zReadContent
+
+                    // Change button text for generation
+                    printButton.text = "Generate & Print Z-Read"
+
+                    val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
+                        .setTitle("Z-Read Generation Preview - #$zReportId")
+                        .setView(dialogView)
+                        .setCancelable(true)
+                        .create()
+
+                    printButton.setOnClickListener {
+                        // Actually generate the Z-Read when confirmed
+                        lifecycleScope.launch {
+                            try {
+                                val storeId = SessionManager.getCurrentUser()?.storeid
+                                if (storeId != null) {
+                                    val updateResult = updateSpecificTransactionsWithZReportId(storeId, zReportId, transactions)
+                                    if (updateResult.isSuccess) {
+                                        Log.d("ZRead", "Successfully updated transactions with Z-Report ID: $zReportId")
+                                    } else {
+                                        Log.w("ZRead", "Failed to sync Z-Report ID to server, but continuing with local update")
+                                    }
+                                }
+
+                                if (bluetoothPrinterHelper.printGenericReceipt(zReadContent)) {
+                                    saveZReadRecord(zReportId, transactions)
+                                    Toast.makeText(
+                                        this@ReportsActivity,
+                                        "Z-Read #$zReportId completed successfully",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                    loadReportForDateRange()
+                                } else {
+                                    Toast.makeText(
+                                        this@ReportsActivity,
+                                        "Failed to print Z-Read #$zReportId",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(
+                                    this@ReportsActivity,
+                                    "Error generating Z-Read: ${e.message}",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+                        dialog.dismiss()
+                    }
+
+                    cancelButton.setOnClickListener {
+                        dialog.dismiss()
+                    }
+
+                    dialog.window?.apply {
+                        setBackgroundDrawableResource(R.drawable.dialog_background)
+                        setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                    }
+
+                    dialog.show()
+                }
+
+            } catch (e: Exception) {
+                Log.e("ZRead", "Error generating Z-Read preview", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@ReportsActivity,
+                        "Error generating Z-Read preview: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
     private suspend fun updateSpecificTransactionsWithZReportId(
         storeId: String,
         zReportId: String,
@@ -2093,7 +2266,7 @@ class ReportsActivity : AppCompatActivity() {
         }
 
         // Update item sales with grouping
-        createAllItemSales(itemSales)
+//        createAllItemSales(itemSales)
     }
     private fun createPaymentDistributionTwoColumns(paymentDistribution: PaymentDistribution) {
         val paymentMethods = mapOf(
@@ -2157,29 +2330,102 @@ class ReportsActivity : AppCompatActivity() {
             binding.paymentDistributionContainer.addView(rowLayout)
         }
     }
-    private fun createAllItemSales(itemSales: List<ItemSalesSummary>) {
+    // Replace your existing createAllItemSales method with this one
+    private fun createAllItemSales() {
         binding.itemSalesContainer.removeAllViews()
 
-        if (itemSales.isEmpty()) {
-            binding.noItemSalesText.visibility = android.view.View.VISIBLE
-            binding.viewAllItemsButton.visibility = android.view.View.GONE
-            return
-        }
+        // Show loading state
+        showItemSalesLoading()
 
-        binding.noItemSalesText.visibility = android.view.View.GONE
+        lifecycleScope.launch {
+            try {
+                // Load items directly from database (same logic as showItemSalesDialog)
+                val transactions = withContext(Dispatchers.IO) {
+                    transactionDao.getTransactionsByDateRange(startDate, endDate)
+                }
 
-        // Group items by itemGroup
-        val groupedItems = itemSales
-            .groupBy { it.itemGroup }
-            .map { (groupName, items) ->
-                ItemGroupSummary(
-                    groupName = groupName,
-                    items = items.sortedByDescending { it.totalAmount },
-                    totalQuantity = items.sumOf { it.quantity },
-                    totalAmount = items.sumOf { it.totalAmount }
-                )
+                // Get all items from these transactions and group them (same as showItemSalesDialog)
+                val itemSales = mutableMapOf<String, ItemSalesSummary>()
+                var totalSales = 0.0
+                var totalQuantity = 0
+
+                withContext(Dispatchers.IO) {
+                    transactions.forEach { transaction ->
+                        val items = transactionDao.getTransactionRecordsByTransactionId(transaction.transactionId)
+                        items.forEach { item ->
+                            val key = item.name
+
+                            // Get product details for itemgroup
+                            val itemGroup = item.itemGroup ?: "Unknown"
+
+                            val currentSummary = itemSales.getOrDefault(key, ItemSalesSummary(
+                                name = item.name,
+                                quantity = 0,
+                                totalAmount = 0.0,
+                                itemGroup = itemGroup
+                            ))
+
+                            val effectivePrice = if (item.priceOverride!! > 0.0) item.priceOverride else item.price
+                            val itemTotal = effectivePrice * item.quantity
+
+                            totalQuantity += item.quantity
+
+                            itemSales[key] = currentSummary.copy(
+                                quantity = currentSummary.quantity + item.quantity,
+                                totalAmount = currentSummary.totalAmount + itemTotal
+                            )
+
+                            totalSales += itemTotal
+                        }
+                    }
+                }
+
+                // Group items by itemGroup and sort (same as showItemSalesDialog)
+                val groupedItems = itemSales.values
+                    .groupBy { it.itemGroup }
+                    .map { (groupName, items) ->
+                        ItemGroupSummary(
+                            groupName = groupName,
+                            items = items.sortedByDescending { it.totalAmount },
+                            totalQuantity = items.sumOf { it.quantity },
+                            totalAmount = items.sumOf { it.totalAmount }
+                        )
+                    }
+                    .sortedByDescending { it.totalAmount }
+
+                // Update UI on main thread
+                withContext(Dispatchers.Main) {
+                    hideItemSalesLoading()
+
+                    if (itemSales.isEmpty()) {
+                        binding.noItemSalesText.visibility = android.view.View.VISIBLE
+                        binding.viewAllItemsButton.visibility = android.view.View.GONE
+                        return@withContext
+                    }
+
+                    binding.noItemSalesText.visibility = android.view.View.GONE
+
+                    // Display ALL items (same structure as before but with all data)
+                    displayAllItemSalesFromDatabase(groupedItems, totalQuantity, totalSales, transactions.size)
+                }
+
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    hideItemSalesLoading()
+                    showItemSalesError(e.message ?: "Error loading items")
+                    Log.e("ReportsActivity", "Error loading all item sales", e)
+                }
             }
-            .sortedByDescending { it.totalAmount }
+        }
+    }
+
+    private suspend fun displayAllItemSalesFromDatabase(
+        groupedItems: List<ItemGroupSummary>,
+        totalQuantity: Int,
+        totalSales: Double,
+        totalTransactions: Int
+    ) {
+        val batchSize = 15 // Process items in batches to avoid UI freezing
 
         // Create views for each group
         groupedItems.forEach { group ->
@@ -2187,10 +2433,21 @@ class ReportsActivity : AppCompatActivity() {
             val groupHeaderView = createGroupHeaderView(group)
             binding.itemSalesContainer.addView(groupHeaderView)
 
-            // Add ALL items from this group
-            group.items.forEach { item ->
-                val itemView = createItemSalesView(item)
-                binding.itemSalesContainer.addView(itemView)
+            // Add ALL items from this group in batches
+            val items = group.items
+            for (i in items.indices step batchSize) {
+                val batch = items.subList(i, minOf(i + batchSize, items.size))
+
+                // Add each item in the batch
+                batch.forEach { item ->
+                    val itemView = createItemSalesView(item)
+                    binding.itemSalesContainer.addView(itemView)
+                }
+
+                // Small delay to allow UI to update smoothly
+                if (i + batchSize < items.size) {
+                    delay(10) // 10ms delay between batches
+                }
             }
 
             // Add group total row after each group's items
@@ -2207,9 +2464,6 @@ class ReportsActivity : AppCompatActivity() {
             binding.itemSalesContainer.addView(spacerView)
         }
 
-        val totalQuantity = itemSales.sumOf { it.quantity }
-        val totalAmount = itemSales.sumOf { it.totalAmount }
-
         // Create grand total summary
         val grandTotalView = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -2224,7 +2478,7 @@ class ReportsActivity : AppCompatActivity() {
         }
 
         val totalText = TextView(this).apply {
-            text = "GRAND TOTAL (${totalQuantity} items)"
+            text = "GRAND TOTAL (${totalQuantity} items, ${totalTransactions} transactions)"
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             textSize = 16f
             setTextColor(resources.getColor(android.R.color.white, null))
@@ -2232,7 +2486,7 @@ class ReportsActivity : AppCompatActivity() {
         }
 
         val totalAmountText = TextView(this).apply {
-            text = "₱${String.format("%.2f", totalAmount)}"
+            text = "₱${String.format("%.2f", totalSales)}"
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -2263,15 +2517,94 @@ class ReportsActivity : AppCompatActivity() {
             setTypeface(null, android.graphics.Typeface.BOLD)
 
             setOnClickListener {
-                printItemSalesReport(groupedItems, totalQuantity, totalAmount)
+                printItemSalesReport(groupedItems, totalQuantity, totalSales)
             }
         }
         binding.itemSalesContainer.addView(printButton)
 
         // Hide "View All Items" button since we're showing all items
         binding.viewAllItemsButton.visibility = android.view.View.GONE
+
+        // Show completion message
+        Toast.makeText(
+            this@ReportsActivity,
+            "Loaded all ${totalQuantity} items from ${groupedItems.size} categories",
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
+    private fun showItemSalesLoading() {
+        val loadingView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 32, 0, 32)
+            }
+            gravity = Gravity.CENTER
+            tag = "loading_view"
+        }
+
+        val loadingText = TextView(this).apply {
+            text = "🔄 Loading all sold items..."
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = 16.dpToPx()
+            }
+            textSize = 16f
+            setTextColor(resources.getColor(android.R.color.darker_gray, null))
+            gravity = Gravity.CENTER
+        }
+
+        val progressBar = ProgressBar(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                48.dpToPx(),
+                48.dpToPx()
+            )
+            isIndeterminate = true
+        }
+
+        loadingView.addView(loadingText)
+        loadingView.addView(progressBar)
+        binding.itemSalesContainer.addView(loadingView)
+    }
+
+    private fun hideItemSalesLoading() {
+        val loadingView = binding.itemSalesContainer.findViewWithTag<LinearLayout>("loading_view")
+        loadingView?.let { binding.itemSalesContainer.removeView(it) }
+    }
+
+    private fun showItemSalesError(errorMessage: String) {
+        val errorView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 32, 0, 32)
+            }
+            gravity = Gravity.CENTER
+            setPadding(16.dpToPx(), 16.dpToPx(), 16.dpToPx(), 16.dpToPx())
+            setBackgroundColor(resources.getColor(android.R.color.holo_red_light, null))
+        }
+
+        val errorText = TextView(this).apply {
+            text = "❌ Error: $errorMessage"
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            textSize = 14f
+            setTextColor(resources.getColor(android.R.color.white, null))
+            gravity = Gravity.CENTER
+        }
+
+        errorView.addView(errorText)
+        binding.itemSalesContainer.addView(errorView)
+    }
     private fun createGroupHeaderView(group: ItemGroupSummary): LinearLayout {
         val groupView = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -2399,7 +2732,7 @@ class ReportsActivity : AppCompatActivity() {
     }
 
     private suspend fun calculateSalesReport(transactions: List<TransactionSummary>): SalesReport {
-        // Separate regular transactions and returns for proper calculation (same as buildReadReport)
+        // Separate regular transactions and returns for proper calculation
         val regularTransactions = transactions.filter { it.transactionStatus == 1 && it.type != 2 }
         val returnTransactions = transactions.filter { it.type == 2 }
 
@@ -2407,13 +2740,19 @@ class ReportsActivity : AppCompatActivity() {
         val regularItemCalculations = calculateItemTotals(regularTransactions)
         val returnItemCalculations = calculateItemTotals(returnTransactions)
 
-        // Net calculations (regular sales minus returns) - same as buildReadReport
+        // Net calculations (regular sales minus returns)
         val totalGross = regularItemCalculations.totalGross + returnItemCalculations.totalGross // returns are already negative
         val totalNetSales = regularTransactions.sumOf { it.netAmount } + returnTransactions.sumOf { it.netAmount }
         val totalDiscount = regularTransactions.sumOf { it.totalDiscountAmount } + returnTransactions.sumOf { it.totalDiscountAmount }
         val totalQuantity = regularItemCalculations.totalQuantity + returnItemCalculations.totalQuantity // returns have negative quantities
 
-        // Payment method totals including returns (returns should reduce totals) - same as buildReadReport
+        // Calculate total return amount (absolute value for display)
+        val totalReturnAmount = kotlin.math.abs(returnTransactions.sumOf { it.netAmount })
+
+        // NEW: Calculate total return discount (absolute value for display)
+        val totalReturnDiscount = kotlin.math.abs(returnTransactions.sumOf { it.totalDiscountAmount })
+
+        // Payment method totals including returns (returns should reduce totals)
         val paymentDistribution = PaymentDistribution(
             cash = regularTransactions.sumOf { it.cash } + returnTransactions.sumOf { it.cash },
             card = regularTransactions.sumOf { it.card } + returnTransactions.sumOf { it.card },
@@ -2437,6 +2776,15 @@ class ReportsActivity : AppCompatActivity() {
         val totalTransactions = regularTransactions.size
         val totalReturns = returnTransactions.size
 
+        // NEW: Calculate starting and ending OR numbers
+        val startingOR = if (regularTransactions.isNotEmpty()) {
+            regularTransactions.minByOrNull { it.transactionId }?.transactionId?.toString()?.filter { it.isDigit() } ?: "N/A"
+        } else "N/A"
+
+        val endingOR = if (regularTransactions.isNotEmpty()) {
+            regularTransactions.maxByOrNull { it.transactionId }?.transactionId?.toString()?.filter { it.isDigit() } ?: "N/A"
+        } else "N/A"
+
         // Combine item sales from both regular and return transactions
         val combinedItemSales = combineItemSales(regularItemCalculations.itemSales, returnItemCalculations.itemSales)
 
@@ -2447,12 +2795,17 @@ class ReportsActivity : AppCompatActivity() {
             totalQuantity = kotlin.math.abs(totalQuantity), // Show as positive for display
             totalTransactions = totalTransactions,
             totalReturns = totalReturns,
+            totalReturnAmount = totalReturnAmount, // NEW: Include total return amount
+            totalReturnDiscount = totalReturnDiscount, // NEW: Include total return discount
             paymentDistribution = paymentDistribution,
             itemSales = combinedItemSales,
             vatAmount = vatAmount,
-            vatableSales = vatableSales
+            vatableSales = vatableSales,
+            startingOR = startingOR, // NEW: Include starting OR
+            endingOR = endingOR // NEW: Include ending OR
         )
     }
+
     private fun combineItemSales(
         regularItemSales: List<ItemSalesSummary>,
         returnItemSales: List<ItemSalesSummary>
@@ -2699,8 +3052,179 @@ class ReportsActivity : AppCompatActivity() {
         binding.totalVatLabel.text = "${report.totalTransactions}"        // Total transactions
         binding.vatableSalesLabel.text = "${report.totalReturns}"         // Total returns
 
+        // NEW: Add total return amount display
+        binding.totalReturnAmount?.text = "₱${String.format("%.2f", report.totalReturnAmount)}"
+
+        // NEW: Add total return discount display
+        binding.totalReturnDiscount?.text = "₱${String.format("%.2f", report.totalReturnDiscount)}"
+
+        // NEW: Add starting OR number display
+        binding.startingORNumber?.text = report.startingOR
+
+        // NEW: Add ending OR number display
+//        binding.endingORNumber?.text = report.endingOR
+
+        // Update VAT information
+//        binding.vatAmount?.text = "₱${String.format("%.2f", report.vatAmount)}"
+//        binding.vatableSalesAmount?.text = "₱${String.format("%.2f", report.vatableSales)}"
+
         // Update payment distribution and item sales
-        updatePaymentDistributionAndItemSales(report.paymentDistribution, report.itemSales)
+//        updatePaymentDistributionAndItemSales(report.paymentDistribution, report.itemSales)
+//    }
+        updatePaymentDistributionOnly(report.paymentDistribution)
+
+        // Load ALL item sales from database (not from report.itemSales)
+        createAllItemSales() // This now loads directly from database
+    }
+
+
+    private fun updatePaymentDistributionOnly(paymentDistribution: PaymentDistribution) {
+        // Clear existing payment distribution views
+        binding.paymentDistributionContainer.removeAllViews()
+
+        // Create payment method views - only show methods with positive net amounts
+        val paymentMethods = listOf(
+            "Cash" to paymentDistribution.cash,
+            "Card" to paymentDistribution.card,
+            "GCash" to paymentDistribution.gCash,
+            "PayMaya" to paymentDistribution.payMaya,
+            "Loyalty Card" to paymentDistribution.loyaltyCard,
+            "Charge" to paymentDistribution.charge,
+            "Foodpanda" to paymentDistribution.foodpanda,
+            "GrabFood" to paymentDistribution.grabfood,
+            "Representation" to paymentDistribution.representation,
+        ).filter { it.second != 0.0 } // Show all non-zero amounts (positive or negative)
+
+        // Group payment methods into rows of 3
+        val paymentMethodChunks = paymentMethods.chunked(3)
+
+        paymentMethodChunks.forEach { rowMethods ->
+            // Create a horizontal LinearLayout for each row
+            val rowLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = 12.dpToPx()
+                }
+            }
+
+            rowMethods.forEachIndexed { index, (method, amount) ->
+                val cardView = createPaymentMethodView(method, amount)
+
+                // Set layout params with weight for equal distribution
+                cardView.layoutParams = LinearLayout.LayoutParams(
+                    0,
+                    120.dpToPx(),
+                    1f
+                ).apply {
+                    when (index) {
+                        0 -> marginEnd = 6.dpToPx()
+                        1 -> {
+                            marginStart = 6.dpToPx()
+                            marginEnd = 6.dpToPx()
+                        }
+                        2 -> marginStart = 6.dpToPx()
+                    }
+                }
+
+                rowLayout.addView(cardView)
+            }
+
+            // If row has less than 3 items, add empty views to maintain grid
+            val emptyViewsNeeded = 3 - rowMethods.size
+            repeat(emptyViewsNeeded) { index ->
+                val emptyView = View(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(
+                        0,
+                        120.dpToPx(),
+                        1f
+                    ).apply {
+                        when (rowMethods.size + index) {
+                            1 -> {
+                                marginStart = 6.dpToPx()
+                                marginEnd = 6.dpToPx()
+                            }
+                            2 -> marginStart = 6.dpToPx()
+                        }
+                    }
+                }
+                rowLayout.addView(emptyView)
+            }
+
+            binding.paymentDistributionContainer.addView(rowLayout)
+        }
+
+        // Calculate total payment amount (net of returns)
+        val totalPayments = paymentMethods.sumOf { it.second }
+
+        if (totalPayments != 0.0) {
+            // Add a divider before total
+            val dividerView = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    1.dpToPx()
+                ).apply {
+                    setMargins(0, 8.dpToPx(), 0, 8.dpToPx())
+                }
+                setBackgroundColor(resources.getColor(android.R.color.darker_gray, null))
+            }
+            binding.paymentDistributionContainer.addView(dividerView)
+
+            // Create total payment summary
+            val totalPaymentCard = androidx.cardview.widget.CardView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    setMargins(0, 8.dpToPx(), 0, 8.dpToPx())
+                }
+                radius = 12f
+                cardElevation = 4f
+                setCardBackgroundColor(
+                    if (totalPayments >= 0) {
+                        resources.getColor(android.R.color.holo_green_dark, null)
+                    } else {
+                        resources.getColor(android.R.color.holo_red_dark, null)
+                    }
+                )
+            }
+
+            val totalPaymentLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                setPadding(16.dpToPx(), 16.dpToPx(), 16.dpToPx(), 16.dpToPx())
+            }
+
+            val totalPaymentText = TextView(this).apply {
+                text = "NET TOTAL PAYMENTS"
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                textSize = 16f
+                setTextColor(resources.getColor(android.R.color.white, null))
+                setTypeface(null, android.graphics.Typeface.BOLD)
+            }
+
+            val totalPaymentAmountText = TextView(this).apply {
+                text = "₱${String.format("%.2f", totalPayments)}"
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                textSize = 20f
+                gravity = Gravity.END
+                setTextColor(resources.getColor(android.R.color.white, null))
+                setTypeface(null, android.graphics.Typeface.BOLD)
+            }
+
+            totalPaymentLayout.addView(totalPaymentText)
+            totalPaymentLayout.addView(totalPaymentAmountText)
+            totalPaymentCard.addView(totalPaymentLayout)
+            binding.paymentDistributionContainer.addView(totalPaymentCard)
+        }
     }
     private fun getVoidedTransactionsCount(transactions: List<TransactionSummary>): Int {
         // Count transactions with return comments (same logic as buildReadReport)
@@ -2979,9 +3503,9 @@ class ReportsActivity : AppCompatActivity() {
         totalRow.addView(totalQuantityTextView)
         totalRow.addView(totalPriceTextView)
 
-/*
-        totalView.addView(thickDivider)
-*/
+        /*
+                totalView.addView(thickDivider)
+        */
         totalView.addView(totalRow)
 
         return totalView
@@ -2993,4 +3517,4 @@ class ReportsActivity : AppCompatActivity() {
 // parentContainer.addView(totalRow)
 
 
-    }
+}

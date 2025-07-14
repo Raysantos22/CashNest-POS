@@ -29,6 +29,228 @@
             android:background="@color/white"
             android:padding="16dp">
 
+            <!-- Visibility Type Selection -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Visibility Type"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="@android:color/black"
+                android:layout_marginBottom="8dp" />
+
+            <!-- Scrollable CardView Buttons for Visibility Type -->
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:scrollbars="none"
+                android:fadingEdge="horizontal"
+                android:fadingEdgeLength="16dp">
+
+                <LinearLayout
+                    android:id="@+id/visibilityTypeContainer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:paddingEnd="16dp">
+
+                    <!-- PURCHASE Card -->
+                    <androidx.cardview.widget.CardView
+                        android:id="@+id/cardGeneral"
+                        android:layout_width="120dp"
+                        android:layout_height="45dp"
+                        android:layout_marginEnd="12dp"
+                        app:cardCornerRadius="22dp"
+                        app:cardElevation="3dp"
+                        app:cardBackgroundColor="@color/colorPrimary"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:foreground="?android:attr/selectableItemBackground">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:text="PURCHASE"
+                            android:textColor="@android:color/white"
+                            android:textStyle="bold"
+                            android:textSize="13sp"
+                            android:gravity="center"
+                            android:clickable="false"
+                            android:focusable="false" />
+
+                    </androidx.cardview.widget.CardView>
+
+                    <!-- FOODPANDA Card -->
+                    <androidx.cardview.widget.CardView
+                        android:id="@+id/cardFoodPanda"
+                        android:layout_width="120dp"
+                        android:layout_height="45dp"
+                        android:layout_marginEnd="12dp"
+                        app:cardCornerRadius="22dp"
+                        app:cardElevation="3dp"
+                        app:cardBackgroundColor="@color/light_gray"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:foreground="?android:attr/selectableItemBackground">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:text="FOODPANDA"
+                            android:textColor="@android:color/black"
+                            android:textStyle="bold"
+                            android:textSize="13sp"
+                            android:gravity="center"
+                            android:clickable="false"
+                            android:focusable="false" />
+
+                    </androidx.cardview.widget.CardView>
+
+                    <!-- GRABFOOD Card -->
+                    <androidx.cardview.widget.CardView
+                        android:id="@+id/cardGrabFood"
+                        android:layout_width="120dp"
+                        android:layout_height="45dp"
+                        android:layout_marginEnd="12dp"
+                        app:cardCornerRadius="22dp"
+                        app:cardElevation="3dp"
+                        app:cardBackgroundColor="@color/light_gray"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:foreground="?android:attr/selectableItemBackground">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:text="GRABFOOD"
+                            android:textColor="@android:color/black"
+                            android:textStyle="bold"
+                            android:textSize="13sp"
+                            android:gravity="center"
+                            android:clickable="false"
+                            android:focusable="false" />
+
+                    </androidx.cardview.widget.CardView>
+
+                    <!-- MANILARATE Card -->
+                    <androidx.cardview.widget.CardView
+                        android:id="@+id/cardManilaRate"
+                        android:layout_width="120dp"
+                        android:layout_height="45dp"
+                        android:layout_marginEnd="12dp"
+                        app:cardCornerRadius="22dp"
+                        app:cardElevation="3dp"
+                        app:cardBackgroundColor="@color/light_gray"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:foreground="?android:attr/selectableItemBackground">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:text="MANILARATE"
+                            android:textColor="@android:color/black"
+                            android:textStyle="bold"
+                            android:textSize="13sp"
+                            android:gravity="center"
+                            android:clickable="false"
+                            android:focusable="false" />
+
+                    </androidx.cardview.widget.CardView>
+
+
+
+                    <androidx.cardview.widget.CardView
+                        android:id="@+id/cardMallPrice"
+                        android:layout_width="120dp"
+                        android:layout_height="45dp"
+                        android:layout_marginEnd="12dp"
+                        app:cardCornerRadius="22dp"
+                        app:cardElevation="3dp"
+                        app:cardBackgroundColor="@color/light_gray"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:foreground="?android:attr/selectableItemBackground">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:text="MALL PRICE"
+                            android:textColor="@android:color/black"
+                            android:textStyle="bold"
+                            android:textSize="13sp"
+                            android:gravity="center"
+                            android:clickable="false"
+                            android:focusable="false" />
+
+                    </androidx.cardview.widget.CardView>
+
+                    <androidx.cardview.widget.CardView
+                        android:id="@+id/cardGrabFoodMall"
+                        android:layout_width="120dp"
+                        android:layout_height="45dp"
+                        android:layout_marginEnd="12dp"
+                        app:cardCornerRadius="22dp"
+                        app:cardElevation="3dp"
+                        app:cardBackgroundColor="@color/light_gray"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:foreground="?android:attr/selectableItemBackground">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:text="GRABMALL"
+                            android:textColor="@android:color/black"
+                            android:textStyle="bold"
+                            android:textSize="13sp"
+                            android:gravity="center"
+                            android:clickable="false"
+                            android:focusable="false" />
+
+                    </androidx.cardview.widget.CardView>
+
+                    <androidx.cardview.widget.CardView
+                        android:id="@+id/cardFoodPandaMall"
+                        android:layout_width="120dp"
+                        android:layout_height="45dp"
+                        android:layout_marginEnd="12dp"
+                        app:cardCornerRadius="22dp"
+                        app:cardElevation="3dp"
+                        app:cardBackgroundColor="@color/light_gray"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:foreground="?android:attr/selectableItemBackground">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:text="PANDAMALL"
+                            android:textColor="@android:color/black"
+                            android:textStyle="bold"
+                            android:textSize="13sp"
+                            android:gravity="center"
+                            android:clickable="false"
+                            android:focusable="false" />
+
+                    </androidx.cardview.widget.CardView>
+
+                </LinearLayout>
+
+            </HorizontalScrollView>
+
+
+            <!-- Results Info -->
+            <TextView
+                android:id="@+id/tvResultsInfo"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Loading..."
+                android:textSize="12sp"
+                android:textColor="@color/colorPrimary"
+                android:layout_marginBottom="16dp" />
+
             <!-- Search and Bulk Actions Row -->
             <LinearLayout
                 android:layout_width="match_parent"
@@ -47,15 +269,14 @@
                     android:orientation="vertical"
                     android:layout_marginEnd="8dp">
 
-
                     <SearchView
                         android:id="@+id/searchView"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:queryHint="Search products..."
                         android:iconifiedByDefault="false"
-                        android:theme="@style/SearchViewStyle"
-                        android:background="@drawable/search_background" />
+                        android:background="@drawable/search_background"
+                        android:theme="@style/SearchViewStyle" />
 
                 </LinearLayout>
 
@@ -66,7 +287,6 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:layout_marginStart="8dp">
-
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -269,6 +489,7 @@
                 android:layout_height="1dp"
                 android:background="@color/colorPrimary" />
 
+
             <!-- Table Content (RecyclerView) -->
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/recyclerViewProducts"
@@ -277,6 +498,35 @@
                 android:layout_weight="1"
                 android:background="@color/white"
                 android:clipToPadding="false" />
+            <LinearLayout
+                android:id="@+id/loadingOverlay"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@color/white"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:visibility="gone"
+                android:alpha="0.9"
+                android:elevation="8dp">
+
+                <ProgressBar
+                    android:id="@+id/progressBarBulk"
+                    style="?android:attr/progressBarStyleLarge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:indeterminate="true"
+                    android:layout_marginBottom="16dp" />
+
+                <TextView
+                    android:id="@+id/tvLoadingText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Processing all products..."
+                    android:textSize="16sp"
+                    android:textColor="@color/colorPrimary"
+                    android:gravity="center" />
+
+            </LinearLayout>
 
         </LinearLayout>
 

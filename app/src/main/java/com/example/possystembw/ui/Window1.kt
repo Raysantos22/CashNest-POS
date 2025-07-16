@@ -1218,129 +1218,160 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
         return (dp * resources.displayMetrics.density).toInt()
     }
 
-    private fun showTransactionListDialog() {
-        val dialogView = layoutInflater.inflate(R.layout.dialog_transaction_list, null)
-        val recyclerView = dialogView.findViewById<RecyclerView>(R.id.transactionRecyclerView)
-        val searchEditText = dialogView.findViewById<EditText>(R.id.searchEditText)
-        val searchButton = dialogView.findViewById<ImageButton>(R.id.searchButton)
-        val closeButton = dialogView.findViewById<Button>(R.id.closeButton)
-        val datePickerButton = dialogView.findViewById<Button>(R.id.datePickerButton)
-        val itemSalesButton = dialogView.findViewById<Button>(R.id.itemSalesButton)
+                                                                                                                                                    private fun showTransactionListDialog() {
+                                                                                                                                                        val dialogView = layoutInflater.inflate(R.layout.dialog_transaction_list, null)
+                                                                                                                                                        val recyclerView = dialogView.findViewById<RecyclerView>(R.id.transactionRecyclerView)
+                                                                                                                                                        val searchEditText = dialogView.findViewById<EditText>(R.id.searchEditText)
+                                                                                                                                                        val searchButton = dialogView.findViewById<ImageButton>(R.id.searchButton)
+                                                                                                                                                        val closeButton = dialogView.findViewById<Button>(R.id.closeButton)
+                                                                                                                                                        val datePickerButton = dialogView.findViewById<Button>(R.id.datePickerButton)
+                                                                                                                                                        val itemSalesButton = dialogView.findViewById<Button>(R.id.itemSalesButton)
 
-        // Set current date as default
-        val currentDate = Calendar.getInstance()
-        datePickerButton.text = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(currentDate.time)
+                                                                                                                                                        // Set current date as default
+                                                                                                                                                        val currentDate = Calendar.getInstance()
+                                                                                                                                                        datePickerButton.text = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(currentDate.time)
 
-        recyclerView.layoutManager = LinearLayoutManager(this)
+                                                                                                                                                        recyclerView.layoutManager = LinearLayoutManager(this)
 
-        // Create adapter with sorting logic
-        val transactionAdapter = TransactionAdapter { transaction ->
-            showTransactionDetailsDialog(transaction)
-        }.apply {
-            setSortComparator { t1, t2 ->
-                t2.createdDate.compareTo(t1.createdDate)
-            }
-        }
+                                                                                                                                                        // Create adapter with sorting logic
+                                                                                                                                                        val transactionAdapter = TransactionAdapter { transaction ->
+                                                                                                                                                            showTransactionDetailsDialog(transaction)
+                                                                                                                                                        }.apply {
+                                                                                                                                                            setSortComparator { t1, t2 ->
+                                                                                                                                                                t2.createdDate.compareTo(t1.createdDate)
+                                                                                                                                                            }
+                                                                                                                                                        }
 
-        recyclerView.adapter = transactionAdapter
+                                                                                                                                                        recyclerView.adapter = transactionAdapter
 
-        // Date picker functionality
-        datePickerButton.setOnClickListener {
-            val datePickerDialog = DatePickerDialog(
-                this,
-                { _, year, month, day ->
-                    val selectedDate = Calendar.getInstance().apply {
-                        set(Calendar.YEAR, year)
-                        set(Calendar.MONTH, month)
-                        set(Calendar.DAY_OF_MONTH, day)
-                        set(Calendar.HOUR_OF_DAY, 0)
-                        set(Calendar.MINUTE, 0)
-                        set(Calendar.SECOND, 0)
-                    }
-                    val endDate = Calendar.getInstance().apply {
-                        time = selectedDate.time
-                        set(Calendar.HOUR_OF_DAY, 23)
-                        set(Calendar.MINUTE, 59)
-                        set(Calendar.SECOND, 59)
-                    }
+                                                                                                                                                        // FIXED: Date picker functionality with proper date range handling
+                                                                                                                                                        datePickerButton.setOnClickListener {
+                                                                                                                                                            val datePickerDialog = DatePickerDialog(
+                                                                                                                                                                this,
+                                                                                                                                                                { _, year, month, day ->
+                                                                                                                                                                    val selectedDate = Calendar.getInstance().apply {
+                                                                                                                                                                        set(Calendar.YEAR, year)
+                                                                                                                                                                        set(Calendar.MONTH, month)
+                                                                                                                                                                        set(Calendar.DAY_OF_MONTH, day)
+                                                                                                                                                                        set(Calendar.HOUR_OF_DAY, 0)
+                                                                                                                                                                        set(Calendar.MINUTE, 0)
+                                                                                                                                                                        set(Calendar.SECOND, 0)
+                                                                                                                                                                        set(Calendar.MILLISECOND, 0)
+                                                                                                                                                                    }
+                                                                                                                                                                    val endDate = Calendar.getInstance().apply {
+                                                                                                                                                                        time = selectedDate.time
+                                                                                                                                                                        set(Calendar.HOUR_OF_DAY, 23)
+                                                                                                                                                                        set(Calendar.MINUTE, 59)
+                                                                                                                                                                        set(Calendar.SECOND, 59)
+                                                                                                                                                                        set(Calendar.MILLISECOND, 999)
+                                                                                                                                                                    }
 
-                    datePickerButton.text = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
-                        .format(selectedDate.time)
+                                                                                                                                                                    // Update button text
+                                                                                                                                                                    datePickerButton.text = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+                                                                                                                                                                        .format(selectedDate.time)
 
-                    // Load transactions for selected date
-                    lifecycleScope.launch {
-                        try {
-                            val currentStoreId = SessionManager.getCurrentUser()?.storeid
-                            if (currentStoreId != null) {
-                                val transactions = withContext(Dispatchers.IO) {
-                                    transactionDao.getTransactionsByDateRange(selectedDate.time, endDate.time)
-                                }
-                                transactionAdapter.setTransactions(transactions)
-                            }
-                        } catch (e: Exception) {
-                            Toast.makeText(
-                                this@Window1,
-                                "Error loading transactions: ${e.message}",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                    }
-                },
-                currentDate.get(Calendar.YEAR),
-                currentDate.get(Calendar.MONTH),
-                currentDate.get(Calendar.DAY_OF_MONTH)
-            )
-            datePickerDialog.show()
-        }
+                                                                                                                                                                    lifecycleScope.launch {
+                                                                                                                                                                        try {
+                                                                                                                                                                            val currentStoreId = SessionManager.getCurrentUser()?.storeid
+                                                                                                                                                                            if (currentStoreId != null) {
+                                                                                                                                                                                val transactions = withContext(Dispatchers.IO) {
+                                                                                                                                                                                    // Use the updated formatDateToString function
+                                                                                                                                                                                    val startDateStr = formatDateToString(selectedDate.time)
+                                                                                                                                                                                    val endDateStr = formatDateToString(endDate.time)
 
-        // Item sales functionality
-//        itemSalesButton.setOnClickListener {
-//            showItemSalesDialog(datePickerButton.text.toString())
-//        }
+                                                                                                                                                                                    Log.d(TAG, "Querying transactions from $startDateStr to $endDateStr")
 
-        // Search functionality
-        searchEditText.addTextChangedListener(object : TextWatcher {
-            override fun afterTextChanged(s: Editable?) {
-                transactionAdapter.filter(s.toString())
-            }
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-        })
+                                                                                                                                                                                    transactionDao.getTransactionsByDateRange(startDateStr, endDateStr)
+                                                                                                                                                                                }
 
-        searchButton.setOnClickListener {
-            transactionAdapter.filter(searchEditText.text.toString())
-        }
+                                                                                                                                                                                Log.d(TAG, "Found ${transactions.size} transactions for selected date")
+                                                                                                                                                                                transactionAdapter.setTransactions(transactions)
+                                                                                                                                                                            }
+                                                                                                                                                                        } catch (e: Exception) {
+                                                                                                                                                                            Log.e(TAG, "Error loading transactions for date range", e)
+                                                                                                                                                                            Toast.makeText(
+                                                                                                                                                                                this@Window1,
+                                                                                                                                                                                "Error loading transactions: ${e.message}",
+                                                                                                                                                                                Toast.LENGTH_SHORT
+                                                                                                                                                                            ).show()
+                                                                                                                                                                        }
+                                                                                                                                                                    }
+                                                                                                                                                                },
+                                                                                                                                                                currentDate.get(Calendar.YEAR),
+                                                                                                                                                                currentDate.get(Calendar.MONTH),
+                                                                                                                                                                currentDate.get(Calendar.DAY_OF_MONTH)
+                                                                                                                                                            )
+                                                                                                                                                            datePickerDialog.show()
+                                                                                                                                                        }
 
-        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle1)
-            .setView(dialogView)
-            .create()
+                                                                                                                                                        // Load initial transactions for current date
+                                                                                                                                                        lifecycleScope.launch {
+                                                                                                                                                            try {
+                                                                                                                                                                val currentStoreId = SessionManager.getCurrentUser()?.storeid
+                                                                                                                                                                if (currentStoreId != null) {
+                                                                                                                                                                    // Create today's date range
+                                                                                                                                                                    val todayStart = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+                                                                                                                                                                        set(Calendar.HOUR_OF_DAY, 0)
+                                                                                                                                                                        set(Calendar.MINUTE, 0)
+                                                                                                                                                                        set(Calendar.SECOND, 0)
+                                                                                                                                                                        set(Calendar.MILLISECOND, 0)
+                                                                                                                                                                    }
 
-        dialog.setOnDismissListener {
-            transactionAdapter.cleanup()
-        }
+                                                                                                                                                                    val todayEnd = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+                                                                                                                                                                        time = todayStart.time
+                                                                                                                                                                        set(Calendar.HOUR_OF_DAY, 23)
+                                                                                                                                                                        set(Calendar.MINUTE, 59)
+                                                                                                                                                                        set(Calendar.SECOND, 59)
+                                                                                                                                                                        set(Calendar.MILLISECOND, 999)
+                                                                                                                                                                    }
 
-        closeButton.setOnClickListener {
-            dialog.dismiss()
-        }
+                                                                                                                                                                    val transactions = withContext(Dispatchers.IO) {
+                                                                                                                                                                        transactionDao.getTransactionsByDateRange(
+                                                                                                                                                                            formatDateToString(todayStart.time),
+                                                                                                                                                                            formatDateToString(todayEnd.time)
+                                                                                                                                                                        )
+                                                                                                                                                                    }
+                                                                                                                                                                    transactionAdapter.setTransactions(transactions)
+                                                                                                                                                                }
+                                                                                                                                                            } catch (e: Exception) {
+                                                                                                                                                                Log.e(TAG, "Error loading initial transactions", e)
+                                                                                                                                                            }
+                                                                                                                                                        }
 
-        dialog.window?.apply {
-            setBackgroundDrawableResource(R.drawable.dialog_background)
-            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
+                                                                                                                                                        // Rest of your existing code for search functionality, dialog setup, etc...
 
-        // Observe transactions with automatic sorting
-        transactionViewModel.transactions.observe(this) { transactions ->
-            // Sort transactions by date in descending order
-            val sortedTransactions = transactions.sortedByDescending { it.createdDate }
-            transactionAdapter.setTransactions(sortedTransactions)
-        }
+                                                                                                                                                        // Search functionality
+                                                                                                                                                        searchEditText.addTextChangedListener(object : TextWatcher {
+                                                                                                                                                            override fun afterTextChanged(s: Editable?) {
+                                                                                                                                                                transactionAdapter.filter(s.toString())
+                                                                                                                                                            }
+                                                                                                                                                            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                                                                                                                                                            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                                                                                                                                                        })
 
-        transactionViewModel.loadTransactions()
+                                                                                                                                                        searchButton.setOnClickListener {
+                                                                                                                                                            transactionAdapter.filter(searchEditText.text.toString())
+                                                                                                                                                        }
 
-        dialog.show()
-    }
+                                                                                                                                                        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle1)
+                                                                                                                                                            .setView(dialogView)
+                                                                                                                                                            .create()
 
+                                                                                                                                                        dialog.setOnDismissListener {
+                                                                                                                                                            transactionAdapter.cleanup()
+                                                                                                                                                        }
 
+                                                                                                                                                        closeButton.setOnClickListener {
+                                                                                                                                                            dialog.dismiss()
+                                                                                                                                                        }
+
+                                                                                                                                                        dialog.window?.apply {
+                                                                                                                                                            setBackgroundDrawableResource(R.drawable.dialog_background)
+                                                                                                                                                            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                                                                                                                                                        }
+
+                                                                                                                                                        dialog.show()
+                                                                                                                                                    }
 
     private fun showTransactionDetailsDialog(transaction: TransactionSummary) {
         Log.d(TAG, "Showing transaction details dialog for transaction ID: ${transaction.transactionId}")
@@ -1428,9 +1459,10 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                 else -> appendLine("OFFICIAL RECEIPT")
             }
 
-            val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+            // FIXED: Handle string date format properly using the same method from BluetoothPrinterHelper
+            val formattedDate = formatTransactionDateSafely(transaction.createdDate)
             appendLine("Cashier: ${transaction.staff}")
-            appendLine("Date: ${dateFormat.format(transaction.createdDate)}")
+            appendLine("Date: $formattedDate")
             appendLine("SI#: ${transaction.receiptId}")
 
             // For return receipts, show original transaction reference
@@ -1641,7 +1673,8 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                 appendLine("Comment: ${transaction.comment ?: "N/A"}")
 
             } else {
-                appendLine("Return processed on: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())}")
+                // FIXED: Use getCurrentDateFormatted() instead of formatCurrentDate()
+                appendLine("Return processed on: ${getCurrentDateFormatted()}")
                 if (!transaction.comment.isNullOrEmpty()) {
                     appendLine("Return Reason: ${transaction.comment}")
                 }
@@ -1661,121 +1694,174 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
         }
     }
 
-private fun printReceiptWithItems(transaction: TransactionSummary) {
-    lifecycleScope.launch {
-        try {
-            val items = withContext(Dispatchers.IO) {
-                // Fetch original transaction items
-                val originalItems = transactionViewModel.getTransactionItems(transaction.transactionId)
+    // FIXED: Consolidated date formatting functions to avoid conflicts
+    private fun formatTransactionDateSafely(dateString: String): String {
+        return try {
+            if (dateString.isEmpty()) {
+                return "Unknown Date"
+            }
 
-                // If it's a return transaction (type 2)
-                if (transaction.type == 2) {
-                    // Try to get the original transaction items using the refund receipt ID
-                    val originalTransactionId = transaction.refundReceiptId
-                    if (originalTransactionId != null) {
-                        // Get original transaction items
-                        val fullOriginalItems = transactionViewModel.getTransactionItems(originalTransactionId)
+            // Try multiple input formats for the string date
+            val inputFormats = listOf(
+                "yyyy-MM-dd HH:mm:ss",
+                "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'",
+                "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+                "yyyy-MM-dd'T'HH:mm:ss'Z'",
+                "yyyy-MM-dd'T'HH:mm:ss"
+            )
 
-                        // Filter to only show returned items
-                        val returnedItems = originalItems.filter { it.quantity < 0 }
+            val outputFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
 
-                        // Combine original items with return items, ensuring we show the context of the full original transaction
-                        fullOriginalItems.map { originalItem ->
-                            // Check if this item was partially or fully returned
-                            val matchingReturnItem = returnedItems.find {
-                                it.itemId == originalItem.itemId &&
-                                        it.lineNum == originalItem.lineNum
+            for (format in inputFormats) {
+                try {
+                    val inputFormat = SimpleDateFormat(format, Locale.US)
+                    inputFormat.timeZone = TimeZone.getTimeZone("UTC")
+                    val date = inputFormat.parse(dateString)
+                    if (date != null) {
+                        return outputFormat.format(date)
+                    }
+                } catch (e: Exception) {
+                    // Try next format
+                    continue
+                }
+            }
+
+            // If all parsing fails, return the original string
+            dateString
+        } catch (e: Exception) {
+            Log.e(TAG, "Error formatting date: ${e.message}")
+            dateString.ifEmpty { "Unknown Date" }
+        }
+    }
+
+    // FIXED: Simple current date formatter that doesn't conflict with Date objects
+    private fun getCurrentDateFormatted(): String {
+        return try {
+            val currentDate = Date() // This creates a new Date object with current time
+            val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+            formatter.format(currentDate)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error formatting current date: ${e.message}")
+            "Date unavailable"
+        }
+    }
+
+    private fun printReceiptWithItems(transaction: TransactionSummary) {
+        lifecycleScope.launch {
+            try {
+                val items = withContext(Dispatchers.IO) {
+                    // Fetch original transaction items
+                    val originalItems = transactionViewModel.getTransactionItems(transaction.transactionId)
+
+                    // If it's a return transaction (type 2)
+                    if (transaction.type == 2) {
+                        // Try to get the original transaction items using the refund receipt ID
+                        val originalTransactionId = transaction.refundReceiptId
+                        if (originalTransactionId != null) {
+                            // Get original transaction items
+                            val fullOriginalItems = transactionViewModel.getTransactionItems(originalTransactionId)
+
+                            // Filter to only show returned items
+                            val returnedItems = originalItems.filter { it.quantity < 0 }
+
+                            // Combine original items with return items, ensuring we show the context of the full original transaction
+                            fullOriginalItems.map { originalItem ->
+                                // Check if this item was partially or fully returned
+                                val matchingReturnItem = returnedItems.find {
+                                    it.itemId == originalItem.itemId &&
+                                            it.lineNum == originalItem.lineNum
+                                }
+
+                                // Mark original item as returned if it was returned
+                                if (matchingReturnItem != null) {
+                                    originalItem.copy(
+                                        isReturned = true,
+                                        returnQuantity = abs(matchingReturnItem.quantity.toDouble())
+                                    )
+                                } else {
+                                    originalItem
+                                }
                             }
-
-                            // Mark original item as returned if it was returned
-                            if (matchingReturnItem != null) {
-                                originalItem.copy(
-                                    isReturned = true,
-                                    returnQuantity = abs(matchingReturnItem.quantity.toDouble())
-                                )
-                            } else {
-                                originalItem
-                            }
+                        } else {
+                            // Fallback to original items if no original transaction found
+                            originalItems
                         }
                     } else {
-                        // Fallback to original items if no original transaction found
+                        // For non-return transactions, use original items
                         originalItems
                     }
-                } else {
-                    // For non-return transactions, use original items
-                    originalItems
                 }
-            }
 
-            if (items.isEmpty()) {
+                if (items.isEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            this@Window1,
+                            "No items found for this transaction",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    return@launch
+                }
+
+                // Log the reprint first
+                val transactionLogger = TransactionLogger(this@Window1)
+                transactionLogger.logReprint(
+                    transaction = transaction,
+                    items = items
+                )
+
+                // Try to connect to printer if not already connected
+                if (!bluetoothPrinterHelper.isConnected()) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            this@Window1,
+                            "Failed to connect to printer, but reprint was logged",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                    return@launch
+                }
+
+                val receiptType = when (transaction.type) {
+                    2 -> BluetoothPrinterHelper.ReceiptType.RETURN
+                    else -> BluetoothPrinterHelper.ReceiptType.REPRINT
+                }
+
+                val receiptContent = bluetoothPrinterHelper.generateReceiptContent(
+                    transaction,
+                    items,
+                    receiptType
+                )
+
+                // FIXED: Proper way to combine string and byte array
+                bluetoothPrinterHelper.outputStream?.write(receiptContent.toByteArray())
+                bluetoothPrinterHelper.outputStream?.write("\n\n\n\n\n\n\n\n\n\n\n\n".toByteArray())
+
+                // Cut command as separate operation
+                val cutCommand = byteArrayOf(0x1D, 0x56, 0x00)
+                bluetoothPrinterHelper.outputStream?.write(cutCommand)
+                bluetoothPrinterHelper.outputStream?.flush()
+
                 withContext(Dispatchers.Main) {
                     Toast.makeText(
                         this@Window1,
-                        "No items found for this transaction",
+                        "Receipt reprinted and logged successfully",
                         Toast.LENGTH_SHORT
                     ).show()
                 }
-                return@launch
-            }
 
-            // Log the reprint first
-            val transactionLogger = TransactionLogger(this@Window1)
-            transactionLogger.logReprint(
-                transaction = transaction,
-                items = items
-            )
-
-            // Try to connect to printer if not already connected
-            if (!bluetoothPrinterHelper.isConnected()) {
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during reprint process: ${e.message}", e)
                 withContext(Dispatchers.Main) {
                     Toast.makeText(
                         this@Window1,
-                        "Failed to connect to printer, but reprint was logged",
-                        Toast.LENGTH_SHORT
+                        "Error during reprint process: ${e.message}",
+                        Toast.LENGTH_LONG
                     ).show()
                 }
-                return@launch
-            }
-
-            val receiptType = when (transaction.type) {
-                2 -> BluetoothPrinterHelper.ReceiptType.RETURN
-                else -> BluetoothPrinterHelper.ReceiptType.REPRINT
-            }
-
-            val receiptContent = bluetoothPrinterHelper.generateReceiptContent(
-                transaction,
-                items,
-                receiptType
-            )
-
-            // Combine receipt content with cut command
-            val fullPrintContent = receiptContent + "\n\n\n\n" + byteArrayOf(0x1D, 0x56, 0x00)
-
-            bluetoothPrinterHelper.outputStream?.write(fullPrintContent.toByteArray())
-            bluetoothPrinterHelper.outputStream?.flush()
-
-            withContext(Dispatchers.Main) {
-                Toast.makeText(
-                    this@Window1,
-                    "Receipt reprinted and logged successfully",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Error during reprint process: ${e.message}")
-            withContext(Dispatchers.Main) {
-                Toast.makeText(
-                    this@Window1,
-                    "Error during reprint process: ${e.message}",
-                    Toast.LENGTH_LONG
-                ).show()
             }
         }
     }
-}
-
-
     private fun showReturnTransactionDialog(transaction: TransactionSummary) {
         lifecycleScope.launch {
             if (!checkSupervisorAccess()) return@launch
@@ -2421,7 +2507,7 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
                         unit = item.unit,
                         unitQuantity = item.unitQuantity,
                         unitPrice = item.unitPrice,
-                        createdDate = Date(),
+                        createdDate = formatDateToString(Date()),
                         taxExempt = item.taxExempt,
                         currency = item.currency,
                         discountType = item.discountType,
@@ -2481,7 +2567,7 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
                     refundReceiptId = originalTransaction.transactionId,
                     currency = originalTransaction.currency,
                     zReportId = null,
-                    createdDate = Date(),
+                    createdDate = formatDateToString(Date()),
                     priceOverride = 0.0,
                     comment = "Return: $remarks",
                     receiptEmail = null,
@@ -2607,6 +2693,7 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
 
                     // Calculate VAT for this item
                     val itemVatAmount = itemNetAmount * 0.12 / 1.12
+                    val currentDateString = formatDateToString(Date())
 
                     // Add to return totals (as NEGATIVE values)
                     returnGrossAmount += -itemTotal // Negative for returns
@@ -2654,7 +2741,7 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
                         unit = item.unit,
                         unitQuantity = item.unitQuantity,
                         unitPrice = item.unitPrice,
-                        createdDate = Date(), // Current date for the return
+                        createdDate = currentDateString,// Current date for the return
                         taxExempt = item.taxExempt,
                         currency = item.currency,
                         discountType = item.discountType,
@@ -2720,7 +2807,7 @@ private fun printReceiptWithItems(transaction: TransactionSummary) {
                     refundReceiptId = transaction.transactionId,
                     currency = transaction.currency,
                     zReportId = null,
-                    createdDate = Date(),
+                    createdDate = formatDateToString(Date()),
                     priceOverride = 0.0,
                     comment = "Return: $remarks",
                     receiptEmail = null,
@@ -4361,7 +4448,6 @@ private fun performXRead() {
 
     lifecycleScope.launch {
         try {
-            // Get today's date range
             val today = Date()
             val todayStart = Calendar.getInstance().apply {
                 time = today
@@ -4379,11 +4465,12 @@ private fun performXRead() {
                 set(Calendar.MILLISECOND, 999)
             }.time
 
-            // Always get today's actual transactions
-            val transactions = transactionDao.getTransactionsByDateRange(todayStart, todayEnd)
+            // FIXED: Convert Date to String for DAO call
+            val transactions = transactionDao.getTransactionsByDateRange(
+                formatDateToString(todayStart),
+                formatDateToString(todayEnd)
+            )
             val currentTenderDeclaration = tenderDeclarationDao.getLatestTenderDeclaration()
-
-            // Check if Z-Read exists for informational purposes
             val hasZReadToday = hasZReadForToday()
 
             val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle)
@@ -4398,14 +4485,12 @@ private fun performXRead() {
                 .setPositiveButton("Yes") { _, _ ->
                     lifecycleScope.launch {
                         try {
-                            // Always create transaction logger for BIR purposes
                             val transactionLogger = TransactionLogger(this@Window1)
                             transactionLogger.logXRead(
                                 transactions = transactions,
                                 tenderDeclaration = currentTenderDeclaration
                             )
 
-                            // Always print report with actual transaction data
                             printXReadWithBluetoothPrinter(transactions, currentTenderDeclaration)
 
                             withContext(Dispatchers.Main) {
@@ -6485,6 +6570,7 @@ private fun connectToPrinter() {
 
             val currentPartialPayment = cartItems.firstOrNull()?.partialPayment ?: 0.0
             val newPartialPayment = currentPartialPayment + amountPaid
+            val currentDateString = formatDateToString(Date())
 
             if (newPartialPayment > discountedSubtotal) {
                 Toast.makeText(
@@ -6496,6 +6582,7 @@ private fun connectToPrinter() {
             }
 
             val remainingBalance = discountedSubtotal - newPartialPayment
+
 
             // Update cart items with new partial payment
             cartItems.forEach { cartItem ->
@@ -12030,6 +12117,415 @@ private fun initializeSequences() {
 //        }
 //    }
 
+//    private fun processPayment(
+//        amountPaid: Double,
+//        paymentMethod: String,
+//        vatRate: Double,
+//        discountType: String,
+//        discountValue: Double,
+//        selectedCustomer: Customer,
+//        totalAmountDue: Double,
+//        otherPaymentMethods: List<String> = emptyList(),
+//        otherPaymentAmounts: List<Double> = emptyList()
+//    ) {
+//        lifecycleScope.launch(Dispatchers.IO) {
+//            try {
+//                var pointsUsed = 0
+//                var loyaltyCardUsed: LoyaltyCard? = null
+//                val pointsEarned = (totalAmountDue / 200).toInt()
+//
+//                if (selectedCustomer.accountNum.startsWith("LC-")) {
+//                    val cardNumber = selectedCustomer.accountNum.removePrefix("LC-")
+//
+//                    try {
+//                        val loyaltyCard = loyaltyCardViewModel.getLoyaltyCardByNumber(cardNumber)
+//
+//                        if (loyaltyCard != null) {
+//                            if (paymentMethod.uppercase() == "LOYALTYCARD") {
+//                                // Point redemption case
+//                                val pointsToDeduct = amountPaid.toInt()
+//                                if (pointsToDeduct > loyaltyCard.points) {
+//                                    withContext(Dispatchers.Main) {
+//                                        Toast.makeText(this@Window1, "Insufficient points", Toast.LENGTH_SHORT).show()
+//                                    }
+//                                    return@launch
+//                                }
+//
+//                                val finalPoints = loyaltyCard.points - pointsToDeduct + pointsEarned
+//                                try {
+//                                    loyaltyCardViewModel.updateCardPoints(cardNumber, finalPoints)
+//                                    withContext(Dispatchers.Main) {
+//                                        Toast.makeText(
+//                                            this@Window1,
+//                                            "Points updated: -$pointsToDeduct (used) +$pointsEarned (earned) = $finalPoints",
+//                                            Toast.LENGTH_LONG
+//                                        ).show()
+//                                    }
+//                                } catch (e: Exception) {
+//                                    Log.e("Payment", "Failed to update loyalty points", e)
+//                                }
+//                            } else {
+//                                // Normal payment case - just add points
+//                                val newPoints = loyaltyCard.points + pointsEarned
+//                                try {
+//                                    loyaltyCardViewModel.updateCardPoints(cardNumber, newPoints)
+//                                    withContext(Dispatchers.Main) {
+//                                        Toast.makeText(
+//                                            this@Window1,
+//                                            "Earned $pointsEarned points! New balance: $newPoints",
+//                                            Toast.LENGTH_LONG
+//                                        ).show()
+//                                    }
+//                                } catch (e: Exception) {
+//                                    Log.e("Payment", "Failed to add loyalty points", e)
+//                                }
+//                            }
+//                        }
+//                    } catch (e: Exception) {
+//                        Log.e("Payment", "Error accessing loyalty card", e)
+//                    }
+//                }
+//
+//                // Your existing payment processing code
+//                Log.d("Payment", "Starting payment process...")
+//                val cartItems = cartViewModel.getAllCartItems(windowId).first()
+//
+//                val transactionComment = cartItems.firstOrNull()?.cartComment ?: ""
+//
+//                if (cartItems.isEmpty()) {
+//                    withContext(Dispatchers.Main) {
+//                        Toast.makeText(
+//                            this@Window1,
+//                            "Cannot process payment. Cart is empty.",
+//                            Toast.LENGTH_SHORT
+//                        ).show()
+//                    }
+//                    return@launch
+//                }
+//
+//                val currentStore = SessionManager.getCurrentUser()?.storeid
+//                Log.d("Payment", "Current store ID: $currentStore")
+//
+//                if (currentStore == null) {
+//                    withContext(Dispatchers.Main) {
+//                        Toast.makeText(
+//                            this@Window1,
+//                            "No store ID found in session",
+//                            Toast.LENGTH_SHORT
+//                        ).show()
+//                    }
+//                    return@launch
+//                }
+//
+//                try {
+//                    Log.d("Payment", "Fetching number sequence for store: $currentStore")
+//                    val numberSequenceResult = numberSequenceRemoteRepository.fetchAndUpdateNumberSequence(currentStore)
+//
+//                    numberSequenceResult.onSuccess { numberSequence ->
+//                        Log.d("Payment", "Successfully fetched number sequence: $numberSequence")
+//
+//                        // All database operations within withContext(Dispatchers.IO)
+//                        withContext(Dispatchers.IO) {
+//                            val transactionId = numberSequenceRemoteRepository.getNextTransactionNumber(currentStore)
+//                            Log.d("Payment", "Generated transaction ID: $transactionId")
+//
+//                            val storeKey = numberSequenceRemoteRepository.getCurrentStoreKey(currentStore)
+//                            Log.d("Payment", "Generated store key: $storeKey")
+//
+//                            // Create store-specific sequence
+//                            val storeSequence = "$currentStore-${transactionId.split("-").last()}"
+//
+//                            // Determine if the payment method is AR
+//                            val isAR = paymentMethod != "Cash"
+//                            val ar = if (isAR) totalAmountDue else 0.0
+//
+//                            val paymentMethodAmounts = mutableMapOf(
+//                                "GCASH" to 0.0,
+//                                "PAYMAYA" to 0.0,
+//                                "CASH" to 0.0,
+//                                "CARD" to 0.0,
+//                                "LOYALTYCARD" to 0.0,
+//                                "CHARGE" to 0.0,
+//                                "FOODPANDA" to 0.0,
+//                                "GRABFOOD" to 0.0,
+//                                "REPRESENTATION" to 0.0
+//                            )
+//
+//                            val partialPayments = cartItems.firstOrNull()?.let { firstItem ->
+//                                mapOf(
+//                                    "GCASH" to if (firstItem.paymentMethod?.uppercase() == "GCASH") firstItem.partialPayment else 0.0,
+//                                    "PAYMAYA" to if (firstItem.paymentMethod?.uppercase() == "PAYMAYA") firstItem.partialPayment else 0.0,
+//                                    "CASH" to if (firstItem.paymentMethod?.uppercase() == "CASH") firstItem.partialPayment else 0.0,
+//                                    "CARD" to if (firstItem.paymentMethod?.uppercase() == "CARD") firstItem.partialPayment else 0.0,
+//                                    "LOYALTYCARD" to if (firstItem.paymentMethod?.uppercase() == "LOYALTYCARD") firstItem.partialPayment else 0.0,
+//                                    "CHARGE" to if (firstItem.paymentMethod?.uppercase() == "CHARGE") firstItem.partialPayment else 0.0,
+//                                    "FOODPANDA" to if (firstItem.paymentMethod?.uppercase() == "FOODPANDA") firstItem.partialPayment else 0.0,
+//                                    "GRABFOOD" to if (firstItem.paymentMethod?.uppercase() == "GRABFOOD") firstItem.partialPayment else 0.0,
+//                                    "REPRESENTATION" to if (firstItem.paymentMethod?.uppercase() == "REPRESENTATION") firstItem.partialPayment else 0.0
+//                                )
+//                            } ?: emptyMap()
+//
+//                            var totalPaidAmount = 0.0
+//                            var actualPaymentAmount = totalAmountDue
+//
+//                            paymentMethodAmounts[paymentMethod.uppercase()] = amountPaid.roundToTwoDecimals()
+//                            totalPaidAmount += amountPaid.roundToTwoDecimals()
+//
+//                            // Distribute remaining payment methods if provided
+//                            otherPaymentMethods.forEachIndexed { index, method ->
+//                                if (index < otherPaymentAmounts.size) {
+//                                    val currentAmount = paymentMethodAmounts[method.uppercase()] ?: 0.0
+//                                    val additionalAmount = otherPaymentAmounts[index].roundToTwoDecimals()
+//                                    paymentMethodAmounts[method.uppercase()] = (currentAmount + additionalAmount).roundToTwoDecimals()
+//                                    totalPaidAmount += additionalAmount
+//                                }
+//                            }
+//                            val change = (totalPaidAmount - totalAmountDue).coerceAtLeast(0.0).roundToTwoDecimals()
+//
+//                            // If there's change and the primary payment method is CASH, reduce the CASH amount
+//                            if (change > 0 && paymentMethodAmounts["CASH"]!! > 0) {
+//                                paymentMethodAmounts["CASH"] = (paymentMethodAmounts["CASH"]!! - change).roundToTwoDecimals()
+//                            }
+//
+//                            // First, create and insert transaction records
+//                            val transactionRecords = getTransactionRecords(
+//                                transactionId,
+//                                cartItems,
+//                                paymentMethod,
+//                                ar,
+//                                vatRate,
+//                                discountType
+//                            )
+//
+//                            // Insert transaction records first
+//                            transactionRecords.forEach { record ->
+//                                record.syncStatusRecord = false
+//                                transactionDao.insertOrUpdateTransactionRecord(record)
+//                            }
+//
+//                            // Now calculate summary values from the inserted transaction records
+//                            val summaryValues = calculateSummaryFromRecords(transactionRecords, cartItems)
+//
+//                            // Prepare the transaction summary using calculated values
+//                            val transactionSummary = TransactionSummary(
+//                                transactionId = transactionId,
+//                                type = if (isAR) 3 else 1, // 3 for AR, 1 for Cash
+//                                receiptId = transactionId,
+//                                store = getCurrentStore(),
+//                                staff = getCurrentStaff(),
+//                                storeKey = storeKey,
+//                                storeSequence = storeSequence,
+//                                customerAccount = selectedCustomer.name,
+//                                netAmount = summaryValues.netAmount,
+//                                costAmount = summaryValues.costAmount,
+//                                grossAmount = summaryValues.grossAmount,
+//                                partialPayment = summaryValues.partialPayment,
+//                                transactionStatus = 1,
+//                                discountAmount = summaryValues.discountAmount,
+//                                customerDiscountAmount = summaryValues.discountAmount,
+//                                totalDiscountAmount = summaryValues.discountAmount,
+//                                numberOfItems = summaryValues.numberOfItems,
+//                                refundReceiptId = null,
+//                                currency = "PHP",
+//                                zReportId = null,
+//                                createdDate = Date(),
+//                                priceOverride = summaryValues.priceOverride,
+//                                comment = transactionComment,
+//                                receiptEmail = null,
+//                                markupAmount = 0.0,
+//                                markupDescription = null,
+//                                taxIncludedInPrice = summaryValues.vatAmount,
+//                                windowNumber = windowId,
+//                                // Update these payment fields with 2 decimal precision
+//                                gCash = ((paymentMethodAmounts["GCASH"] ?: 0.0) + (partialPayments["GCASH"] ?: 0.0)).roundToTwoDecimals(),
+//                                payMaya = ((paymentMethodAmounts["PAYMAYA"] ?: 0.0) + (partialPayments["PAYMAYA"] ?: 0.0)).roundToTwoDecimals(),
+//                                cash = ((paymentMethodAmounts["CASH"] ?: 0.0) + (partialPayments["CASH"] ?: 0.0)).roundToTwoDecimals(),
+//                                card = ((paymentMethodAmounts["CARD"] ?: 0.0) + (partialPayments["CARD"] ?: 0.0)).roundToTwoDecimals(),
+//                                loyaltyCard = ((paymentMethodAmounts["LOYALTYCARD"] ?: 0.0) + (partialPayments["LOYALTYCARD"] ?: 0.0)).roundToTwoDecimals(),
+//                                charge = ((paymentMethodAmounts["CHARGE"] ?: 0.0) + (partialPayments["CHARGE"] ?: 0.0)).roundToTwoDecimals(),
+//                                foodpanda = ((paymentMethodAmounts["FOODPANDA"] ?: 0.0) + (partialPayments["FOODPANDA"] ?: 0.0)).roundToTwoDecimals(),
+//                                grabfood = ((paymentMethodAmounts["GRABFOOD"] ?: 0.0) + (partialPayments["GRABFOOD"] ?: 0.0)).roundToTwoDecimals(),
+//                                representation = ((paymentMethodAmounts["REPRESENTATION"] ?: 0.0) + (partialPayments["REPRESENTATION"] ?: 0.0)).roundToTwoDecimals(),
+//                                changeGiven = change,
+//                                totalAmountPaid = if (isAR) 0.0 else amountPaid.roundToTwoDecimals(),
+//                                paymentMethod = paymentMethod,
+//                                customerName = selectedCustomer.name,
+//                                vatAmount = summaryValues.vatAmount,
+//                                vatExemptAmount = 0.0,
+//                                vatableSales = summaryValues.vatableSales,
+//                                discountType = discountType,
+//                                syncStatus = false
+//                            )
+//
+//                            // Insert the transaction summary into the database
+//                            transactionDao.insertTransactionSummary(transactionSummary)
+//
+//                            // UI operations moved to Main dispatcher
+//                            withContext(Dispatchers.Main) {
+//                                // Your existing receipt printing and UI update code
+//                                if (isAR) {
+//                                    printReceiptWithBluetoothPrinter(
+//                                        transactionSummary,
+//                                        transactionRecords,
+//                                        BluetoothPrinterHelper.ReceiptType.AR,
+//                                        isARReceipt = true,
+//                                        copyType = "Customer Copy"
+//                                    )
+//                                    printReceiptWithBluetoothPrinter(
+//                                        transactionSummary,
+//                                        transactionRecords,
+//                                        BluetoothPrinterHelper.ReceiptType.AR,
+//                                        isARReceipt = true,
+//                                        copyType = "Staff Copy"
+//                                    )
+//                                } else {
+//                                    printReceiptWithBluetoothPrinter(
+//                                        transactionSummary,
+//                                        transactionRecords,
+//                                        BluetoothPrinterHelper.ReceiptType.ORIGINAL
+//                                    )
+//                                }
+//                                handleLoyaltyPoints(
+//                                    selectedCustomer,
+//                                    paymentMethod,
+//                                    totalAmountDue,
+//                                    amountPaid
+//                                )
+//                                showChangeAndReceiptDialog(
+//                                    change,
+//                                    cartItems,
+//                                    transactionId,
+//                                    paymentMethod,
+//                                    ar,
+//                                    summaryValues.vatAmount,
+//                                    summaryValues.discountAmount,
+//                                    summaryValues.netAmount,
+//                                    if (summaryValues.grossAmount > 0) summaryValues.discountAmount / summaryValues.grossAmount else 0.0,
+//                                    transactionComment,
+//                                    summaryValues.partialPayment,
+//                                    amountPaid
+//                                )
+//                            }
+//
+//                            // Back to IO dispatcher for cleanup
+//                            transactionDao.updateSyncStatus(transactionId, false)
+//                            cartViewModel.deleteAll(windowId)
+//                            cartViewModel.clearCartComment(windowId)
+//
+//                            withContext(Dispatchers.Main) {
+//                                updateTotalAmount(emptyList())
+//                                SessionManager.setCurrentNumberSequence(numberSequence)
+//
+//                                val items = withContext(Dispatchers.IO) {
+//                                    transactionDao.getTransactionItems(transactionId)
+//                                }
+//
+//                                val transactionLogger = TransactionLogger(this@Window1)
+//                                transactionLogger.logPayment(
+//                                    transactionSummary = transactionSummary,
+//                                    paymentMethod = paymentMethod,
+//                                    items = items
+//                                )
+//                            }
+//                        }
+//                    }.onFailure { error ->
+//                        Log.e("Payment", "Failed to fetch number sequence: ${error.message}")
+//                        withContext(Dispatchers.Main) {
+//                            Toast.makeText(
+//                                this@Window1,
+//                                "Failed to generate transaction number: ${error.message}",
+//                                Toast.LENGTH_LONG
+//                            ).show()
+//                        }
+//                    }
+//                } catch (e: Exception) {
+//                    Log.e("Payment", "Error in number sequence processing", e)
+//                    withContext(Dispatchers.Main) {
+//                        Toast.makeText(
+//                            this@Window1,
+//                            "Error in number sequence: ${e.message}",
+//                            Toast.LENGTH_LONG
+//                        ).show()
+//                    }
+//                }
+//            } catch (e: Exception) {
+//                Log.e("Payment", "Error during payment processing: ${e.message}")
+//                withContext(Dispatchers.Main) {
+//                    Toast.makeText(
+//                        this@Window1,
+//                        "Error processing payment: ${e.message}",
+//                        Toast.LENGTH_LONG
+//                    ).show()
+//                }
+//            }
+//        }
+//    }
+//    fun getCurrentDateString(): String {
+//        return formatDateToString(Date())
+//    }
+
+//    fun String.toTimestamp(): Long {
+//        if (this.isEmpty()) return System.currentTimeMillis()
+//
+//        return try {
+//            val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+//            val date = format.parse(this)
+//            date?.time ?: System.currentTimeMillis()
+//        } catch (e: Exception) {
+//            System.currentTimeMillis()
+//        }
+//    }
+
+    private fun formatDateToString(date: Date): String {
+        return try {
+            val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'", Locale.US)
+            format.timeZone = TimeZone.getTimeZone("UTC")
+            format.format(date)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error formatting date to string: ${e.message}")
+            val fallbackFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'", Locale.US)
+            fallbackFormat.timeZone = TimeZone.getTimeZone("UTC")
+            fallbackFormat.format(Date())
+        }
+    }
+    fun getCurrentDateString(): String {
+        return try {
+            val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+            format.format(Date())
+        } catch (e: Exception) {
+            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+        }
+    }
+
+    fun String.toTimestamp(): Long {
+        if (this.isEmpty()) return System.currentTimeMillis()
+
+        return try {
+            val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+            val date = format.parse(this)
+            date?.time ?: System.currentTimeMillis()
+        } catch (e: Exception) {
+            System.currentTimeMillis()
+        }
+    }
+
+    // For displaying dates in UI
+    fun String.toDisplayDate(): String {
+        return try {
+            if (this.isEmpty()) return ""
+            val inputFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+            val outputFormat = SimpleDateFormat("MMM dd, yyyy h:mm a", Locale.US)
+            val date = inputFormat.parse(this)
+            outputFormat.format(date ?: return this)
+        } catch (e: Exception) {
+            this // Return original string if parsing fails
+        }
+    }
+
+    // For comparing dates
+    fun String.toDateForComparison(): Long {
+        return this.toTimestamp()
+    }
     private fun processPayment(
         amountPaid: Double,
         paymentMethod: String,
@@ -12137,6 +12633,20 @@ private fun initializeSequences() {
                     numberSequenceResult.onSuccess { numberSequence ->
                         Log.d("Payment", "Successfully fetched number sequence: $numberSequence")
 
+                        // 🛒 UPDATE CART SEQUENCE ON TRANSACTION COMPLETION
+                        try {
+                            Log.d("Payment", "🛒 Transaction completed - updating cart sequence...")
+                            val cartSequenceResult = numberSequenceRemoteRepository.updateCartSequenceOnTransaction(currentStore)
+
+                            cartSequenceResult.onSuccess {
+                                Log.d("Payment", "✅ Cart sequence updated successfully after transaction")
+                            }.onFailure { error ->
+                                Log.e("Payment", "❌ Failed to update cart sequence: ${error.message}")
+                            }
+                        } catch (e: Exception) {
+                            Log.e("Payment", "❌ Error updating cart sequence after transaction", e)
+                        }
+
                         // All database operations within withContext(Dispatchers.IO)
                         withContext(Dispatchers.IO) {
                             val transactionId = numberSequenceRemoteRepository.getNextTransactionNumber(currentStore)
@@ -12218,7 +12728,7 @@ private fun initializeSequences() {
 
                             // Now calculate summary values from the inserted transaction records
                             val summaryValues = calculateSummaryFromRecords(transactionRecords, cartItems)
-
+                            val currentDateString = formatDateToString(Date())
                             // Prepare the transaction summary using calculated values
                             val transactionSummary = TransactionSummary(
                                 transactionId = transactionId,
@@ -12241,7 +12751,7 @@ private fun initializeSequences() {
                                 refundReceiptId = null,
                                 currency = "PHP",
                                 zReportId = null,
-                                createdDate = Date(),
+                                createdDate = currentDateString, // Use string format consistently
                                 priceOverride = summaryValues.priceOverride,
                                 comment = transactionComment,
                                 receiptEmail = null,
@@ -12588,6 +13098,7 @@ private fun initializeSequences() {
         // Combine all payment methods and amounts with 2 decimal precision
         val allPaymentMethods = listOf(paymentMethod) + otherPaymentMethods
         val allPaymentAmounts = listOf(netSales.roundToTwoDecimals()) + otherPaymentAmounts.map { it.roundToTwoDecimals() }
+        val currentDateString = formatDateToString(Date())
 
         cartItems.forEachIndexed { index, cartItem ->
             val effectivePrice = (cartItem.overriddenPrice ?: cartItem.price).roundToTwoDecimals()
@@ -12663,7 +13174,7 @@ private fun initializeSequences() {
                     costAmount = splitCostAmount,
                     netAmount = splitItemAfterDiscount,
                     grossAmount = splitItemTotal,
-                    customerAccount = null,
+                    customerAccount = selectedCustomer.name ,
                     store = getCurrentStore(),
                     priceOverride = (cartItem.overriddenPrice ?: 0.0).roundToTwoDecimals(),
                     staff = getCurrentStaff(),
@@ -12679,7 +13190,7 @@ private fun initializeSequences() {
                     unitQuantity = cartItem.quantity.toDouble(),
                     unitPrice = cartItem.price.roundToTwoDecimals(),
                     taxAmount = splitItemVat,
-                    createdDate = Date(),
+                    createdDate = currentDateString,
                     discountType = when (cartItem.discountType.uppercase()) {
                         "PWD" -> "PWD"
                         "SC" -> "SC"
@@ -12782,6 +13293,7 @@ private fun initializeSequences() {
         val allPaymentAmounts = listOf(totalAmount) + otherPaymentAmounts.map { it.roundToTwoDecimals() }
 
         val transactionRecords = mutableListOf<TransactionRecord>()
+        val currentDateString = formatDateToString(Date())
 
         cartItems.forEachIndexed { index, cartItem ->
             val effectivePrice = (cartItem.overriddenPrice ?: cartItem.price).roundToTwoDecimals()
@@ -12857,7 +13369,7 @@ private fun initializeSequences() {
                     costAmount = splitCostAmount,
                     netAmount = splitItemAfterDiscount,
                     grossAmount = splitItemTotal,
-                    customerAccount = null,
+                    customerAccount = selectedCustomer.name,
                     store = getCurrentStore(),
                     priceOverride = (cartItem.overriddenPrice ?: 0.0).roundToTwoDecimals(),
                     staff = getCurrentStaff(),
@@ -12873,7 +13385,7 @@ private fun initializeSequences() {
                     unitQuantity = cartItem.quantity.toDouble(),
                     unitPrice = cartItem.price.roundToTwoDecimals(),
                     taxAmount = splitItemVat,
-                    createdDate = Date(),
+                    createdDate = currentDateString,
                     discountType = when (cartItem.discountType.uppercase()) {
                         "PWD" -> "PWD"
                         "SC" -> "SC"

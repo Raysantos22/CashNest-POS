@@ -46,10 +46,10 @@ data class TransactionRecord(
     @ColumnInfo(name = "unitqty") val unitQuantity: Double? = null,
     @ColumnInfo(name = "unitprice") val unitPrice: Double? = null,
     @ColumnInfo(name = "taxamount") val taxAmount: Double? = null,
-    @ColumnInfo(name = "createddate") val createdDate: Date? = null,
+    @ColumnInfo(name = "createddate") val createdDate: String?, // String instead of Date
     @ColumnInfo(name = "remarks") val remarks: String? = null,
     @ColumnInfo(name = "inventbatchid") val inventoryBatchId: String? = null,
-    @ColumnInfo(name = "inventbatchexpdate") val inventoryBatchExpiryDate: Date? = null,
+    @ColumnInfo(name = "inventbatchexpdate") val inventoryBatchExpiryDate: String? = null,
     @ColumnInfo(name = "giftcard") val giftCard: String? = null,
     @ColumnInfo(name = "returntransactionid") val returnTransactionId: String? = null,
     @ColumnInfo(name = "returnqty") val returnQuantity: Double? = null,

@@ -76,6 +76,44 @@ class BluetoothPrinterHelper(private val context: Context) {
             }
         }
     }
+    private fun formatTransactionDate(dateString: String): String {
+        return try {
+            if (dateString.isEmpty()) {
+                return "Unknown Date"
+            }
+
+            // Try multiple input formats for the string date
+            val inputFormats = listOf(
+                "yyyy-MM-dd HH:mm:ss",
+                "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'",
+                "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+                "yyyy-MM-dd'T'HH:mm:ss'Z'",
+                "yyyy-MM-dd'T'HH:mm:ss"
+            )
+
+            val outputFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+
+            for (format in inputFormats) {
+                try {
+                    val inputFormat = SimpleDateFormat(format, Locale.US)
+                    inputFormat.timeZone = TimeZone.getTimeZone("UTC")
+                    val date = inputFormat.parse(dateString)
+                    if (date != null) {
+                        return outputFormat.format(date)
+                    }
+                } catch (e: Exception) {
+                    // Try next format
+                    continue
+                }
+            }
+
+            // If all parsing fails, return the original string
+            dateString
+        } catch (e: Exception) {
+            Log.e(TAG, "Error formatting date: ${e.message}")
+            dateString.ifEmpty { "Unknown Date" }
+        }
+    }
 
     fun connect(address: String): Boolean {
         Log.d(TAG, "Attempting to connect to printer: $address")
@@ -448,179 +486,417 @@ class BluetoothPrinterHelper(private val context: Context) {
                     transaction.comment.contains("Return processed:", ignoreCase = true)
         }
     }
-    fun buildReadReport(
-        transactions: List<TransactionSummary>,
-        isZRead: Boolean,
-        zReportId: String = "",
-        tenderDeclaration: TenderDeclaration? = null
-    ): String = runBlocking {
+//    fun buildReadReport(
+//        transactions: List<TransactionSummary>,
+//        isZRead: Boolean,
+//        zReportId: String = "",
+//        tenderDeclaration: TenderDeclaration? = null
+//    ): String = runBlocking {
+//
+//        // Separate regular transactions and returns for proper calculation
+//        val regularTransactions = transactions.filter { it.transactionStatus == 1 && it.type != 2 }
+//        val returnTransactions = transactions.filter { it.type == 2 }
+//
+//        // Calculate item totals using the same method as ReportsActivity
+//        val regularItemCalculations = calculateItemTotals(regularTransactions)
+//        val returnItemCalculations = calculateItemTotals(returnTransactions)
+//
+//        // Net calculations (regular sales minus returns)
+//        val totalGross = regularItemCalculations.totalGross + returnItemCalculations.totalGross // returns are already negative
+//        val totalSales = regularTransactions.sumOf { it.netAmount } + returnTransactions.sumOf { it.netAmount }
+//        val totalVat = regularTransactions.sumOf { it.taxIncludedInPrice } + returnTransactions.sumOf { it.taxIncludedInPrice }
+//        val totalDiscount = regularTransactions.sumOf { it.totalDiscountAmount } + returnTransactions.sumOf { it.totalDiscountAmount }
+//        val vatableSales = regularTransactions.sumOf { it.vatableSales } + returnTransactions.sumOf { it.vatableSales }
+//        val vatExemptSales = regularTransactions.sumOf { it.vatExemptAmount } + returnTransactions.sumOf { it.vatExemptAmount }
+//
+//        // Calculate total return amount (absolute value for display)
+//        val totalReturnAmount = kotlin.math.abs(returnTransactions.sumOf { it.netAmount })
+//        val totalReturnDiscount = kotlin.math.abs(returnTransactions.sumOf { it.totalDiscountAmount })
+//
+//        // Payment method totals including returns (returns should reduce totals)
+//        val cashTotal = regularTransactions.sumOf { it.cash } + returnTransactions.sumOf { it.cash }
+//        val cardTotal = regularTransactions.sumOf { it.card } + returnTransactions.sumOf { it.card }
+//        val gCashTotal = regularTransactions.sumOf { it.gCash } + returnTransactions.sumOf { it.gCash }
+//        val payMayaTotal = regularTransactions.sumOf { it.payMaya } + returnTransactions.sumOf { it.payMaya }
+//        val loyaltyCardTotal = regularTransactions.sumOf { it.loyaltyCard } + returnTransactions.sumOf { it.loyaltyCard }
+//        val chargeTotal = regularTransactions.sumOf { it.charge } + returnTransactions.sumOf { it.charge }
+//        val foodPandaTotal = regularTransactions.sumOf { it.foodpanda } + returnTransactions.sumOf { it.foodpanda }
+//        val grabFoodTotal = regularTransactions.sumOf { it.grabfood } + returnTransactions.sumOf { it.grabfood }
+//        val representationTotal = regularTransactions.sumOf { it.representation } + returnTransactions.sumOf { it.representation }
+//
+//        // AR Sales calculation (only regular AR transactions minus returned AR)
+//        val arSales = regularTransactions.filter { it.type == 3 }.sumOf { it.netAmount } +
+//                returnTransactions.filter { it.type == 3 }.sumOf { it.netAmount }
+//
+//        // Transaction statistics
+//        val totalItemsSold = regularItemCalculations.totalQuantity + returnItemCalculations.totalQuantity // returns have negative quantities
+//        val totalItemsReturned = kotlin.math.abs(returnTransactions.sumOf { it.numberOfItems.toInt() })
+//        val returnTransactionCount = returnTransactions.size
+//        val customerTransactions = regularTransactions.count { it.customerAccount.isNotBlank() }
+//
+//        // Get OR numbers for starting and ending (only from regular transactions)
+//        val startingOR = if (regularTransactions.isNotEmpty()) {
+//            regularTransactions.minByOrNull { it.transactionId }?.transactionId?.toString()?.filter { it.isDigit() } ?: "N/A"
+//        } else "N/A"
+//
+//        val endingOR = if (regularTransactions.isNotEmpty()) {
+//            regularTransactions.maxByOrNull { it.transactionId }?.transactionId?.toString()?.filter { it.isDigit() } ?: "N/A"
+//        } else "N/A"
+//
+//        return@runBlocking buildString {
+//            append(0x1B.toChar()) // ESC
+//            append('!'.toChar())  // Select print mode
+//            append(0x01.toChar()) // Smallest text size
+//
+//            // Set minimum line spacing
+//            append(0x1B.toChar()) // ESC
+//            append('3'.toChar())  // Select line spacing
+//            append(50.toChar())
+//            appendLine("BRANCH: ${getBranchName()}")
+//            appendLine("TARLAC CITY")
+//            appendLine("REG TIN: ${getRegTin()}")
+//            appendLine("Permit: ${getPermitNumber()}")
+//            appendLine("Min: ${getMinNumber()}")
+//            appendLine("Serial: ${getSerialNumber()}")
+//            appendLine("Operator: ${getOperatorName()}")
+//            appendLine(
+//                "Date: ${SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())}"
+//            )
+//            appendLine()
+//
+//            if (isZRead) {
+//                appendLine("Z-READ ID: $zReportId")
+//                appendLine("-".repeat(46))
+//                appendLine("Zreading")
+//                appendLine("-".repeat(46))
+//                appendLine("Starting OR: $startingOR")
+//                appendLine("Ending   OR: $endingOR")
+//            } else {
+//                appendLine("Xreading")
+//            }
+//
+//            appendLine("_".repeat(46))
+//            appendLine("SALES REPORT AMT INC                  AMOUNT")
+//            appendLine("Gross sales                           ${"%.2f".format(regularItemCalculations.totalGross- (totalReturnAmount + totalReturnDiscount))}")
+//            appendLine("Total netsales                        ${"%.2f".format(totalSales)}")
+//            appendLine("Total Discount                        ${"%.2f".format(kotlin.math.abs(totalDiscount))}")
+//
+//            // Add return information if there are returns
+//            if (returnTransactionCount > 0) {
+//                appendLine("Total Returns                         ${"%.2f".format(totalReturnAmount)}")
+//                appendLine("Return Discounts                      ${"%.2f".format(totalReturnDiscount)}")
+//            }
+//
+//            appendLine("-".repeat(46))
+//            appendLine("Statistics                            qty")
+//            appendLine("-".repeat(46))
+//            appendLine("No. of sales trans                    ${regularTransactions.size}")
+//            appendLine("No. of items sold                     ${regularItemCalculations.totalQuantity-totalItemsReturned}")
+//
+//            // Add return information
+//            if (returnTransactionCount > 0) {
+//                appendLine("No. of return trans                   $returnTransactionCount")
+//                appendLine("No. of items returned                 $totalItemsReturned")
+//            }
+//
+//            appendLine("-".repeat(46))
+//            appendLine("Tender reports")
+//            appendLine("-".repeat(46))
+//            appendLine("Tender name                          amount")
+//            appendLine("_".repeat(46))
+//
+//            // Only show payment methods with non-zero amounts
+//            if (cashTotal != 0.0) appendLine("CASH".padEnd(38) + "%.2f".format(cashTotal))
+//            if (cardTotal != 0.0) appendLine("CARD".padEnd(38) + "%.2f".format(cardTotal))
+//            if (gCashTotal != 0.0) appendLine("GCASH".padEnd(38) + "%.2f".format(gCashTotal))
+//            if (payMayaTotal != 0.0) appendLine("PAYMAYA".padEnd(38) + "%.2f".format(payMayaTotal))
+//            if (loyaltyCardTotal != 0.0) appendLine("LOYALTY CARD".padEnd(38) + "%.2f".format(loyaltyCardTotal))
+//            if (chargeTotal != 0.0) appendLine("CHARGE".padEnd(38) + "%.2f".format(chargeTotal))
+//            if (foodPandaTotal != 0.0) appendLine("FOODPANDA".padEnd(38) + "%.2f".format(foodPandaTotal))
+//            if (grabFoodTotal != 0.0) appendLine("GRABFOOD".padEnd(38) + "%.2f".format(grabFoodTotal))
+//            if (representationTotal != 0.0) appendLine("REPRESENTATION".padEnd(38) + "%.2f".format(representationTotal))
+////            if (arSales != 0.0) appendLine("AR".padEnd(38) + "%.2f".format(arSales))
+//
+//            appendLine()
+//            appendLine("total amount                          ${"%.2f".format(totalSales)}")
+//
+//            appendLine("-".repeat(46))
+//            appendLine("Tax report")
+//            appendLine("-".repeat(46))
+//            val vatRate = 0.12
+//            val vatableSalesCalculated = totalSales / (1 + vatRate)
+//            val vatAmountCalculated = totalSales - vatableSalesCalculated
+//
+//            appendLine("Vatable sales                         ${"%.2f".format(vatableSalesCalculated)}")
+//            appendLine("VAT amount                            ${"%.2f".format(vatAmountCalculated)}")
+//            appendLine("vat exempt sales                      ${"%.2f".format(vatExemptSales)}")
+//            appendLine("zero Rated sales                      ${"%.2f".format(0.0)}")
+//
+//            if (tenderDeclaration != null) {
+//                appendLine("-".repeat(46))
+//                appendLine("Tender Declaration")
+//                // ... existing tender declaration code ...
+//            }
+//
+//            appendLine("-".repeat(46))
+//            appendLine("Pos Provider: IT WARRIOR")
+//            appendLine("ELJIN CORP")
+//            appendLine("tin: ${getPosProviderTin()}")
+//            appendLine("acc No: ${getPosProviderAccNo()}")
+//            appendLine(
+//                "Date issued: ${SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())}"
+//            )
+//            appendLine("valid until: ${getValidUntilDate()}")
+//
+//            if (isZRead) {
+//                appendLine()
+//                appendLine("-".repeat(46))
+//                appendLine("End of Z-Read Report")
+//                append(0x1B.toChar()) // ESC
+//                append('!'.toChar())  // Select print mode
+//                append(0x00.toChar()) // Reset to normal size
+//
+//                append(0x1B.toChar()) // ESC
+//                append('2'.toChar())
+//            }
+//        }
+//    }
+// FIXED: Updated buildReadReport function in BluetoothPrinterHelper
+fun buildReadReport(
+    transactions: List<TransactionSummary>,
+    isZRead: Boolean,
+    zReportId: String = "",
+    tenderDeclaration: TenderDeclaration? = null
+): String = runBlocking {
 
-        // Separate regular transactions and returns for proper calculation
-        val regularTransactions = transactions.filter { it.transactionStatus == 1 && it.type != 2 }
-        val returnTransactions = transactions.filter { it.type == 2 }
+    // Separate regular transactions and returns for proper calculation
+    val regularTransactions = transactions.filter { it.transactionStatus == 1 && it.type != 2 }
+    val returnTransactions = transactions.filter { it.type == 2 }
 
-        // Calculate item totals using the same method as ReportsActivity
-        val regularItemCalculations = calculateItemTotals(regularTransactions)
-        val returnItemCalculations = calculateItemTotals(returnTransactions)
+    // Calculate item totals using the same method as ReportsActivity
+    val regularItemCalculations = calculateItemTotals(regularTransactions)
+    val returnItemCalculations = calculateItemTotals(returnTransactions)
 
-        // Net calculations (regular sales minus returns)
-        val totalGross = regularItemCalculations.totalGross + returnItemCalculations.totalGross // returns are already negative
-        val totalSales = regularTransactions.sumOf { it.netAmount } + returnTransactions.sumOf { it.netAmount }
-        val totalVat = regularTransactions.sumOf { it.taxIncludedInPrice } + returnTransactions.sumOf { it.taxIncludedInPrice }
-        val totalDiscount = regularTransactions.sumOf { it.totalDiscountAmount } + returnTransactions.sumOf { it.totalDiscountAmount }
-        val vatableSales = regularTransactions.sumOf { it.vatableSales } + returnTransactions.sumOf { it.vatableSales }
-        val vatExemptSales = regularTransactions.sumOf { it.vatExemptAmount } + returnTransactions.sumOf { it.vatExemptAmount }
+    // Net calculations (regular sales minus returns)
+    val totalGross = regularItemCalculations.totalGross + returnItemCalculations.totalGross // returns are already negative
+    val totalSales = regularTransactions.sumOf { it.netAmount } + returnTransactions.sumOf { it.netAmount }
+    val totalVat = regularTransactions.sumOf { it.taxIncludedInPrice } + returnTransactions.sumOf { it.taxIncludedInPrice }
+    val totalDiscount = regularTransactions.sumOf { it.totalDiscountAmount } + returnTransactions.sumOf { it.totalDiscountAmount }
+    val vatableSales = regularTransactions.sumOf { it.vatableSales } + returnTransactions.sumOf { it.vatableSales }
+    val vatExemptSales = regularTransactions.sumOf { it.vatExemptAmount } + returnTransactions.sumOf { it.vatExemptAmount }
 
-        // Calculate total return amount (absolute value for display)
-        val totalReturnAmount = kotlin.math.abs(returnTransactions.sumOf { it.netAmount })
-        val totalReturnDiscount = kotlin.math.abs(returnTransactions.sumOf { it.totalDiscountAmount })
+    // Calculate total return amount (absolute value for display)
+    val totalReturnAmount = kotlin.math.abs(returnTransactions.sumOf { it.netAmount })
+    val totalReturnDiscount = kotlin.math.abs(returnTransactions.sumOf { it.totalDiscountAmount })
 
-        // Payment method totals including returns (returns should reduce totals)
-        val cashTotal = regularTransactions.sumOf { it.cash } + returnTransactions.sumOf { it.cash }
-        val cardTotal = regularTransactions.sumOf { it.card } + returnTransactions.sumOf { it.card }
-        val gCashTotal = regularTransactions.sumOf { it.gCash } + returnTransactions.sumOf { it.gCash }
-        val payMayaTotal = regularTransactions.sumOf { it.payMaya } + returnTransactions.sumOf { it.payMaya }
-        val loyaltyCardTotal = regularTransactions.sumOf { it.loyaltyCard } + returnTransactions.sumOf { it.loyaltyCard }
-        val chargeTotal = regularTransactions.sumOf { it.charge } + returnTransactions.sumOf { it.charge }
-        val foodPandaTotal = regularTransactions.sumOf { it.foodpanda } + returnTransactions.sumOf { it.foodpanda }
-        val grabFoodTotal = regularTransactions.sumOf { it.grabfood } + returnTransactions.sumOf { it.grabfood }
-        val representationTotal = regularTransactions.sumOf { it.representation } + returnTransactions.sumOf { it.representation }
+    // Payment method totals including returns (returns should reduce totals)
+    val cashTotal = regularTransactions.sumOf { it.cash } + returnTransactions.sumOf { it.cash }
+    val cardTotal = regularTransactions.sumOf { it.card } + returnTransactions.sumOf { it.card }
+    val gCashTotal = regularTransactions.sumOf { it.gCash } + returnTransactions.sumOf { it.gCash }
+    val payMayaTotal = regularTransactions.sumOf { it.payMaya } + returnTransactions.sumOf { it.payMaya }
+    val loyaltyCardTotal = regularTransactions.sumOf { it.loyaltyCard } + returnTransactions.sumOf { it.loyaltyCard }
+    val chargeTotal = regularTransactions.sumOf { it.charge } + returnTransactions.sumOf { it.charge }
+    val foodPandaTotal = regularTransactions.sumOf { it.foodpanda } + returnTransactions.sumOf { it.foodpanda }
+    val grabFoodTotal = regularTransactions.sumOf { it.grabfood } + returnTransactions.sumOf { it.grabfood }
+    val representationTotal = regularTransactions.sumOf { it.representation } + returnTransactions.sumOf { it.representation }
 
-        // AR Sales calculation (only regular AR transactions minus returned AR)
-        val arSales = regularTransactions.filter { it.type == 3 }.sumOf { it.netAmount } +
-                returnTransactions.filter { it.type == 3 }.sumOf { it.netAmount }
+    // AR Sales calculation (only regular AR transactions minus returned AR)
+    val arSales = regularTransactions.filter { it.type == 3 }.sumOf { it.netAmount } +
+            returnTransactions.filter { it.type == 3 }.sumOf { it.netAmount }
 
-        // Transaction statistics
-        val totalItemsSold = regularItemCalculations.totalQuantity + returnItemCalculations.totalQuantity // returns have negative quantities
-        val totalItemsReturned = kotlin.math.abs(returnTransactions.sumOf { it.numberOfItems.toInt() })
-        val returnTransactionCount = returnTransactions.size
-        val customerTransactions = regularTransactions.count { it.customerAccount.isNotBlank() }
+    // Transaction statistics
+    val totalItemsSold = regularItemCalculations.totalQuantity + returnItemCalculations.totalQuantity // returns have negative quantities
+    val totalItemsReturned = kotlin.math.abs(returnTransactions.sumOf { it.numberOfItems.toInt() })
+    val returnTransactionCount = returnTransactions.size
+    val customerTransactions = regularTransactions.count { it.customerAccount.isNotBlank() }
 
-        // Get OR numbers for starting and ending (only from regular transactions)
-        val startingOR = if (regularTransactions.isNotEmpty()) {
-            regularTransactions.minByOrNull { it.transactionId }?.transactionId?.toString()?.filter { it.isDigit() } ?: "N/A"
-        } else "N/A"
+    // FIXED: Get OR numbers for starting and ending (handle string dates properly)
+    val startingOR = if (regularTransactions.isNotEmpty()) {
+        try {
+            // Sort by createdDate string and get first transaction ID
+            val sortedTransactions = regularTransactions.sortedBy {
+                parseTransactionDateForSorting(it.createdDate)
+            }
+            extractORFromTransactionId(sortedTransactions.first().transactionId) ?: "N/A"
+        } catch (e: Exception) {
+            "N/A"
+        }
+    } else "N/A"
 
-        val endingOR = if (regularTransactions.isNotEmpty()) {
-            regularTransactions.maxByOrNull { it.transactionId }?.transactionId?.toString()?.filter { it.isDigit() } ?: "N/A"
-        } else "N/A"
+    val endingOR = if (regularTransactions.isNotEmpty()) {
+        try {
+            // Sort by createdDate string and get last transaction ID
+            val sortedTransactions = regularTransactions.sortedBy {
+                parseTransactionDateForSorting(it.createdDate)
+            }
+            extractORFromTransactionId(sortedTransactions.last().transactionId) ?: "N/A"
+        } catch (e: Exception) {
+            "N/A"
+        }
+    } else "N/A"
 
-        return@runBlocking buildString {
+    return@runBlocking buildString {
+        append(0x1B.toChar()) // ESC
+        append('!'.toChar())  // Select print mode
+        append(0x01.toChar()) // Smallest text size
+
+        // Set minimum line spacing
+        append(0x1B.toChar()) // ESC
+        append('3'.toChar())  // Select line spacing
+        append(50.toChar())
+        appendLine("BRANCH: ${getBranchName()}")
+        appendLine("TARLAC CITY")
+        appendLine("REG TIN: ${getRegTin()}")
+        appendLine("Permit: ${getPermitNumber()}")
+        appendLine("Min: ${getMinNumber()}")
+        appendLine("Serial: ${getSerialNumber()}")
+        appendLine("Operator: ${getOperatorName()}")
+        appendLine(
+            "Date: ${SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())}"
+        )
+        appendLine()
+
+        if (isZRead) {
+            appendLine("Z-READ ID: $zReportId")
+            appendLine("-".repeat(46))
+            appendLine("Zreading")
+            appendLine("-".repeat(46))
+            appendLine("Starting OR: $startingOR")
+            appendLine("Ending   OR: $endingOR")
+        } else {
+            appendLine("Xreading")
+        }
+
+        appendLine("_".repeat(46))
+        appendLine("SALES REPORT AMT INC                  AMOUNT")
+        appendLine("Gross sales                           ${"%.2f".format(regularItemCalculations.totalGross- (totalReturnAmount + totalReturnDiscount))}")
+        appendLine("Total netsales                        ${"%.2f".format(totalSales)}")
+        appendLine("Total Discount                        ${"%.2f".format(kotlin.math.abs(totalDiscount))}")
+
+        // Add return information if there are returns
+        if (returnTransactionCount > 0) {
+            appendLine("Total Returns                         ${"%.2f".format(totalReturnAmount)}")
+            appendLine("Return Discounts                      ${"%.2f".format(totalReturnDiscount)}")
+        }
+
+        appendLine("-".repeat(46))
+        appendLine("Statistics                            qty")
+        appendLine("-".repeat(46))
+        appendLine("No. of sales trans                    ${regularTransactions.size}")
+        appendLine("No. of items sold                     ${regularItemCalculations.totalQuantity-totalItemsReturned}")
+
+        // Add return information
+        if (returnTransactionCount > 0) {
+            appendLine("No. of return trans                   $returnTransactionCount")
+            appendLine("No. of items returned                 $totalItemsReturned")
+        }
+
+        appendLine("-".repeat(46))
+        appendLine("Tender reports")
+        appendLine("-".repeat(46))
+        appendLine("Tender name                          amount")
+        appendLine("_".repeat(46))
+
+        // Only show payment methods with non-zero amounts
+        if (cashTotal != 0.0) appendLine("CASH".padEnd(38) + "%.2f".format(cashTotal))
+        if (cardTotal != 0.0) appendLine("CARD".padEnd(38) + "%.2f".format(cardTotal))
+        if (gCashTotal != 0.0) appendLine("GCASH".padEnd(38) + "%.2f".format(gCashTotal))
+        if (payMayaTotal != 0.0) appendLine("PAYMAYA".padEnd(38) + "%.2f".format(payMayaTotal))
+        if (loyaltyCardTotal != 0.0) appendLine("LOYALTY CARD".padEnd(38) + "%.2f".format(loyaltyCardTotal))
+        if (chargeTotal != 0.0) appendLine("CHARGE".padEnd(38) + "%.2f".format(chargeTotal))
+        if (foodPandaTotal != 0.0) appendLine("FOODPANDA".padEnd(38) + "%.2f".format(foodPandaTotal))
+        if (grabFoodTotal != 0.0) appendLine("GRABFOOD".padEnd(38) + "%.2f".format(grabFoodTotal))
+        if (representationTotal != 0.0) appendLine("REPRESENTATION".padEnd(38) + "%.2f".format(representationTotal))
+
+        appendLine()
+        appendLine("total amount                          ${"%.2f".format(totalSales)}")
+
+        appendLine("-".repeat(46))
+        appendLine("Tax report")
+        appendLine("-".repeat(46))
+        val vatRate = 0.12
+        val vatableSalesCalculated = totalSales / (1 + vatRate)
+        val vatAmountCalculated = totalSales - vatableSalesCalculated
+
+        appendLine("Vatable sales                         ${"%.2f".format(vatableSalesCalculated)}")
+        appendLine("VAT amount                            ${"%.2f".format(vatAmountCalculated)}")
+        appendLine("vat exempt sales                      ${"%.2f".format(vatExemptSales)}")
+        appendLine("zero Rated sales                      ${"%.2f".format(0.0)}")
+
+        if (tenderDeclaration != null) {
+            appendLine("-".repeat(46))
+            appendLine("Tender Declaration")
+            // ... existing tender declaration code ...
+        }
+
+        appendLine("-".repeat(46))
+        appendLine("Pos Provider: IT WARRIOR")
+        appendLine("ELJIN CORP")
+        appendLine("tin: ${getPosProviderTin()}")
+        appendLine("acc No: ${getPosProviderAccNo()}")
+        appendLine(
+            "Date issued: ${SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())}"
+        )
+        appendLine("valid until: ${getValidUntilDate()}")
+
+        if (isZRead) {
+            appendLine()
+            appendLine("-".repeat(46))
+            appendLine("End of Z-Read Report")
             append(0x1B.toChar()) // ESC
             append('!'.toChar())  // Select print mode
-            append(0x01.toChar()) // Smallest text size
+            append(0x00.toChar()) // Reset to normal size
 
-            // Set minimum line spacing
             append(0x1B.toChar()) // ESC
-            append('3'.toChar())  // Select line spacing
-            append(50.toChar())
-            appendLine("BRANCH: ${getBranchName()}")
-            appendLine("TARLAC CITY")
-            appendLine("REG TIN: ${getRegTin()}")
-            appendLine("Permit: ${getPermitNumber()}")
-            appendLine("Min: ${getMinNumber()}")
-            appendLine("Serial: ${getSerialNumber()}")
-            appendLine("Operator: ${getOperatorName()}")
-            appendLine(
-                "Date: ${SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())}"
-            )
-            appendLine()
+            append('2'.toChar())
+        }
+    }
+}
 
-            if (isZRead) {
-                appendLine("Z-READ ID: $zReportId")
-                appendLine("-".repeat(46))
-                appendLine("Zreading")
-                appendLine("-".repeat(46))
-                appendLine("Starting OR: $startingOR")
-                appendLine("Ending   OR: $endingOR")
+    // FIXED: Helper function to parse transaction date string for sorting
+    private fun parseTransactionDateForSorting(dateString: String): Long {
+        return try {
+            if (dateString.isEmpty()) return 0L
+
+            val formats = listOf(
+                "yyyy-MM-dd HH:mm:ss",
+                "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'",
+                "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+                "yyyy-MM-dd'T'HH:mm:ss'Z'",
+                "yyyy-MM-dd'T'HH:mm:ss"
+            )
+
+            for (format in formats) {
+                try {
+                    val sdf = SimpleDateFormat(format, Locale.US)
+                    sdf.timeZone = TimeZone.getTimeZone("UTC")
+                    val date = sdf.parse(dateString)
+                    if (date != null) {
+                        return date.time
+                    }
+                } catch (e: Exception) {
+                    // Try next format
+                }
+            }
+
+            0L
+        } catch (e: Exception) {
+            0L
+        }
+    }
+
+    // FIXED: Helper function to extract OR number from transaction ID
+    private fun extractORFromTransactionId(transactionId: String): String? {
+        return try {
+            // Extract numeric part from transaction ID
+            val numericPart = transactionId.filter { it.isDigit() }
+            if (numericPart.isNotEmpty()) {
+                numericPart
             } else {
-                appendLine("Xreading")
+                null
             }
-
-            appendLine("_".repeat(46))
-            appendLine("SALES REPORT AMT INC                  AMOUNT")
-            appendLine("Gross sales                           ${"%.2f".format(regularItemCalculations.totalGross- (totalReturnAmount + totalReturnDiscount))}")
-            appendLine("Total netsales                        ${"%.2f".format(totalSales)}")
-            appendLine("Total Discount                        ${"%.2f".format(kotlin.math.abs(totalDiscount))}")
-
-            // Add return information if there are returns
-            if (returnTransactionCount > 0) {
-                appendLine("Total Returns                         ${"%.2f".format(totalReturnAmount)}")
-                appendLine("Return Discounts                      ${"%.2f".format(totalReturnDiscount)}")
-            }
-
-            appendLine("-".repeat(46))
-            appendLine("Statistics                            qty")
-            appendLine("-".repeat(46))
-            appendLine("No. of sales trans                    ${regularTransactions.size}")
-            appendLine("No. of items sold                     ${regularItemCalculations.totalQuantity-totalItemsReturned}")
-
-            // Add return information
-            if (returnTransactionCount > 0) {
-                appendLine("No. of return trans                   $returnTransactionCount")
-                appendLine("No. of items returned                 $totalItemsReturned")
-            }
-
-            appendLine("-".repeat(46))
-            appendLine("Tender reports")
-            appendLine("-".repeat(46))
-            appendLine("Tender name                          amount")
-            appendLine("_".repeat(46))
-
-            // Only show payment methods with non-zero amounts
-            if (cashTotal != 0.0) appendLine("CASH".padEnd(38) + "%.2f".format(cashTotal))
-            if (cardTotal != 0.0) appendLine("CARD".padEnd(38) + "%.2f".format(cardTotal))
-            if (gCashTotal != 0.0) appendLine("GCASH".padEnd(38) + "%.2f".format(gCashTotal))
-            if (payMayaTotal != 0.0) appendLine("PAYMAYA".padEnd(38) + "%.2f".format(payMayaTotal))
-            if (loyaltyCardTotal != 0.0) appendLine("LOYALTY CARD".padEnd(38) + "%.2f".format(loyaltyCardTotal))
-            if (chargeTotal != 0.0) appendLine("CHARGE".padEnd(38) + "%.2f".format(chargeTotal))
-            if (foodPandaTotal != 0.0) appendLine("FOODPANDA".padEnd(38) + "%.2f".format(foodPandaTotal))
-            if (grabFoodTotal != 0.0) appendLine("GRABFOOD".padEnd(38) + "%.2f".format(grabFoodTotal))
-            if (representationTotal != 0.0) appendLine("REPRESENTATION".padEnd(38) + "%.2f".format(representationTotal))
-//            if (arSales != 0.0) appendLine("AR".padEnd(38) + "%.2f".format(arSales))
-
-            appendLine()
-            appendLine("total amount                          ${"%.2f".format(totalSales)}")
-
-            appendLine("-".repeat(46))
-            appendLine("Tax report")
-            appendLine("-".repeat(46))
-            val vatRate = 0.12
-            val vatableSalesCalculated = totalSales / (1 + vatRate)
-            val vatAmountCalculated = totalSales - vatableSalesCalculated
-
-            appendLine("Vatable sales                         ${"%.2f".format(vatableSalesCalculated)}")
-            appendLine("VAT amount                            ${"%.2f".format(vatAmountCalculated)}")
-            appendLine("vat exempt sales                      ${"%.2f".format(vatExemptSales)}")
-            appendLine("zero Rated sales                      ${"%.2f".format(0.0)}")
-
-            if (tenderDeclaration != null) {
-                appendLine("-".repeat(46))
-                appendLine("Tender Declaration")
-                // ... existing tender declaration code ...
-            }
-
-            appendLine("-".repeat(46))
-            appendLine("Pos Provider: IT WARRIOR")
-            appendLine("ELJIN CORP")
-            appendLine("tin: ${getPosProviderTin()}")
-            appendLine("acc No: ${getPosProviderAccNo()}")
-            appendLine(
-                "Date issued: ${SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())}"
-            )
-            appendLine("valid until: ${getValidUntilDate()}")
-
-            if (isZRead) {
-                appendLine()
-                appendLine("-".repeat(46))
-                appendLine("End of Z-Read Report")
-                append(0x1B.toChar()) // ESC
-                append('!'.toChar())  // Select print mode
-                append(0x00.toChar()) // Reset to normal size
-
-                append(0x1B.toChar()) // ESC
-                append('2'.toChar())
-            }
+        } catch (e: Exception) {
+            null
         }
     }
     // Helper functions for calculations
@@ -825,7 +1101,7 @@ class BluetoothPrinterHelper(private val context: Context) {
         // Transaction Info
         val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
         sb.appendLine("Cashier: ${transaction.staff}")
-        sb.appendLine("Date: ${dateFormat.format(transaction.createdDate)}")
+        sb.appendLine("Date: ${formatTransactionDate(transaction.createdDate)}")
         sb.appendLine("SI#: ${transaction.receiptId}")
 
         // For return receipts, show original transaction reference
@@ -1113,6 +1389,7 @@ class BluetoothPrinterHelper(private val context: Context) {
 
             sb.appendLine()
             sb.appendLine("Scan to rate us!")
+
         }
 
         // Reset to normal text size

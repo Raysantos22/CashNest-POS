@@ -25,6 +25,7 @@
         android:layout_height="wrap_content"
         android:background="@android:color/white"
         android:padding="8dp"
+        android:visibility="gone"
         android:elevation="4dp">
 
         <TextView

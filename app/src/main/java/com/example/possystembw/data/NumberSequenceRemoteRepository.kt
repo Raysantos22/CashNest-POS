@@ -40,6 +40,98 @@ class NumberSequenceRemoteRepository(
         return transactionNumber
     }
 
+    suspend fun updateCartSequenceOnTransaction(storeId: String): Result<Boolean> {
+        return try {
+            // Get current sequence from local database
+            val numberSequence = numberSequenceRemoteDao.getNumberSequenceByStoreId(storeId)
+                ?: throw IllegalStateException("No number sequence found for store $storeId")
+
+            // Increment cart sequence locally
+            val newCartNextRec = numberSequence.cartNextRec + 1
+
+            Log.d("CartSequence", "Transaction completed - updating cart sequence from ${numberSequence.cartNextRec} to $newCartNextRec")
+
+            // Update local database first
+            val updatedEntity = numberSequence.copy(cartNextRec = newCartNextRec)
+            numberSequenceRemoteDao.updateNumberSequence(updatedEntity)
+
+            // Send current cartNextRec to your existing API
+            val response = numberSequenceApi.updateNumberSequence(storeId, newCartNextRec)
+
+            if (response.isSuccessful && response.body()?.success == true) {
+                Log.d("CartSequence", "✅ Successfully sent cart sequence $newCartNextRec to server after transaction")
+                Result.success(true)
+            } else {
+                val errorMessage = response.errorBody()?.string() ?: "Unknown error"
+                Log.e("CartSequence", "❌ Failed to send cart sequence to server: $errorMessage")
+                // Keep local update even if server fails
+                Result.success(true)
+            }
+        } catch (e: Exception) {
+            Log.e("CartSequence", "Error updating cart sequence after transaction", e)
+            Result.failure(e)
+        }
+    }
+    suspend fun getCurrentCartSequence(storeId: String): Int {
+        val numberSequence = numberSequenceRemoteDao.getNumberSequenceByStoreId(storeId)
+            ?: throw IllegalStateException("No number sequence found for store $storeId")
+
+        return numberSequence.cartNextRec
+    }
+
+    suspend fun updateCartSequence(storeId: String): Result<Boolean> {
+        return try {
+            // Get current sequence from local database
+            val numberSequence = numberSequenceRemoteDao.getNumberSequenceByStoreId(storeId)
+                ?: throw IllegalStateException("No number sequence found for store $storeId")
+
+            // Increment the cart sequence
+            val newCartNextRec = numberSequence.cartNextRec + 1
+
+            Log.d("CartSequence", "Updating cart sequence for store: $storeId from ${numberSequence.cartNextRec} to $newCartNextRec")
+
+            // Update local database first
+            val updatedEntity = numberSequence.copy(cartNextRec = newCartNextRec)
+            numberSequenceRemoteDao.updateNumberSequence(updatedEntity)
+
+            // Update remote server using existing API endpoint
+            val response = numberSequenceApi.updateNumberSequence(storeId, newCartNextRec)
+
+            if (response.isSuccessful && response.body()?.success == true) {
+                Log.d("CartSequence", "Successfully updated cart sequence for store: $storeId to $newCartNextRec")
+                Result.success(true)
+            } else {
+                val errorMessage = response.errorBody()?.string() ?: "Unknown error"
+                Log.e("CartSequence", "Failed to update cart sequence: $errorMessage")
+                // Note: We keep the local update even if remote fails
+                Result.success(true) // Still return success since local update worked
+            }
+        } catch (e: Exception) {
+            Log.e("CartSequence", "Error updating cart sequence for store: $storeId", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Gets the next cart sequence number without incrementing
+     */
+    suspend fun getNextCartSequenceNumber(storeId: String): String {
+        val numberSequence = numberSequenceRemoteDao.getNumberSequenceByStoreId(storeId)
+            ?: throw IllegalStateException("No number sequence found for store $storeId")
+
+        val nextCartNumber = numberSequence.cartNextRec
+        return String.format("%09d", nextCartNumber)
+    }
+
+    /**
+     * Gets the current cart sequence number
+     */
+//    suspend fun getCurrentCartSequence(storeId: String): Int {
+//        val numberSequence = numberSequenceRemoteDao.getNumberSequenceByStoreId(storeId)
+//            ?: throw IllegalStateException("No number sequence found for store $storeId")
+//
+//        return numberSequence.cartNextRec
+//    }
     suspend fun fetchAndUpdateNumberSequence(storeId: String): Result<NumberSequenceValue> {
         return try {
             // First check if we have a local sequence

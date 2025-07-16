@@ -96,8 +96,10 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
             .build()
 
         val retrofit = Retrofit.Builder()
-//            .baseUrl("https://eljin.org/")
-            .baseUrl("http://10.151.5.239:8000/")
+            .baseUrl("https://eljin.org/")
+//            .baseUrl("http://10.151.5.239:8000/")
+//            .baseUrl("https://mwaremiddleware.vercel.app/")
+
             .client(client)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
@@ -238,7 +240,7 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
                             currentItemId = item.itemId ?: "Unknown"
                         )
 
-                        val response = withTimeout(5000) {
+                        val response = withTimeout(100000) {
                             repository.postLineDetails(
                                 itemId = item.itemId.orEmpty(),
                                 storeId = currentStoreId,

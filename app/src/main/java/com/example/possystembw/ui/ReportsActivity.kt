@@ -70,26 +70,119 @@ class ReportsActivity : AppCompatActivity() {
 
     private lateinit var autoZReadReceiver: BroadcastReceiver
     private lateinit var alarmManager: AlarmManager
-
-
-    private lateinit var transactionRepository: TransactionRepository // Add this if not already present
-
+    private lateinit var transactionRepository: TransactionRepository
 
     companion object {
         private val PHILIPPINES_TIMEZONE = TimeZone.getTimeZone("Asia/Manila")
-        private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).apply {
-            timeZone = PHILIPPINES_TIMEZONE
+
+        // Create Philippine time formatters
+        private fun createPhilippineFormatter(pattern: String): SimpleDateFormat {
+            return SimpleDateFormat(pattern, Locale.getDefault()).apply {
+                timeZone = PHILIPPINES_TIMEZONE
+            }
         }
-        private val TIME_FORMAT = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).apply {
-            timeZone = PHILIPPINES_TIMEZONE
+
+        private val DATE_FORMAT = createPhilippineFormatter("yyyy-MM-dd")
+        private val TIME_FORMAT = createPhilippineFormatter("HH:mm:ss")
+        private val DISPLAY_DATE_FORMAT = createPhilippineFormatter("MM/dd/yyyy")
+        private val DISPLAY_DATE_RANGE_FORMAT = createPhilippineFormatter("MMM dd, yyyy")
+        private val DATETIME_FORMAT = createPhilippineFormatter("yyyy-MM-dd HH:mm:ss")
+
+        // FIXED: Helper function to convert Date to string for DAO queries
+        fun formatDateToString(date: Date): String {
+            return try {
+                DATETIME_FORMAT.format(date)
+            } catch (e: Exception) {
+                Log.e("DateFormat", "Error formatting date: $date", e)
+                SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+            }
         }
-        private val DISPLAY_DATE_FORMAT = SimpleDateFormat("MM/dd/yyyy", Locale.getDefault()).apply {
-            timeZone = PHILIPPINES_TIMEZONE
+
+        // Helper function to get Philippine Calendar
+        fun getPhilippineCalendar(): Calendar {
+            return Calendar.getInstance(PHILIPPINES_TIMEZONE)
         }
-        private val DISPLAY_DATE_RANGE_FORMAT = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).apply {
-            timeZone = PHILIPPINES_TIMEZONE
+
+        // Helper function to create date in Philippine timezone
+        fun createPhilippineDate(year: Int, month: Int, day: Int, hour: Int = 0, minute: Int = 0, second: Int = 0): Date {
+            val calendar = getPhilippineCalendar().apply {
+                set(Calendar.YEAR, year)
+                set(Calendar.MONTH, month)
+                set(Calendar.DAY_OF_MONTH, day)
+                set(Calendar.HOUR_OF_DAY, hour)
+                set(Calendar.MINUTE, minute)
+                set(Calendar.SECOND, second)
+                set(Calendar.MILLISECOND, 0)
+            }
+            return calendar.time
+        }
+
+        // Helper function to get start of day in Philippine timezone
+        fun getStartOfDay(date: Date): Date {
+            val calendar = getPhilippineCalendar().apply {
+                time = date
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            return calendar.time
+        }
+
+        // Helper function to get end of day in Philippine timezone
+        fun getEndOfDay(date: Date): Date {
+            val calendar = getPhilippineCalendar().apply {
+                time = date
+                set(Calendar.HOUR_OF_DAY, 23)
+                set(Calendar.MINUTE, 59)
+                set(Calendar.SECOND, 59)
+                set(Calendar.MILLISECOND, 999)
+            }
+            return calendar.time
+        }
+
+        // Helper function to format date for display
+        fun formatDateForDisplay(date: Date): String {
+            return DISPLAY_DATE_FORMAT.format(date)
+        }
+
+        // Helper function to check if two dates are the same day in Philippine timezone
+        private fun isSameDay(date1: Date, date2: Date): Boolean {
+            val cal1 = getPhilippineCalendar().apply { time = date1 }
+            val cal2 = getPhilippineCalendar().apply { time = date2 }
+            return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR) &&
+                    cal1.get(Calendar.DAY_OF_YEAR) == cal2.get(Calendar.DAY_OF_YEAR)
+        }
+
+        // Helper function to get current Philippine time
+        fun getCurrentPhilippineTime(): Date {
+            return getPhilippineCalendar().time
+        }
+
+        // Helper function to parse date string in Philippine timezone
+        fun parseDateString(dateString: String): Date? {
+            return try {
+                DATE_FORMAT.parse(dateString)
+            } catch (e: Exception) {
+                Log.e("DateUtils", "Error parsing date: $dateString", e)
+                null
+            }
+        }
+
+        // Helper function to format date as string in Philippine timezone
+        fun formatDateAsString(date: Date): String {
+            return DATE_FORMAT.format(date)
+        }
+
+        // Debug helper to log date information
+        fun logDateInfo(tag: String, description: String, date: Date) {
+            val philCal = getPhilippineCalendar().apply { time = date }
+            Log.d(tag, "$description: ${DATETIME_FORMAT.format(date)} (Philippine Time)")
+            Log.d(tag, "  Year: ${philCal.get(Calendar.YEAR)}, Month: ${philCal.get(Calendar.MONTH)}, Day: ${philCal.get(Calendar.DAY_OF_MONTH)}")
+            Log.d(tag, "  Hour: ${philCal.get(Calendar.HOUR_OF_DAY)}, Minute: ${philCal.get(Calendar.MINUTE)}, Second: ${philCal.get(Calendar.SECOND)}")
         }
     }
+
     data class PaymentDistribution(
         val cash: Double = 0.0,
         val card: Double = 0.0,
@@ -118,13 +211,13 @@ class ReportsActivity : AppCompatActivity() {
         val totalTransactions: Int = 0,
         val totalReturns: Int = 0,
         val totalReturnAmount: Double = 0.0,
-        val totalReturnDiscount: Double = 0.0, // Total discount from returns
+        val totalReturnDiscount: Double = 0.0,
         val paymentDistribution: PaymentDistribution = PaymentDistribution(),
         val itemSales: List<ItemSalesSummary> = emptyList(),
         val vatAmount: Double = 0.0,
         val vatableSales: Double = 0.0,
-        val startingOR: String = "N/A", // Starting OR number
-        val endingOR: String = "N/A"    // Ending OR number
+        val startingOR: String = "N/A",
+        val endingOR: String = "N/A"
     )
 
     data class ItemGroupSummary(
@@ -134,7 +227,6 @@ class ReportsActivity : AppCompatActivity() {
         val totalAmount: Double
     )
 
-    // Updated data class to hold item calculation results matching buildReadReport
     data class ItemCalculationResult(
         val totalGross: Double,
         val totalQuantity: Int,
@@ -158,8 +250,9 @@ class ReportsActivity : AppCompatActivity() {
     // New method to check if current date has Z-Read
     private suspend fun hasZReadForCurrentDate(): Boolean {
         return withContext(Dispatchers.IO) {
-            val currentDateString = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+            val currentDateString = formatDateAsString(getCurrentPhilippineTime())
             val existingZRead = zReadDao.getZReadByDate(currentDateString)
+            Log.d("ReportsActivity", "Checking Z-Read for date: $currentDateString, found: ${existingZRead != null}")
             existingZRead != null
         }
     }
@@ -318,14 +411,17 @@ class ReportsActivity : AppCompatActivity() {
                 val isToday = isSameDay(currentDate, selectedDate)
 
                 if (!isToday) {
-                    val selectedDateString = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(selectedDate)
+                    val selectedDateString = formatDateAsString(selectedDate)
                     val existingZRead = zReadDao.getZReadByDate(selectedDateString)
 
                     withContext(Dispatchers.Main) {
                         if (existingZRead != null) {
-                            // Show Z-Read preview instead of simple message
+                            // FIXED: Use string date format for DAO call
                             val transactions = withContext(Dispatchers.IO) {
-                                transactionDao.getTransactionsByDateRange(startDate, endDate)
+                                transactionDao.getTransactionsByDateRange(
+                                    formatDateToString(startDate),
+                                    formatDateToString(endDate)
+                                )
                             }
                             val tenderDeclaration = withContext(Dispatchers.IO) {
                                 tenderDeclarationDao.getLatestTenderDeclaration()
@@ -349,29 +445,18 @@ class ReportsActivity : AppCompatActivity() {
                     return@launch
                 }
 
-                // Get today's transactions
-                val todayStart = Calendar.getInstance().apply {
-                    time = currentDate
-                    set(Calendar.HOUR_OF_DAY, 0)
-                    set(Calendar.MINUTE, 0)
-                    set(Calendar.SECOND, 0)
-                    set(Calendar.MILLISECOND, 0)
-                }.time
+                val todayStart = getStartOfDay(currentDate)
+                val todayEnd = getEndOfDay(currentDate)
 
-                val todayEnd = Calendar.getInstance().apply {
-                    time = currentDate
-                    set(Calendar.HOUR_OF_DAY, 23)
-                    set(Calendar.MINUTE, 59)
-                    set(Calendar.SECOND, 59)
-                    set(Calendar.MILLISECOND, 999)
-                }.time
-
-                val transactions = transactionDao.getTransactionsByDateRange(todayStart, todayEnd)
+                // FIXED: Convert Date to String for DAO call
+                val transactions = transactionDao.getTransactionsByDateRange(
+                    formatDateToString(todayStart),
+                    formatDateToString(todayEnd)
+                )
                 val currentTenderDeclaration = tenderDeclarationDao.getLatestTenderDeclaration()
                 val hasZRead = hasZReadForCurrentDate()
 
                 withContext(Dispatchers.Main) {
-                    // Show X-Read preview dialog instead of confirmation
                     showXReadPreviewDialog(transactions, currentTenderDeclaration, hasZRead)
                 }
 
@@ -478,22 +563,13 @@ class ReportsActivity : AppCompatActivity() {
     }
 
     private fun getCurrentDate(): String {
-        val timeZone = TimeZone.getTimeZone("Asia/Manila")
-        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).apply {
-            this.timeZone = timeZone
-        }
-        return sdf.format(Date())
+        return formatDateAsString(getCurrentPhilippineTime())
     }
 
 
     private fun getCurrentTime(): String {
-        val timeZone = TimeZone.getTimeZone("Asia/Manila")
-        val sdf = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).apply {
-            this.timeZone = timeZone
-        }
-        return sdf.format(Date())
+        return TIME_FORMAT.format(getCurrentPhilippineTime())
     }
-
     // Rest of the existing methods...
     private fun showReprintZReadSelection() {
         lifecycleScope.launch {
@@ -538,7 +614,6 @@ class ReportsActivity : AppCompatActivity() {
             numberSequenceRemoteDao = numberSequenceRemoteDao
         )
 
-        // REMOVE THE 'val' KEYWORD HERE - this should assign to the class property
         transactionRepository = TransactionRepository(
             transactionDao = transactionDao,
             numberSequenceRemoteRepository = numberSequenceRemoteRepository
@@ -550,47 +625,40 @@ class ReportsActivity : AppCompatActivity() {
         val arViewModelFactory = ARViewModelFactory(arRepository)
         arViewModel = ViewModelProvider(this, arViewModelFactory)[ARViewModel::class.java]
 
-        val currentDate = Calendar.getInstance()
-        val dateFormat = SimpleDateFormat("MM/dd/yyyy", Locale.getDefault())
-        val todayString = dateFormat.format(currentDate.time)
-        bluetoothPrinterHelper = BluetoothPrinterHelper.getInstance()
+        // FIXED: Use Philippine timezone for current date
+        val currentPhilippineTime = getCurrentPhilippineTime()
+        val todayString = formatDateForDisplay(currentPhilippineTime)
 
-        // IMPORTANT: Inject the transactionDao into the printer helper
+        bluetoothPrinterHelper = BluetoothPrinterHelper.getInstance()
         bluetoothPrinterHelper.setTransactionDao(transactionDao)
+
         binding.startDatePickerButton.text = todayString
         binding.endDatePickerButton.text = todayString
 
-        val startOfDay = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
+        // FIXED: Set date range to full day in Philippine timezone
+        startDate = getStartOfDay(currentPhilippineTime)
+        endDate = getEndOfDay(currentPhilippineTime)
 
-        val endOfDay = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 23)
-            set(Calendar.MINUTE, 59)
-            set(Calendar.SECOND, 59)
-            set(Calendar.MILLISECOND, 999)
-        }
-
-        startDate = startOfDay.time
-        endDate = endOfDay.time
+        // Debug logging
+        logDateInfo("ReportsActivity", "Initialized startDate", startDate)
+        logDateInfo("ReportsActivity", "Initialized endDate", endDate)
     }
 
     private fun setupDatePickers() {
         binding.startDatePickerButton.setOnClickListener {
             showDatePicker(true) { selectedDate ->
-                startDate = selectedDate
-                binding.startDatePickerButton.text =
-                    SimpleDateFormat("MM/dd/yyyy", Locale.getDefault()).format(selectedDate)
+                startDate = getStartOfDay(selectedDate)
+                binding.startDatePickerButton.text = formatDateForDisplay(selectedDate)
 
                 // If start date is after end date, adjust end date
                 if (startDate.after(endDate)) {
-                    endDate = selectedDate
-                    binding.endDatePickerButton.text =
-                        SimpleDateFormat("MM/dd/yyyy", Locale.getDefault()).format(selectedDate)
+                    endDate = getEndOfDay(selectedDate)
+                    binding.endDatePickerButton.text = formatDateForDisplay(selectedDate)
                 }
+
+                // Debug logging
+                logDateInfo("ReportsActivity", "Updated startDate", startDate)
+                logDateInfo("ReportsActivity", "Updated endDate", endDate)
 
                 loadReportForDateRange()
             }
@@ -598,22 +666,18 @@ class ReportsActivity : AppCompatActivity() {
 
         binding.endDatePickerButton.setOnClickListener {
             showDatePicker(false) { selectedDate ->
-                endDate = selectedDate
-                binding.endDatePickerButton.text =
-                    SimpleDateFormat("MM/dd/yyyy", Locale.getDefault()).format(selectedDate)
+                endDate = getEndOfDay(selectedDate)
+                binding.endDatePickerButton.text = formatDateForDisplay(selectedDate)
 
                 // If end date is before start date, automatically adjust start date
                 if (endDate.before(startDate)) {
-                    startDate = Calendar.getInstance().apply {
-                        time = selectedDate
-                        set(Calendar.HOUR_OF_DAY, 0)
-                        set(Calendar.MINUTE, 0)
-                        set(Calendar.SECOND, 0)
-                        set(Calendar.MILLISECOND, 0)
-                    }.time
-                    binding.startDatePickerButton.text =
-                        SimpleDateFormat("MM/dd/yyyy", Locale.getDefault()).format(startDate)
+                    startDate = getStartOfDay(selectedDate)
+                    binding.startDatePickerButton.text = formatDateForDisplay(selectedDate)
                 }
+
+                // Debug logging
+                logDateInfo("ReportsActivity", "Updated startDate", startDate)
+                logDateInfo("ReportsActivity", "Updated endDate", endDate)
 
                 loadReportForDateRange()
             }
@@ -621,34 +685,22 @@ class ReportsActivity : AppCompatActivity() {
     }
 
     private fun showDatePicker(isStartDate: Boolean, onDateSelected: (Date) -> Unit) {
-        val currentDate = Calendar.getInstance()
+        val currentPhilippineTime = getPhilippineCalendar()
+
         val datePickerDialog = DatePickerDialog(
             this,
             { _, year, month, day ->
-                val selectedCalendar = Calendar.getInstance().apply {
-                    set(Calendar.YEAR, year)
-                    set(Calendar.MONTH, month)
-                    set(Calendar.DAY_OF_MONTH, day)
-                    if (isStartDate) {
-                        set(Calendar.HOUR_OF_DAY, 0)
-                        set(Calendar.MINUTE, 0)
-                        set(Calendar.SECOND, 0)
-                        set(Calendar.MILLISECOND, 0)
-                    } else {
-                        set(Calendar.HOUR_OF_DAY, 23)
-                        set(Calendar.MINUTE, 59)
-                        set(Calendar.SECOND, 59)
-                        set(Calendar.MILLISECOND, 999)
-                    }
-                }
-                onDateSelected(selectedCalendar.time)
+                // Create date in Philippine timezone
+                val selectedDate = createPhilippineDate(year, month, day)
+                onDateSelected(selectedDate)
             },
-            currentDate.get(Calendar.YEAR),
-            currentDate.get(Calendar.MONTH),
-            currentDate.get(Calendar.DAY_OF_MONTH)
+            currentPhilippineTime.get(Calendar.YEAR),
+            currentPhilippineTime.get(Calendar.MONTH),
+            currentPhilippineTime.get(Calendar.DAY_OF_MONTH)
         )
         datePickerDialog.show()
     }
+
 
     private fun setupButtons() {
         // Show the cash management buttons
@@ -679,11 +731,11 @@ class ReportsActivity : AppCompatActivity() {
             checkForExistingZRead()
         }
         binding.itemsalesButton.setOnClickListener {
-            // Remove the hardcoded current date logic
+            // FIXED: Use proper Philippine timezone formatting
             val selectedDateRange = if (isSameDay(startDate, endDate)) {
-                SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(endDate)
+                DISPLAY_DATE_RANGE_FORMAT.format(endDate)
             } else {
-                "${SimpleDateFormat("MMM dd", Locale.getDefault()).format(startDate)} - ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(endDate)}"
+                "${SimpleDateFormat("MMM dd", Locale.getDefault()).apply { timeZone = PHILIPPINES_TIMEZONE }.format(startDate)} - ${DISPLAY_DATE_RANGE_FORMAT.format(endDate)}"
             }
             showItemSalesDialog(selectedDateRange)
         }
@@ -699,8 +751,6 @@ class ReportsActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val selectedDateString = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(endDate)
-
-                // Check if there's already a Z-Read record for this date
                 val existingZRead = zReadDao.getZReadByDate(selectedDateString)
 
                 if (existingZRead != null) {
@@ -708,10 +758,12 @@ class ReportsActivity : AppCompatActivity() {
                     return@launch
                 }
 
-                // Get transactions for the selected date
                 val transactions = withContext(Dispatchers.IO) {
-                    transactionDao.getTransactionsByDateRange(startDate, endDate)
-                        .filter { it.transactionStatus == 1 } // Only completed transactions
+                    // FIXED: Convert Date to String for DAO call
+                    transactionDao.getTransactionsByDateRange(
+                        formatDateToString(startDate),
+                        formatDateToString(endDate)
+                    ).filter { it.transactionStatus == 1 }
                 }
 
                 if (transactions.isEmpty()) {
@@ -723,29 +775,23 @@ class ReportsActivity : AppCompatActivity() {
                     return@launch
                 }
 
-                // Check if any of these transactions already have a zReportId
                 val transactionsWithZRead = transactions.filter {
                     !it.zReportId.isNullOrEmpty()
                 }
 
                 if (transactionsWithZRead.isNotEmpty()) {
-                    // Some transactions already have Z-Read assigned
                     val firstZReportId = transactionsWithZRead.first().zReportId
 
-                    // Check if all transactions have the same zReportId
                     val allSameZReportId = transactionsWithZRead.all {
                         it.zReportId == firstZReportId
                     }
 
                     if (allSameZReportId && transactionsWithZRead.size == transactions.size) {
-                        // All transactions have the same Z-Report ID, treat as existing Z-Read
                         showExistingZReadDialog(firstZReportId!!, transactions)
                     } else {
-                        // Mixed state - some transactions have Z-Read, some don't
                         showMixedZReadStateDialog(transactions, transactionsWithZRead)
                     }
                 } else {
-                    // No transactions have Z-Read assigned, proceed with normal Z-Read generation
                     showZReadConfirmationDialog(transactions.size)
                 }
 
@@ -962,7 +1008,6 @@ class ReportsActivity : AppCompatActivity() {
     private fun performAutomaticZReadCheck() {
         lifecycleScope.launch {
             try {
-                // Use Philippines timezone
                 val philippinesTimeZone = TimeZone.getTimeZone("Asia/Manila")
                 val yesterday = Calendar.getInstance(philippinesTimeZone).apply {
                     add(Calendar.DAY_OF_MONTH, -1)
@@ -972,7 +1017,6 @@ class ReportsActivity : AppCompatActivity() {
                     timeZone = philippinesTimeZone
                 }.format(yesterday)
 
-                // Check if Z-Read already exists for yesterday
                 val existingZRead = withContext(Dispatchers.IO) {
                     zReadDao.getZReadByDate(yesterdayString)
                 }
@@ -982,7 +1026,6 @@ class ReportsActivity : AppCompatActivity() {
                     return@launch
                 }
 
-                // Get transactions for yesterday
                 val yesterdayStart = Calendar.getInstance(philippinesTimeZone).apply {
                     time = yesterday
                     set(Calendar.HOUR_OF_DAY, 0)
@@ -1000,8 +1043,11 @@ class ReportsActivity : AppCompatActivity() {
                 }.time
 
                 val allTransactions = withContext(Dispatchers.IO) {
-                    transactionDao.getTransactionsByDateRange(yesterdayStart, yesterdayEnd)
-                        .filter { it.transactionStatus == 1 } // Only completed transactions
+                    // FIXED: Convert Date to String for DAO call
+                    transactionDao.getTransactionsByDateRange(
+                        formatDateToString(yesterdayStart),
+                        formatDateToString(yesterdayEnd)
+                    ).filter { it.transactionStatus == 1 }
                 }
 
                 if (allTransactions.isEmpty()) {
@@ -1009,7 +1055,6 @@ class ReportsActivity : AppCompatActivity() {
                     return@launch
                 }
 
-                // IMPORTANT: Only process transactions that don't have Z-Report ID
                 val transactionsWithoutZRead = allTransactions.filter {
                     it.zReportId.isNullOrEmpty() || it.zReportId!!.isBlank()
                 }
@@ -1020,8 +1065,6 @@ class ReportsActivity : AppCompatActivity() {
                 }
 
                 Log.d("AutoZRead", "Found ${transactionsWithoutZRead.size} transactions without Z-Read for $yesterdayString")
-
-                // Generate automatic Z-Read for only these specific transactions
                 generateAutomaticZReadSilent(transactionsWithoutZRead, yesterdayString)
 
             } catch (e: Exception) {
@@ -1072,7 +1115,12 @@ class ReportsActivity : AppCompatActivity() {
 
                 // Get all completed transactions from yesterday
                 val yesterdayTransactions = withContext(Dispatchers.IO) {
-                    transactionDao.getTransactionsByDateRange(yesterdayStart, yesterdayEnd)
+//                        transactionDao.getTransactionsByDateRange(yesterdayStart, yesterdayEnd)
+
+                    transactionDao.getTransactionsByDateRange(
+                        formatDateToString(yesterdayStart),
+                        formatDateToString(yesterdayEnd)
+                    )
                         .filter { it.transactionStatus == 1 } // Only completed transactions
                 }
 
@@ -1197,7 +1245,12 @@ class ReportsActivity : AppCompatActivity() {
                 }.time
 
                 val yesterdayTransactions = withContext(Dispatchers.IO) {
-                    transactionDao.getTransactionsByDateRange(yesterdayStart, yesterdayEnd)
+//                    transactionDao.getTransactionsByDateRange(yesterdayStart, yesterdayEnd)
+
+                    transactionDao.getTransactionsByDateRange(
+                        formatDateToString(yesterdayStart),
+                        formatDateToString(yesterdayEnd)
+                    )
                         .filter { it.transactionStatus == 1 }
                 }
 
@@ -1317,7 +1370,10 @@ class ReportsActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val transactions = withContext(Dispatchers.IO) {
-                    transactionDao.getTransactionsByDateRange(startDate, endDate)
+                    transactionDao.getTransactionsByDateRange(
+                        formatDateToString(startDate),
+                        formatDateToString(endDate)
+                    )
                 }
 
                 val tenderDeclaration = withContext(Dispatchers.IO) {
@@ -1406,7 +1462,10 @@ class ReportsActivity : AppCompatActivity() {
                     specificTransactions
                 } else {
                     withContext(Dispatchers.IO) {
-                        transactionDao.getTransactionsByDateRange(startDate, endDate)
+                        transactionDao.getTransactionsByDateRange(
+                            formatDateToString(startDate),
+                            formatDateToString(endDate)
+                        )
                             .filter { it.transactionStatus == 1 }
                     }
                 }
@@ -1672,26 +1731,107 @@ class ReportsActivity : AppCompatActivity() {
         loadReportForDateRange()
     }
 
-    private fun loadReportForDateRange() {
-        lifecycleScope.launch {
-            try {
-                val transactions = withContext(Dispatchers.IO) {
-                    transactionDao.getTransactionsByDateRange(startDate, endDate)
-                }
+//    private fun loadReportForDateRange() {
+//        lifecycleScope.launch {
+//            try {
+//                logDateInfo("ReportsActivity", "Query startDate", startDate)
+//                logDateInfo("ReportsActivity", "Query endDate", endDate)
+//
+//                val allTransactionsInRange = withContext(Dispatchers.IO) {
+//                    // FIXED: Convert Date to String for DAO call
+//                    val transactions = transactionDao.getTransactionsByDateRange(
+//                        formatDateToString(startDate),
+//                        formatDateToString(endDate)
+//                    )
+//
+//                    Log.d("ReportsActivity", "=== TRANSACTION TIMESTAMP DEBUG ===")
+//                    Log.d("ReportsActivity", "Query range: ${startDate.time} to ${endDate.time}")
+//                    Log.d("ReportsActivity", "Query range (readable): ${DATETIME_FORMAT.format(startDate)} to ${DATETIME_FORMAT.format(endDate)}")
+//                    Log.d("ReportsActivity", "Found ${transactions.size} transactions")
+//
+//                    val transactionIds = transactions.map { it.transactionId }.sorted()
+//                    Log.d("ReportsActivity", "Transaction IDs found: $transactionIds")
+//
+//                    val expectedIds = mutableListOf<String>()
+//                    for (i in 949..1017) {
+//                        expectedIds.add("VICTORIA${String.format("%09d", i)}")
+//                    }
+//
+//                    val missingIds = expectedIds.filter { expectedId ->
+//                        !transactionIds.contains(expectedId)
+//                    }
+//
+//                    if (missingIds.isNotEmpty()) {
+//                        Log.w("ReportsActivity", "MISSING TRANSACTIONS: $missingIds")
+//
+//                        missingIds.forEach { missingId ->
+//                            val foundTransaction = transactionDao.getTransactionById(missingId)
+//                            if (foundTransaction != null) {
+//                                Log.w("ReportsActivity", "FOUND MISSING TRANSACTION $missingId:")
+//                                Log.w("ReportsActivity", "  Date: ${foundTransaction.createdDate}")
+//                            } else {
+//                                Log.e("ReportsActivity", "TRANSACTION $missingId NOT FOUND IN DATABASE AT ALL!")
+//                            }
+//                        }
+//                    }
+//
+//                    transactions.sortedBy { it.createdDate.toTimestamp() }.forEach { transaction ->
+//                        val transactionType = when {
+//                            transaction.type == 2 -> "RETURN"
+//                            transaction.type == 3 -> "AR"
+//                            transaction.transactionStatus != 1 -> "VOID/PENDING"
+//                            else -> "SALE"
+//                        }
+//
+//                        Log.d("ReportsActivity", "Transaction ${transaction.transactionId} (${transactionType}):")
+//                        Log.d("ReportsActivity", "  Receipt ID: ${transaction.receiptId}")
+//                        Log.d("ReportsActivity", "  Timestamp: ${transaction.createdDate}")
+//                        Log.d("ReportsActivity", "  Date: ${transaction.createdDate}")
+//                    }
+//
+//                    transactions
+//                }
+//
+//                Log.d("ReportsActivity", "Final query returned ${allTransactionsInRange.size} transactions")
+//
+//                val report = calculateSalesReport(allTransactionsInRange)
+//                updateUI(report)
+//
+//            } catch (e: Exception) {
+//                Log.e("ReportsActivity", "Error loading report", e)
+//                Toast.makeText(
+//                    this@ReportsActivity,
+//                    "Error loading report: ${e.message}",
+//                    Toast.LENGTH_SHORT
+//                ).show()
+//            }
+//        }
+//    }
+// Instead of using DAO date range queries, use this approach:
+private fun loadReportForDateRange() {
+    lifecycleScope.launch {
+        try {
+            // FIXED: Convert Date objects to string format for DAO
+            val startDateString = formatDateToString(startDate)
+            val endDateString = formatDateToString(endDate)
 
-                val report = calculateSalesReport(transactions)
-                updateUI(report)
+            Log.d("ReportsActivity", "Loading report for date range: $startDateString to $endDateString")
 
-            } catch (e: Exception) {
-                Log.e("ReportsActivity", "Error loading report", e)
-                Toast.makeText(
-                    this@ReportsActivity,
-                    "Error loading report: ${e.message}",
-                    Toast.LENGTH_SHORT
-                ).show()
+            val allTransactionsInRange = withContext(Dispatchers.IO) {
+                // FIXED: Use string parameters for DAO call
+                transactionDao.getTransactionsByDateRange(startDateString, endDateString)
             }
+
+            Log.d("ReportsActivity", "Found ${allTransactionsInRange.size} transactions in range")
+
+            val report = calculateSalesReport(allTransactionsInRange)
+            updateUI(report)
+
+        } catch (e: Exception) {
+            Log.e("ReportsActivity", "Error loading report", e)
         }
     }
+}
 
     // Updated showCashFundDialog function - REPLACE your existing one
     private fun showCashFundDialog() {
@@ -2333,18 +2473,18 @@ class ReportsActivity : AppCompatActivity() {
     // Replace your existing createAllItemSales method with this one
     private fun createAllItemSales() {
         binding.itemSalesContainer.removeAllViews()
-
-        // Show loading state
         showItemSalesLoading()
 
         lifecycleScope.launch {
             try {
-                // Load items directly from database (same logic as showItemSalesDialog)
                 val transactions = withContext(Dispatchers.IO) {
-                    transactionDao.getTransactionsByDateRange(startDate, endDate)
+                    // FIXED: Convert Date to String for DAO call
+                    transactionDao.getTransactionsByDateRange(
+                        formatDateToString(startDate),
+                        formatDateToString(endDate)
+                    )
                 }
 
-                // Get all items from these transactions and group them (same as showItemSalesDialog)
                 val itemSales = mutableMapOf<String, ItemSalesSummary>()
                 var totalSales = 0.0
                 var totalQuantity = 0
@@ -2354,8 +2494,6 @@ class ReportsActivity : AppCompatActivity() {
                         val items = transactionDao.getTransactionRecordsByTransactionId(transaction.transactionId)
                         items.forEach { item ->
                             val key = item.name
-
-                            // Get product details for itemgroup
                             val itemGroup = item.itemGroup ?: "Unknown"
 
                             val currentSummary = itemSales.getOrDefault(key, ItemSalesSummary(
@@ -2380,7 +2518,6 @@ class ReportsActivity : AppCompatActivity() {
                     }
                 }
 
-                // Group items by itemGroup and sort (same as showItemSalesDialog)
                 val groupedItems = itemSales.values
                     .groupBy { it.itemGroup }
                     .map { (groupName, items) ->
@@ -2393,7 +2530,6 @@ class ReportsActivity : AppCompatActivity() {
                     }
                     .sortedByDescending { it.totalAmount }
 
-                // Update UI on main thread
                 withContext(Dispatchers.Main) {
                     hideItemSalesLoading()
 
@@ -2404,8 +2540,6 @@ class ReportsActivity : AppCompatActivity() {
                     }
 
                     binding.noItemSalesText.visibility = android.view.View.GONE
-
-                    // Display ALL items (same structure as before but with all data)
                     displayAllItemSalesFromDatabase(groupedItems, totalQuantity, totalSales, transactions.size)
                 }
 
@@ -2418,7 +2552,6 @@ class ReportsActivity : AppCompatActivity() {
             }
         }
     }
-
     private suspend fun displayAllItemSalesFromDatabase(
         groupedItems: List<ItemGroupSummary>,
         totalQuantity: Int,
@@ -2635,7 +2768,10 @@ class ReportsActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 val transactions = withContext(Dispatchers.IO) {
-                    transactionDao.getTransactionsByDateRange(startDate, endDate)
+                    transactionDao.getTransactionsByDateRange(
+                        formatDateToString(startDate),
+                        formatDateToString(endDate)
+                    )
                 }
 
                 val content = StringBuilder()
@@ -2732,7 +2868,7 @@ class ReportsActivity : AppCompatActivity() {
     }
 
     private suspend fun calculateSalesReport(transactions: List<TransactionSummary>): SalesReport {
-        // Separate regular transactions and returns for proper calculation
+        // Separate regular transactions and returns for SALES calculation, but include ALL for OR numbering
         val regularTransactions = transactions.filter { it.transactionStatus == 1 && it.type != 2 }
         val returnTransactions = transactions.filter { it.type == 2 }
 
@@ -2741,18 +2877,16 @@ class ReportsActivity : AppCompatActivity() {
         val returnItemCalculations = calculateItemTotals(returnTransactions)
 
         // Net calculations (regular sales minus returns)
-        val totalGross = regularItemCalculations.totalGross + returnItemCalculations.totalGross // returns are already negative
+        val totalGross = regularItemCalculations.totalGross + returnItemCalculations.totalGross
         val totalNetSales = regularTransactions.sumOf { it.netAmount } + returnTransactions.sumOf { it.netAmount }
         val totalDiscount = regularTransactions.sumOf { it.totalDiscountAmount } + returnTransactions.sumOf { it.totalDiscountAmount }
-        val totalQuantity = regularItemCalculations.totalQuantity + returnItemCalculations.totalQuantity // returns have negative quantities
+        val totalQuantity = regularItemCalculations.totalQuantity + returnItemCalculations.totalQuantity
 
         // Calculate total return amount (absolute value for display)
         val totalReturnAmount = kotlin.math.abs(returnTransactions.sumOf { it.netAmount })
-
-        // NEW: Calculate total return discount (absolute value for display)
         val totalReturnDiscount = kotlin.math.abs(returnTransactions.sumOf { it.totalDiscountAmount })
 
-        // Payment method totals including returns (returns should reduce totals)
+        // Payment method totals including returns
         val paymentDistribution = PaymentDistribution(
             cash = regularTransactions.sumOf { it.cash } + returnTransactions.sumOf { it.cash },
             card = regularTransactions.sumOf { it.card } + returnTransactions.sumOf { it.card },
@@ -2767,7 +2901,7 @@ class ReportsActivity : AppCompatActivity() {
                     returnTransactions.filter { it.type == 3 }.sumOf { it.netAmount }
         )
 
-        // VAT calculations (same logic as buildReadReport)
+        // VAT calculations
         val vatRate = 0.12
         val vatableSales = totalNetSales / (1 + vatRate)
         val vatAmount = totalNetSales - vatableSales
@@ -2776,14 +2910,8 @@ class ReportsActivity : AppCompatActivity() {
         val totalTransactions = regularTransactions.size
         val totalReturns = returnTransactions.size
 
-        // NEW: Calculate starting and ending OR numbers
-        val startingOR = if (regularTransactions.isNotEmpty()) {
-            regularTransactions.minByOrNull { it.transactionId }?.transactionId?.toString()?.filter { it.isDigit() } ?: "N/A"
-        } else "N/A"
-
-        val endingOR = if (regularTransactions.isNotEmpty()) {
-            regularTransactions.maxByOrNull { it.transactionId }?.transactionId?.toString()?.filter { it.isDigit() } ?: "N/A"
-        } else "N/A"
+        // FIXED: Get OR numbers from ALL transactions (including returns) for proper sequencing
+        val (startingOR, endingOR) = getORNumberRange(transactions) // Pass ALL transactions, not just regular ones
 
         // Combine item sales from both regular and return transactions
         val combinedItemSales = combineItemSales(regularItemCalculations.itemSales, returnItemCalculations.itemSales)
@@ -2791,21 +2919,321 @@ class ReportsActivity : AppCompatActivity() {
         return SalesReport(
             totalGross = totalGross,
             totalNetSales = totalNetSales,
-            totalDiscount = kotlin.math.abs(totalDiscount), // Show as positive for display
-            totalQuantity = kotlin.math.abs(totalQuantity), // Show as positive for display
+            totalDiscount = kotlin.math.abs(totalDiscount),
+            totalQuantity = kotlin.math.abs(totalQuantity),
             totalTransactions = totalTransactions,
             totalReturns = totalReturns,
-            totalReturnAmount = totalReturnAmount, // NEW: Include total return amount
-            totalReturnDiscount = totalReturnDiscount, // NEW: Include total return discount
+            totalReturnAmount = totalReturnAmount,
+            totalReturnDiscount = totalReturnDiscount,
             paymentDistribution = paymentDistribution,
             itemSales = combinedItemSales,
             vatAmount = vatAmount,
             vatableSales = vatableSales,
-            startingOR = startingOR, // NEW: Include starting OR
-            endingOR = endingOR // NEW: Include ending OR
+            startingOR = startingOR,
+            endingOR = endingOR
         )
     }
+//    private suspend fun getORNumberRange(transactions: List<TransactionSummary>): Pair<String, String> {
+//        return withContext(Dispatchers.IO) {
+//            if (transactions.isEmpty()) {
+//                return@withContext Pair("N/A", "N/A")
+//            }
+//
+//            try {
+//                // Log transaction data for debugging
+//                Log.d("ORCalculation", "=== OR Number Calculation Debug ===")
+//                Log.d("ORCalculation", "Processing ${transactions.size} transactions (including returns)")
+//
+//                // FIXED: Include ALL transactions for proper OR sequencing, but note their types
+//                val sortedTransactions = transactions.sortedBy { it.createdDate.time }
+//
+//                sortedTransactions.forEach { transaction ->
+//                    val transactionType = when {
+//                        transaction.type == 2 -> "RETURN"
+//                        transaction.type == 3 -> "AR"
+//                        transaction.transactionStatus != 1 -> "VOID/PENDING"
+//                        else -> "SALE"
+//                    }
+//
+//                    Log.d("ORCalculation", "Transaction ID: ${transaction.transactionId} (${transactionType})")
+//                    Log.d("ORCalculation", "Receipt ID: ${transaction.receiptId}")
+//                    Log.d("ORCalculation", "Created Date: ${DATETIME_FORMAT.format(transaction.createdDate)}")
+//                    Log.d("ORCalculation", "Timestamp: ${transaction.createdDate.time}")
+//                    Log.d("ORCalculation", "Type: ${transaction.type}, Status: ${transaction.transactionStatus}")
+//                    Log.d("ORCalculation", "---")
+//                }
+//
+//                // Method 1: Try to get OR numbers from receiptId field
+//                val orNumbersFromReceiptId = sortedTransactions
+//                    .mapNotNull { transaction ->
+//                        extractORFromReceiptId(transaction.receiptId)?.let { orNumber ->
+//                            val transactionType = when {
+//                                transaction.type == 2 -> "RETURN"
+//                                transaction.type == 3 -> "AR"
+//                                transaction.transactionStatus != 1 -> "VOID/PENDING"
+//                                else -> "SALE"
+//                            }
+//                            Log.d("ORCalculation", "Extracted OR from receiptId '${transaction.receiptId}': $orNumber (${transactionType})")
+//                            orNumber to transaction.createdDate.time
+//                        }
+//                    }
+//                    .sortedBy { it.second } // Sort by timestamp
+//
+//                if (orNumbersFromReceiptId.isNotEmpty()) {
+//                    val startingOR = orNumbersFromReceiptId.first().first.toString()
+//                    val endingOR = orNumbersFromReceiptId.last().first.toString()
+//                    Log.d("ORCalculation", "Using receiptId method - Starting OR: $startingOR, Ending OR: $endingOR")
+//                    return@withContext Pair(startingOR, endingOR)
+//                }
+//
+//                // Method 2: Check if there's a sequence number in the database for these transactions
+//                val orNumbersFromSequence = mutableListOf<Pair<Int, Long>>()
+//
+//                sortedTransactions.forEach { transaction ->
+//                    val sequenceNumber = getSequenceNumberForTransaction(transaction.transactionId)
+//                    if (sequenceNumber != null) {
+//                        orNumbersFromSequence.add(sequenceNumber to transaction.createdDate.time)
+//                        Log.d("ORCalculation", "Found sequence number for ${transaction.transactionId}: $sequenceNumber")
+//                    }
+//                }
+//
+//                if (orNumbersFromSequence.isNotEmpty()) {
+//                    val sortedByTime = orNumbersFromSequence.sortedBy { it.second }
+//                    val startingOR = sortedByTime.first().first.toString()
+//                    val endingOR = sortedByTime.last().first.toString()
+//                    Log.d("ORCalculation", "Using sequence method - Starting OR: $startingOR, Ending OR: $endingOR")
+//                    return@withContext Pair(startingOR, endingOR)
+//                }
+//
+//                // Method 3: Generate sequential numbers based on chronological order (INCLUDING returns)
+//                Log.d("ORCalculation", "Using chronological numbering method (including returns)")
+//
+//                // Get the last used OR number from database or SharedPreferences
+//                val lastORNumber = getLastUsedORNumber()
+//                Log.d("ORCalculation", "Last used OR number: $lastORNumber")
+//
+//                // FIXED: Assign sequential numbers to ALL transactions in chronological order
+//                val startingORNumber = lastORNumber + 1
+//                val endingORNumber = lastORNumber + sortedTransactions.size
+//
+//                // Update the last used OR number
+//                updateLastUsedORNumber(endingORNumber)
+//
+//                // Store the OR assignments for these transactions (optional, for future reference)
+//                sortedTransactions.forEachIndexed { index, transaction ->
+//                    val orNumber = startingORNumber + index
+//                    val transactionType = when {
+//                        transaction.type == 2 -> "RETURN"
+//                        transaction.type == 3 -> "AR"
+//                        transaction.transactionStatus != 1 -> "VOID/PENDING"
+//                        else -> "SALE"
+//                    }
+//
+//                    storeORAssignment(transaction.transactionId, orNumber)
+//                    Log.d("ORCalculation", "Assigned OR $orNumber to transaction ${transaction.transactionId} (${transactionType})")
+//                }
+//
+//                val startingOR = startingORNumber.toString()
+//                val endingOR = endingORNumber.toString()
+//
+//                Log.d("ORCalculation", "Generated sequential - Starting OR: $startingOR, Ending OR: $endingOR")
+//                return@withContext Pair(startingOR, endingOR)
+//
+//            } catch (e: Exception) {
+//                Log.e("ORCalculation", "Error calculating OR numbers", e)
+//                return@withContext Pair("Error", "Error")
+//            }
+//        }
+//    }
+private suspend fun getORNumberRange(transactions: List<TransactionSummary>): Pair<String, String> {
+    return withContext(Dispatchers.IO) {
+        if (transactions.isEmpty()) {
+            return@withContext Pair("N/A", "N/A")
+        }
 
+        try {
+            Log.d("ORCalculation", "=== OR Number Calculation Debug ===")
+            Log.d("ORCalculation", "Processing ${transactions.size} transactions (including returns)")
+
+            // FIXED: Sort by date string using timestamp conversion
+            val sortedTransactions = transactions.sortedBy { it.createdDate.toTimestamp() }
+
+            sortedTransactions.forEach { transaction ->
+                val transactionType = when {
+                    transaction.type == 2 -> "RETURN"
+                    transaction.type == 3 -> "AR"
+                    transaction.transactionStatus != 1 -> "VOID/PENDING"
+                    else -> "SALE"
+                }
+
+                Log.d("ORCalculation", "Transaction ID: ${transaction.transactionId} (${transactionType})")
+                Log.d("ORCalculation", "Receipt ID: ${transaction.receiptId}")
+                Log.d("ORCalculation", "Created Date: ${transaction.createdDate}")
+                Log.d("ORCalculation", "Timestamp: ${transaction.createdDate.toTimestamp()}")
+                Log.d("ORCalculation", "Type: ${transaction.type}, Status: ${transaction.transactionStatus}")
+                Log.d("ORCalculation", "---")
+            }
+
+            // Method 1: Try to get OR numbers from receiptId field
+            val orNumbersFromReceiptId = sortedTransactions
+                .mapNotNull { transaction ->
+                    extractORFromReceiptId(transaction.receiptId)?.let { orNumber ->
+                        val transactionType = when {
+                            transaction.type == 2 -> "RETURN"
+                            transaction.type == 3 -> "AR"
+                            transaction.transactionStatus != 1 -> "VOID/PENDING"
+                            else -> "SALE"
+                        }
+                        Log.d("ORCalculation", "Extracted OR from receiptId '${transaction.receiptId}': $orNumber (${transactionType})")
+                        orNumber to transaction.createdDate.toTimestamp()
+                    }
+                }
+                .sortedBy { it.second } // Sort by timestamp
+
+            if (orNumbersFromReceiptId.isNotEmpty()) {
+                val startingOR = orNumbersFromReceiptId.first().first.toString()
+                val endingOR = orNumbersFromReceiptId.last().first.toString()
+                Log.d("ORCalculation", "Using receiptId method - Starting OR: $startingOR, Ending OR: $endingOR")
+                return@withContext Pair(startingOR, endingOR)
+            }
+
+            // Method 2: Check if there's a sequence number in the database for these transactions
+            val orNumbersFromSequence = mutableListOf<Pair<Int, Long>>()
+
+            sortedTransactions.forEach { transaction ->
+                val sequenceNumber = getSequenceNumberForTransaction(transaction.transactionId)
+                if (sequenceNumber != null) {
+                    orNumbersFromSequence.add(sequenceNumber to transaction.createdDate.toTimestamp())
+                    Log.d("ORCalculation", "Found sequence number for ${transaction.transactionId}: $sequenceNumber")
+                }
+            }
+
+            if (orNumbersFromSequence.isNotEmpty()) {
+                val sortedByTime = orNumbersFromSequence.sortedBy { it.second }
+                val startingOR = sortedByTime.first().first.toString()
+                val endingOR = sortedByTime.last().first.toString()
+                Log.d("ORCalculation", "Using sequence method - Starting OR: $startingOR, Ending OR: $endingOR")
+                return@withContext Pair(startingOR, endingOR)
+            }
+
+            // Method 3: Generate sequential numbers based on chronological order
+            Log.d("ORCalculation", "Using chronological numbering method (including returns)")
+
+            val lastORNumber = getLastUsedORNumber()
+            Log.d("ORCalculation", "Last used OR number: $lastORNumber")
+
+            val startingORNumber = lastORNumber + 1
+            val endingORNumber = lastORNumber + sortedTransactions.size
+
+            updateLastUsedORNumber(endingORNumber)
+
+            sortedTransactions.forEachIndexed { index, transaction ->
+                val orNumber = startingORNumber + index
+                val transactionType = when {
+                    transaction.type == 2 -> "RETURN"
+                    transaction.type == 3 -> "AR"
+                    transaction.transactionStatus != 1 -> "VOID/PENDING"
+                    else -> "SALE"
+                }
+
+                storeORAssignment(transaction.transactionId, orNumber)
+                Log.d("ORCalculation", "Assigned OR $orNumber to transaction ${transaction.transactionId} (${transactionType})")
+            }
+
+            val startingOR = startingORNumber.toString()
+            val endingOR = endingORNumber.toString()
+
+            Log.d("ORCalculation", "Generated sequential - Starting OR: $startingOR, Ending OR: $endingOR")
+            return@withContext Pair(startingOR, endingOR)
+
+        } catch (e: Exception) {
+            Log.e("ORCalculation", "Error calculating OR numbers", e)
+            return@withContext Pair("Error", "Error")
+        }
+    }
+}
+    fun formatDateToString(date: Date): String {
+        return try {
+            DATETIME_FORMAT.format(date)
+        } catch (e: Exception) {
+            Log.e("DateFormat", "Error formatting date: $date", e)
+            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+        }
+    }
+
+    // HELPER FUNCTION FOR REPORTS DATE DEBUGGING
+    private fun logDateInfo(tag: String, label: String, date: Date) {
+        Log.d(tag, "$label: ${DATETIME_FORMAT.format(date)} (timestamp: ${date.time})")
+    }
+    private suspend fun getSequenceNumberForTransaction(transactionId: String): Int? {
+        return try {
+            // Check if you have a separate table for OR numbers
+            // transactionDao.getORNumberForTransaction(transactionId)
+
+            // Or check if it's stored in a specific field
+            // For now, return null as this depends on your database schema
+            null
+        } catch (e: Exception) {
+            Log.e("ORCalculation", "Error getting sequence number for transaction: $transactionId", e)
+            null
+        }
+    }
+    private suspend fun getLastUsedORNumber(): Int {
+        return try {
+            val sharedPreferences = getSharedPreferences("ORNumberPreferences", Context.MODE_PRIVATE)
+            val lastORFromPrefs = sharedPreferences.getInt("lastORNumber", 0)
+
+            // Also check database for any stored OR numbers
+            val lastORFromDB = transactionDao.getMaxORNumber() ?: 0
+
+            val lastOR = maxOf(lastORFromPrefs, lastORFromDB)
+            Log.d("ORCalculation", "Last OR from prefs: $lastORFromPrefs, from DB: $lastORFromDB, using: $lastOR")
+
+            lastOR
+        } catch (e: Exception) {
+            Log.e("ORCalculation", "Error getting last used OR number", e)
+            0
+        }
+    }
+
+    // Helper function to update last used OR number
+    private suspend fun updateLastUsedORNumber(orNumber: Int) {
+        try {
+            val sharedPreferences = getSharedPreferences("ORNumberPreferences", Context.MODE_PRIVATE)
+            with(sharedPreferences.edit()) {
+                putInt("lastORNumber", orNumber)
+                apply()
+            }
+            Log.d("ORCalculation", "Updated last OR number to: $orNumber")
+        } catch (e: Exception) {
+            Log.e("ORCalculation", "Error updating last used OR number", e)
+        }
+    }
+
+    // Helper function to store OR assignment for future reference
+    private suspend fun storeORAssignment(transactionId: String, orNumber: Int) {
+        try {
+            // You could store this in a separate table or update the transaction record
+            // For now, we'll just log it
+            Log.d("ORCalculation", "OR Assignment: Transaction $transactionId -> OR $orNumber")
+
+            // Optional: Update the receiptId field with the OR number
+            // transactionDao.updateReceiptId(transactionId, orNumber.toString())
+
+        } catch (e: Exception) {
+            Log.e("ORCalculation", "Error storing OR assignment", e)
+        }
+    }
+
+    // FIXED: Helper function to convert timestamp to readable date for debugging
+    private fun convertTimestampToDate(timestamp: Long): String {
+        return try {
+            val date = Date(timestamp)
+            DATETIME_FORMAT.format(date)
+        } catch (e: Exception) {
+            "Invalid timestamp: $timestamp"
+        }
+    }
     private fun combineItemSales(
         regularItemSales: List<ItemSalesSummary>,
         returnItemSales: List<ItemSalesSummary>
@@ -2837,7 +3265,39 @@ class ReportsActivity : AppCompatActivity() {
             .sortedByDescending { it.totalAmount }
     }
     // New data class to hold item calculation results
+    private fun extractORFromReceiptId(receiptId: String?): Int? {
+        if (receiptId.isNullOrEmpty()) return null
 
+        return try {
+            when {
+                // Pattern 1: receiptId like "VICTORIA000000949" - extract the number part
+                receiptId.startsWith("VICTORIA", ignoreCase = true) -> {
+                    val numberPart = receiptId.substringAfter("VICTORIA", "")
+                        .replace("0+".toRegex(), "") // Remove leading zeros
+                        .takeIf { it.isNotEmpty() }
+                    numberPart?.toIntOrNull()
+                }
+
+                // Pattern 2: receiptId is just a number
+                receiptId.all { it.isDigit() } -> receiptId.toInt()
+
+                // Pattern 3: receiptId contains "OR" followed by numbers
+                receiptId.contains("OR", ignoreCase = true) -> {
+                    val orPattern = "OR\\s*(\\d+)".toRegex(RegexOption.IGNORE_CASE)
+                    orPattern.find(receiptId)?.groupValues?.get(1)?.toInt()
+                }
+
+                // Pattern 4: Extract last sequence of digits
+                else -> {
+                    val digitPattern = "\\d+".toRegex()
+                    digitPattern.findAll(receiptId).lastOrNull()?.value?.toInt()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("ORCalculation", "Error extracting OR from receiptId: $receiptId", e)
+            null
+        }
+    }
     private suspend fun calculateItemTotals(transactions: List<TransactionSummary>): ItemCalculationResult {
         return withContext(Dispatchers.IO) {
             val itemSales = mutableMapOf<String, ItemSalesSummary>()
@@ -2896,26 +3356,38 @@ class ReportsActivity : AppCompatActivity() {
         val printButton = dialogView.findViewById<Button>(R.id.printButton)
         val closeButton = dialogView.findViewById<Button>(R.id.closeButton)
 
-        // Use the selected date range instead of hardcoded current date
+        // FIXED: Use the selected date range with proper Philippine timezone formatting
         val selectedDateRange = if (isSameDay(startDate, endDate)) {
-            SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(endDate)
+            DISPLAY_DATE_RANGE_FORMAT.format(endDate)
         } else {
-            "${SimpleDateFormat("MMM dd", Locale.getDefault()).format(startDate)} - ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(endDate)}"
+            "${SimpleDateFormat("MMM dd", Locale.getDefault()).apply { timeZone = PHILIPPINES_TIMEZONE }.format(startDate)} - ${DISPLAY_DATE_RANGE_FORMAT.format(endDate)}"
         }
 
         dateTextView.text = "Sales for $selectedDateRange"
         recyclerView.layoutManager = LinearLayoutManager(this)
 
         var itemSalesAdapter: ItemSalesAdapter? = null
-        var groupedItemsList: List<ItemGroupSummary> = emptyList() // Store for print functionality
+        var groupedItemsList: List<ItemGroupSummary> = emptyList()
         var storedTotalQuantity = 0
         var storedTotalSales = 0.0
 
         lifecycleScope.launch {
             try {
-                // Use the class-level startDate and endDate instead of parsing dateStr
+                // FIXED: Use the class-level startDate and endDate with proper logging
+                logDateInfo("ItemSalesDialog", "Query startDate", startDate)
+                logDateInfo("ItemSalesDialog", "Query endDate", endDate)
+
                 val transactions = withContext(Dispatchers.IO) {
-                    transactionDao.getTransactionsByDateRange(startDate, endDate)
+                    // FIXED: Convert dates to strings for DAO call
+                    val result = transactionDao.getTransactionsByDateRange(
+                        formatDateToString(startDate),
+                        formatDateToString(endDate)
+                    )
+                    Log.d("ItemSalesDialog", "Found ${result.size} transactions for item sales")
+                    result.forEach { transaction ->
+                        Log.d("ItemSalesDialog", "Transaction ${transaction.transactionId}: ${transaction.createdDate}")
+                    }
+                    result
                 }
 
                 // Get all items from these transactions and group them
@@ -2926,11 +3398,10 @@ class ReportsActivity : AppCompatActivity() {
                 withContext(Dispatchers.IO) {
                     transactions.forEach { transaction ->
                         val items = transactionDao.getTransactionRecordsByTransactionId(transaction.transactionId)
+                        Log.d("ItemSalesDialog", "Transaction ${transaction.transactionId} has ${items.size} items")
+
                         items.forEach { item ->
                             val key = item.name
-
-                            // Get product details for itemgroup
-                            val product = item.itemId?.let { transactionDao.getProductByItemId(it) }
                             val itemGroup = item.itemGroup ?: "Unknown"
 
                             val currentSummary = itemSales.getOrDefault(key, ItemSalesSummary(
@@ -2955,6 +3426,8 @@ class ReportsActivity : AppCompatActivity() {
                     }
                 }
 
+                Log.d("ItemSalesDialog", "Final totals: $totalQuantity items, ₱$totalSales total sales")
+
                 // Group items by itemGroup and sort
                 val groupedItems = itemSales.values
                     .groupBy { it.itemGroup }
@@ -2968,12 +3441,10 @@ class ReportsActivity : AppCompatActivity() {
                     }
                     .sortedByDescending { it.totalAmount }
 
-                // Store grouped items and totals for print functionality
                 groupedItemsList = groupedItems
                 storedTotalQuantity = totalQuantity
                 storedTotalSales = totalSales
 
-                // Update UI on main thread
                 withContext(Dispatchers.Main) {
                     itemSalesAdapter = ItemSalesAdapter(
                         groupedItems,
@@ -2983,7 +3454,6 @@ class ReportsActivity : AppCompatActivity() {
                     )
                     recyclerView.adapter = itemSalesAdapter
 
-                    // Update summary views
                     totalTransactionsTextView.text = transactions.size.toString()
                     totalQuantityTextView.text = totalQuantity.toString()
                     totalSalesTextView.text = String.format("₱%.2f", totalSales)
@@ -3008,12 +3478,10 @@ class ReportsActivity : AppCompatActivity() {
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
         })
 
-        // Create dialog first
         val dialog = android.app.AlertDialog.Builder(this, R.style.CustomDialogStyle1)
             .setView(dialogView)
             .create()
 
-        // Print functionality - use the ReportsActivity's print method
         printButton.setOnClickListener {
             if (groupedItemsList.isNotEmpty()) {
                 printItemSalesReport(groupedItemsList, storedTotalQuantity, storedTotalSales)
@@ -3024,10 +3492,9 @@ class ReportsActivity : AppCompatActivity() {
                     Toast.LENGTH_SHORT
                 ).show()
             }
-            dialog.dismiss() // Optionally close dialog after printing
+            dialog.dismiss()
         }
 
-        // Close button functionality
         closeButton.setOnClickListener {
             dialog.dismiss()
         }
@@ -3039,6 +3506,7 @@ class ReportsActivity : AppCompatActivity() {
 
         dialog.show()
     }
+
 
 
     private fun updateUI(report: SalesReport) {
@@ -3062,7 +3530,7 @@ class ReportsActivity : AppCompatActivity() {
         binding.startingORNumber?.text = report.startingOR
 
         // NEW: Add ending OR number display
-//        binding.endingORNumber?.text = report.endingOR
+        binding.endingORNumber?.text = report.endingOR
 
         // Update VAT information
 //        binding.vatAmount?.text = "₱${String.format("%.2f", report.vatAmount)}"

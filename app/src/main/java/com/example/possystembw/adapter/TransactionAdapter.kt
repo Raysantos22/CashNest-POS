@@ -21,7 +21,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-
 class TransactionAdapter(private val onItemClick: (TransactionSummary) -> Unit) :
     RecyclerView.Adapter<TransactionAdapter.TransactionViewHolder>() {
 
@@ -52,18 +51,56 @@ class TransactionAdapter(private val onItemClick: (TransactionSummary) -> Unit) 
         private val totalAmountTextView: TextView = itemView.findViewById(R.id.totalAmountTextView)
 
         fun bind(transaction: TransactionSummary) {
-            val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-            dateTextView.text = dateFormat.format(transaction.createdDate)
+            // FIXED: Better date formatting with debug info
+            val formattedDate = formatDateForDisplay(transaction.createdDate)
+            dateTextView.text = formattedDate
+
             staffTextView.text = transaction.staff
             storeTextView.text = transaction.store
             transactionIdTextView.text = transaction.transactionId
             totalAmountTextView.text = "₱${String.format("%.2f", transaction.netAmount)}"
 
-            // Load staff image
             loadStaffImage(transaction.staff)
-
             itemView.setOnClickListener { onItemClick(transaction) }
         }
+        // FIXED: Helper function to format string date for display
+        private fun formatDateForDisplay(dateString: String): String {
+            return try {
+                if (dateString.isEmpty()) {
+                    "Unknown Date"
+                } else {
+                    // Try multiple input formats
+                    val inputFormats = listOf(
+                        "yyyy-MM-dd HH:mm:ss",                    // Your API format
+                        "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'",       // ISO with microseconds
+                        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",          // ISO with milliseconds
+                        "yyyy-MM-dd'T'HH:mm:ss'Z'",              // ISO without milliseconds
+                        "yyyy-MM-dd'T'HH:mm:ss"                  // ISO without Z
+                    )
+
+                    val outputFormat = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
+
+                    for (format in inputFormats) {
+                        try {
+                            val inputFormat = SimpleDateFormat(format, Locale.US)
+                            inputFormat.timeZone = TimeZone.getTimeZone("UTC")
+                            val date = inputFormat.parse(dateString)
+                            if (date != null) {
+                                return outputFormat.format(date)
+                            }
+                        } catch (e: Exception) {
+                            // Try next format
+                        }
+                    }
+
+                    // If all parsing fails, return the original string
+                    dateString
+                }
+            } catch (e: Exception) {
+                dateString.ifEmpty { "Unknown Date" }
+            }
+        }
+
 
         private fun loadStaffImage(staffName: String) {
             // Set placeholder image first
@@ -130,3 +167,66 @@ class TransactionAdapter(private val onItemClick: (TransactionSummary) -> Unit) 
         coroutineScope.cancel()
     }
 }
+
+// ALSO UPDATE: Any other adapters or UI components that display dates
+// Add these helper functions to any class that needs to display dates:
+
+// Extension function for easy date formatting
+fun String.toDisplayDate(): String {
+    return try {
+        if (this.isEmpty()) return "Unknown Date"
+        val inputFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+        val outputFormat = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
+        val date = inputFormat.parse(this)
+        if (date != null) {
+            outputFormat.format(date)
+        } else {
+            this
+        }
+    } catch (e: Exception) {
+        this.ifEmpty { "Unknown Date" }
+    }
+}
+
+// Extension function for sorting by date
+fun String.toTimestampForSorting(): Long {
+    return try {
+        if (this.isEmpty()) return 0L
+        val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+        val date = format.parse(this)
+        date?.time ?: 0L
+    } catch (e: Exception) {
+        0L
+    }
+}
+
+// FIXED: Update sorting comparator to handle string dates
+// If you have any sorting logic that needs to be updated:
+class TransactionSorting {
+    companion object {
+        // Sort by date descending (newest first)
+        val byDateDescending = Comparator<TransactionSummary> { t1, t2 ->
+            t2.createdDate.toTimestampForSorting().compareTo(t1.createdDate.toTimestampForSorting())
+        }
+
+        // Sort by date ascending (oldest first)
+        val byDateAscending = Comparator<TransactionSummary> { t1, t2 ->
+            t1.createdDate.toTimestampForSorting().compareTo(t2.createdDate.toTimestampForSorting())
+        }
+
+        // Sort by amount descending
+        val byAmountDescending = Comparator<TransactionSummary> { t1, t2 ->
+            t2.netAmount.compareTo(t1.netAmount)
+        }
+    }
+}
+
+// EXAMPLE USAGE: How to apply the fixed sorting in your dialog
+/*
+// In your showTransactionListDialog function:
+val transactionAdapter = TransactionAdapter { transaction ->
+    showTransactionDetailsDialog(transaction)
+}.apply {
+    setSortComparator(TransactionSorting.byDateDescending)
+}
+*/

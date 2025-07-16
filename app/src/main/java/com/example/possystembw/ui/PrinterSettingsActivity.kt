@@ -350,6 +350,14 @@ data class TransactionData(
             calendar.get(Calendar.DAY_OF_MONTH)
         ).show()
     }
+    fun formatDateToString(date: Date): String {
+        return try {
+            val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+            format.format(date)
+        } catch (e: Exception) {
+            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+        }
+    }
 
     private suspend fun updateTransactionData(
         startDate: Calendar,
@@ -364,19 +372,18 @@ data class TransactionData(
 
         try {
             val transactions = withContext(Dispatchers.IO) {
+                // FIXED: Convert Date to String for DAO call
                 val summaries = repository.transactionDao.getTransactionsByDateRange(
-                    startDate.time,
-                    endDate.time
+                    formatDateToString(startDate.time),
+                    formatDateToString(endDate.time)
                 )
 
-                // Fetch records for each summary
                 summaries.map { summary ->
                     val records = repository.getTransactionRecords(summary.transactionId)
                     TransactionData(summary, records)
                 }
             }
 
-            // Calculate totals
             var totalQty = 0
             var totalGrossSales = 0.0
             var totalTransactions = 0

@@ -15,6 +15,28 @@ class NumberSequenceRemoteViewModel(
     private val _numberSequenceResult = MutableLiveData<Result<NumberSequenceValue>>()
     val numberSequenceResult: LiveData<Result<NumberSequenceValue>> = _numberSequenceResult
 
+    private val _cartSequenceUpdateResult = MutableLiveData<Result<Boolean>>()
+    val cartSequenceUpdateResult: LiveData<Result<Boolean>> = _cartSequenceUpdateResult
+    fun updateCartSequence(storeId: String) {
+        viewModelScope.launch {
+            val result = repository.updateCartSequence(storeId)
+            _cartSequenceUpdateResult.value = result
+        }
+    }
+
+    /**
+     * Gets the next cart sequence number
+     */
+    suspend fun getNextCartSequenceNumber(storeId: String): String {
+        return repository.getNextCartSequenceNumber(storeId)
+    }
+
+    /**
+     * Gets current cart sequence
+     */
+    suspend fun getCurrentCartSequence(storeId: String): Int {
+        return repository.getCurrentCartSequence(storeId)
+    }
     fun fetchNumberSequence(storeId: String) {
         viewModelScope.launch {
             val result = repository.fetchAndUpdateNumberSequence(storeId)

@@ -47,7 +47,10 @@ data class CartItem(
     @ColumnInfo(name = "itemGroup")val itemGroup: String,  // Added field
     @ColumnInfo(name = "itemId")val itemId: String,
     @ColumnInfo(name = "lineNum")val lineNum: Int? = null,
-    @ColumnInfo(name = "discountName") val discountName: String? = null // New property to store discount name
+    @ColumnInfo(name = "discountName") val discountName: String? = null, // New property to store discount name
+
+    @ColumnInfo(name = "cartSequenceNumber") val cartSequenceNumber: String? = null, // Track when this item was added
+    @ColumnInfo(name = "addedTimestamp") val addedTimestamp: Long = System.currentTimeMillis()
 // Added lineNum field
 
 )

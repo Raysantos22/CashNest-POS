@@ -6,6 +6,7 @@ import android.net.NetworkCapabilities
 import android.os.Build
 import android.util.Log
 import androidx.constraintlayout.helper.widget.MotionEffect.TAG
+import com.example.possystembw.DAO.DateUtils
 
 import com.example.possystembw.DAO.TransactionApi
 import com.example.possystembw.DAO.TransactionDao
@@ -41,7 +42,7 @@ class TransactionRepository(
     val api: TransactionApi = RetrofitClient.transactionApi
     private val TAG = "TransactionRepository"
 
-//
+    //
 //    suspend fun getTransactions(): List<TransactionSummary> {
 //        return transactionDao.getAllTransactionSummaries()
 //    }
@@ -52,7 +53,7 @@ class TransactionRepository(
     suspend fun getTransactionItems(transactionId: String): List<TransactionRecord> {
         return transactionDao.getTransactionRecordsByTransactionId(transactionId)
     }
-//    suspend fun getTransactionItems(transactionId: String): List<TransactionRecord> {
+    //    suspend fun getTransactionItems(transactionId: String): List<TransactionRecord> {
 //        return transactionDao.getTransactionItems(transactionId)
 //    }
     suspend fun updateTransactionSummary(transaction: TransactionSummary) {
@@ -86,6 +87,7 @@ class TransactionRepository(
     suspend fun generateTransactionId(storeId: String): String {
         return numberSequenceRemoteRepository.getNextTransactionNumber(storeId)
     }
+
     // Add this function to TransactionRepository class
     private fun validateTransaction(summary: TransactionSummary, records: List<TransactionRecord>): Boolean {
         if (summary.transactionId.isEmpty() || summary.receiptId.isEmpty()) {
@@ -136,54 +138,55 @@ class TransactionRepository(
     }
 
 
-fun createTransactionRecordRequest(record: TransactionRecord, summary: TransactionSummary): TransactionRecordRequest {
-    return TransactionRecordRequest(
-        transactionid = record.transactionId,
-        linenum = record.lineNum?.toString() ?: "0",
-        receiptid = record.receiptId ?: "",
-        storeKey = record.storeKey,
-        storeSequence = record.storeSequence,
-        itemid = record.itemId ?: "",
-        itemname = record.name,
-        itemgroup = record.itemGroup ?: "",
-        price = formatDecimal(record.price),
-        netprice = formatDecimal(record.netPrice),
-        qty = record.quantity.toString(),
-        discamount = formatDecimal(record.discountAmount),
-        costamount = formatDecimal(record.costAmount),
-        netamount = formatDecimal(record.netAmount),
-        grossamount = formatDecimal(record.grossAmount),
-        custaccount = summary.customerAccount,
-        store = summary.store,
-        priceoverride = record.priceOverride?.toInt() ?: 0,
-        paymentmethod = summary.paymentMethod,
-        staff = record.staff ?: "Unknown Staff",
-        linedscamount = formatDecimal(record.lineDiscountAmount ?: 0.0),
-        linediscpct = formatDecimal(record.lineDiscountPercentage ?: 0.0),
-        custdiscamount = formatDecimal(record.customerDiscountAmount ?: 0.0),
-        unit = record.unit ?: "PCS",
-        unitqty = formatDecimal(record.unitQuantity ?: record.quantity.toDouble()),
-        unitprice = formatDecimal(record.unitPrice ?: record.price),
-        taxamount = formatDecimal(record.taxAmount),
-        createddate = formatDate(record.createdDate ?: Date()).toString(),
-        remarks = record.comment ?: "",
-        taxinclinprice = formatDecimal(record.taxIncludedInPrice),
-        description = record.description ?: "",
-        discofferid = record.discountOfferId?.takeIf { it.isNotBlank() } ?: "",
-        inventbatchid = null,
-        inventbatchexpdate = null,
-        giftcard = null,
-        returntransactionid = record.returnTransactionId?: "",
-        returnqty = null,
-        creditmemonumber = null,
-        returnlineid = null,
-        priceunit = null,
-        netamountnotincltax = formatDecimal(record.netAmountNotIncludingTax),
-        storetaxgroup = null,
-        currency = "PHP",
-        taxexempt = null
-    )
-}
+    fun createTransactionRecordRequest(record: TransactionRecord, summary: TransactionSummary): TransactionRecordRequest {
+        return TransactionRecordRequest(
+            transactionid = record.transactionId,
+            linenum = record.lineNum?.toString() ?: "0",
+            receiptid = record.receiptId ?: "",
+            storeKey = record.storeKey,
+            storeSequence = record.storeSequence,
+            itemid = record.itemId ?: "",
+            itemname = record.name,
+            itemgroup = record.itemGroup ?: "",
+            price = formatDecimal(record.price),
+            netprice = formatDecimal(record.netPrice),
+            qty = record.quantity.toString(),
+            discamount = formatDecimal(record.discountAmount),
+            costamount = formatDecimal(record.costAmount),
+            netamount = formatDecimal(record.netAmount),
+            grossamount = formatDecimal(record.grossAmount),
+            custaccount = summary.customerAccount,
+            store = summary.store,
+            priceoverride = record.priceOverride?.toInt() ?: 0,
+            paymentmethod = summary.paymentMethod,
+            staff = record.staff ?: "Unknown Staff",
+            linedscamount = formatDecimal(record.lineDiscountAmount ?: 0.0),
+            linediscpct = formatDecimal(record.lineDiscountPercentage ?: 0.0),
+            custdiscamount = formatDecimal(record.customerDiscountAmount ?: 0.0),
+            unit = record.unit ?: "PCS",
+            unitqty = formatDecimal(record.unitQuantity ?: record.quantity.toDouble()),
+            unitprice = formatDecimal(record.unitPrice ?: record.price),
+            taxamount = formatDecimal(record.taxAmount),
+            // FIXED: Direct string assignment - no conversion needed
+            createddate = record.createdDate ?: getCurrentDateString(),
+            remarks = record.comment ?: "",
+            taxinclinprice = formatDecimal(record.taxIncludedInPrice),
+            description = record.description ?: "",
+            discofferid = record.discountOfferId?.takeIf { it.isNotBlank() } ?: "",
+            inventbatchid = null,
+            inventbatchexpdate = null,
+            giftcard = null,
+            returntransactionid = record.returnTransactionId ?: "",
+            returnqty = null,
+            creditmemonumber = null,
+            returnlineid = null,
+            priceunit = null,
+            netamountnotincltax = formatDecimal(record.netAmountNotIncludingTax),
+            storetaxgroup = null,
+            currency = "PHP",
+            taxexempt = null
+        )
+    }
 
     fun createTransactionSummaryRequest(summary: TransactionSummary): TransactionSummaryRequest {
         return TransactionSummaryRequest(
@@ -206,7 +209,8 @@ fun createTransactionRecordRequest(record: TransactionRecord, summary: Transacti
             totaldiscamount = formatDecimal(summary.totalDiscountAmount),
             numberofitems = summary.numberOfItems.toString(),
             currency = summary.currency,
-            createddate = formatDate(summary.createdDate).toString(),
+            // FIXED: Direct string assignment - no conversion needed
+            createddate = summary.createdDate,
             priceoverride = summary.priceOverride.toInt(),
             comment = summary.comment,
             taxinclinprice = formatDecimal(summary.taxIncludedInPrice),
@@ -222,6 +226,32 @@ fun createTransactionRecordRequest(record: TransactionRecord, summary: Transacti
             grabfood = formatDecimal(summary.grabfood),
             representation = formatDecimal(summary.representation)
         )
+    }
+    fun formatDateToString(date: Date): String {
+        return try {
+            val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+            format.format(date)
+        } catch (e: Exception) {
+            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+        }
+    }
+    fun String.toDate(): Date {
+        return try {
+            val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+            format.parse(this) ?: Date()
+        } catch (e: Exception) {
+            Date()
+        }
+    }
+    // REMOVED: formatDateToString function - not needed anymore
+    // ADDED: getCurrentDateString function for creating new transactions
+    fun getCurrentDateString(): String {
+        return try {
+            val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+            format.format(Date())
+        } catch (e: Exception) {
+            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+        }
     }
 
     suspend fun syncUnsentTransactions() {
@@ -274,7 +304,7 @@ fun createTransactionRecordRequest(record: TransactionRecord, summary: Transacti
         }
     }
 
-//    suspend fun syncTransaction(
+    //    suspend fun syncTransaction(
 //        summary: TransactionSummary,
 //        records: List<TransactionRecord>
 //    ): Result<TransactionSyncResponse> {
@@ -336,86 +366,89 @@ fun createTransactionRecordRequest(record: TransactionRecord, summary: Transacti
 //            }
 //        }
 //    }
-suspend fun syncTransaction(
-    summary: TransactionSummary,
-    records: List<TransactionRecord>
-): Result<TransactionSyncResponse> {
-    return withContext(Dispatchers.IO) {
-        try {
-            // Validate data before attempting to sync
-            if (!validateTransaction(summary, records)) {
-                return@withContext Result.failure(Exception("Validation failed for transaction ${summary.transactionId}"))
-            }
+    suspend fun syncTransaction(
+        summary: TransactionSummary,
+        records: List<TransactionRecord>
+    ): Result<TransactionSyncResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                // Validate data before attempting to sync
+                if (!validateTransaction(summary, records)) {
+                    return@withContext Result.failure(Exception("Validation failed for transaction ${summary.transactionId}"))
+                }
 
-            // Check if transaction is already synced
-            if (summary.syncStatus) {
-                Log.d(TAG, "Transaction ${summary.transactionId} is already synced, skipping")
-                return@withContext Result.success(
-                    TransactionSyncResponse(
-                        message = "Transaction already synced",
-                        storeKey = summary.storeKey,
-                        storeSequence = summary.storeSequence,
-                        summaryResponse = Any(),
-                        recordsResponse = Any()
+                // Check if transaction is already synced
+                if (summary.syncStatus) {
+                    Log.d(TAG, "Transaction ${summary.transactionId} is already synced, skipping")
+                    return@withContext Result.success(
+                        TransactionSyncResponse(
+                            message = "Transaction already synced",
+                            storeKey = summary.storeKey,
+                            storeSequence = summary.storeSequence,
+                            summaryResponse = Any(),
+                            recordsResponse = Any()
+                        )
                     )
-                )
-            }
+                }
 
-            // Filter out any already synced records
-            val unsyncedRecords = records.filter { !it.syncStatusRecord }
-            if (unsyncedRecords.isEmpty()) {
-                Log.d(TAG, "No unsynced records for transaction ${summary.transactionId}")
-                return@withContext Result.success(
-                    TransactionSyncResponse(
-                        message = "No unsynced records",
-                        storeKey = summary.storeKey,
-                        storeSequence = summary.storeSequence,
-                        summaryResponse = Any(),
-                        recordsResponse = Any()
+                // Filter out any already synced records
+                val unsyncedRecords = records.filter { !it.syncStatusRecord }
+                if (unsyncedRecords.isEmpty()) {
+                    Log.d(TAG, "No unsynced records for transaction ${summary.transactionId}")
+                    return@withContext Result.success(
+                        TransactionSyncResponse(
+                            message = "No unsynced records",
+                            storeKey = summary.storeKey,
+                            storeSequence = summary.storeSequence,
+                            summaryResponse = Any(),
+                            recordsResponse = Any()
+                        )
                     )
+                }
+
+                val summaryRequest = createTransactionSummaryRequest(summary)
+                val recordRequests = unsyncedRecords.map { record ->
+                    createTransactionRecordRequest(record, summary)
+                }
+
+                val request = TransactionSyncRequest(
+                    transactionSummary = summaryRequest,
+                    transactionRecords = recordRequests
                 )
+
+                // Log the request for debugging
+                val gson = GsonBuilder().setPrettyPrinting().create()
+                val jsonRequest = gson.toJson(request)
+                Log.d("API_DEBUG", "Syncing transaction ${summary.transactionId} - Request JSON: $jsonRequest")
+
+                val response = api.syncTransaction(request)
+
+                if (response.isSuccessful) {
+                    response.body()?.let { syncResponse ->
+                        // Mark as synced only on successful response
+                        transactionDao.markTransactionSummaryAsSynced(summary.transactionId)
+                        transactionDao.markTransactionRecordsAsSynced(summary.transactionId)
+                        Result.success(syncResponse)
+                    } ?: Result.failure(Exception("Empty response body"))
+                } else {
+                    val errorBody = response.errorBody()?.string()
+                    Log.e("API_ERROR", "Error code: ${response.code()}, Body: $errorBody")
+                    Result.failure(Exception("Sync failed: ${response.code()}, Error: $errorBody"))
+                }
+            } catch (e: Exception) {
+                Log.e("API_ERROR", "Exception during sync: ${e.message}", e)
+                Result.failure(e)
             }
-
-            val summaryRequest = createTransactionSummaryRequest(summary)
-            val recordRequests = unsyncedRecords.map { record ->
-                createTransactionRecordRequest(record, summary)
-            }
-
-            val request = TransactionSyncRequest(
-                transactionSummary = summaryRequest,
-                transactionRecords = recordRequests
-            )
-
-            // Log the request for debugging
-            val gson = GsonBuilder().setPrettyPrinting().create()
-            val jsonRequest = gson.toJson(request)
-            Log.d("API_DEBUG", "Syncing transaction ${summary.transactionId} - Request JSON: $jsonRequest")
-
-            val response = api.syncTransaction(request)
-
-            if (response.isSuccessful) {
-                response.body()?.let { syncResponse ->
-                    // Mark as synced only on successful response
-                    transactionDao.markTransactionSummaryAsSynced(summary.transactionId)
-                    transactionDao.markTransactionRecordsAsSynced(summary.transactionId)
-                    Result.success(syncResponse)
-                } ?: Result.failure(Exception("Empty response body"))
-            } else {
-                val errorBody = response.errorBody()?.string()
-                Log.e("API_ERROR", "Error code: ${response.code()}, Body: $errorBody")
-                Result.failure(Exception("Sync failed: ${response.code()}, Error: $errorBody"))
-            }
-        } catch (e: Exception) {
-            Log.e("API_ERROR", "Exception during sync: ${e.message}", e)
-            Result.failure(e)
         }
     }
-}
     suspend fun getTransactionsByStore(storeId: String): List<TransactionSummary> {
         return transactionDao.getTransactionsByStore(storeId)
     }
     suspend fun getTransactionsByDateRange(startDate: Date, endDate: Date): List<TransactionSummary> {
-        return transactionDao.getTransactionsByDateRange(startDate, endDate)
+        // Convert Date to String for database query
+        val startDateString = formatDateToString(startDate)
+        val endDateString = formatDateToString(endDate)
+        return transactionDao.getTransactionsByDateRange(startDateString, endDateString)
     }
 
     // Updated helper functions with null safety and proper formatting
@@ -521,16 +554,7 @@ suspend fun syncTransaction(
     }
 
     private fun formatDate(date: Date?): String {
-        return try {
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("Asia/Manila")
-            }.format(date ?: Date())
-        } catch (e: Exception) {
-            Log.e(TAG, "Error formatting date: $date", e)
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("Asia/Manila")
-            }.format(Date())
-        }
+        return DateUtils.formatToPhilippineTime(date)
     }
 }
 

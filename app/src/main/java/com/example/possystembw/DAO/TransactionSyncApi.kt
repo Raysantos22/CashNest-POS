@@ -1,5 +1,6 @@
 package com.example.possystembw.DAO
 
+import android.util.Log
 import com.example.possystembw.database.TransactionRecord
 import com.example.possystembw.database.TransactionSummary
 import com.google.gson.JsonObject
@@ -9,8 +10,10 @@ import retrofit2.http.Headers
 import retrofit2.http.POST
 import retrofit2.http.Path
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 interface TransactionSyncApi {
     @GET("api/getsummary/{storeId}")
@@ -157,7 +160,8 @@ fun TransactionSummaryResponse.toTransactionSummary(): TransactionSummary {
         refundReceiptId = refundreceiptid,
         currency = currency ?: "PHP",
         zReportId = zreportid,
-        createdDate = createddate?.let { SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).parse(it) } ?: Date(),
+        // FIXED: Use enhanced date conversion that handles multiple formats
+        createdDate = normalizeApiDate(createddate ?: ""),
         priceOverride = priceoverride ?: 0.0,
         comment = comment ?: "",
         receiptEmail = receiptemail,
@@ -191,7 +195,7 @@ fun TransactionSummaryResponse.toTransactionSummary(): TransactionSummary {
 fun TransactionDetailResponse.toTransactionRecord(): TransactionRecord {
     return TransactionRecord(
         id = id ?: 0,
-        transactionId = transactionId?: "",
+        transactionId = transactionId ?: "",
         name = name ?: "",
         price = price ?: 0.0,
         quantity = quantity ?: 0,
@@ -202,7 +206,7 @@ fun TransactionDetailResponse.toTransactionRecord(): TransactionRecord {
         discountAmount = discount_amount ?: 0.0,
         total = total ?: 0.0,
         receiptNumber = receipt_number ?: "",
-        timestamp = timestamp ?: System.currentTimeMillis(),
+        timestamp = timestamp ?: createddate?.toTimestamp() ?: System.currentTimeMillis(),
         paymentMethod = paymentMethod ?: "",
         ar = ar ?: 0.0,
         windowNumber = window_number ?: 1,
@@ -228,10 +232,12 @@ fun TransactionDetailResponse.toTransactionRecord(): TransactionRecord {
         unitQuantity = unitqty,
         unitPrice = unitprice,
         taxAmount = taxamount,
-        createdDate = createddate?.let { SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).parse(it) },
+        // FIXED: Use enhanced date conversion
+        createdDate = normalizeApiDate(createddate ?: ""),
         remarks = remarks,
         inventoryBatchId = inventbatchid,
-        inventoryBatchExpiryDate = inventbatchexpdate?.let { SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).parse(it) },
+        // FIXED: Use enhanced date conversion
+        inventoryBatchExpiryDate = normalizeApiDate(inventbatchexpdate ?: ""),
         giftCard = giftcard,
         returnTransactionId = returntransactionid,
         returnQuantity = returnqty,
@@ -248,4 +254,158 @@ fun TransactionDetailResponse.toTransactionRecord(): TransactionRecord {
         storeSequence = store_sequence ?: "",
         syncStatusRecord = syncstatusrecord ?: false
     )
+}
+
+// NEW: Function to normalize API dates to consistent format
+fun normalizeApiDate(dateString: String): String {
+    if (dateString.isEmpty()) return getCurrentDateString()
+
+    // First try to parse the date in any format
+    val date = dateString.toDateObject()
+
+    // Then convert it to our standard format
+    return formatDateToString(date)
+}
+
+// UPDATED: Enhanced date range comparison for reports
+fun isDateInRange(dateString: String, startDate: Date, endDate: Date): Boolean {
+    return try {
+        val transactionDate = dateString.toDateObject()
+        transactionDate.time >= startDate.time && transactionDate.time <= endDate.time
+    } catch (e: Exception) {
+        false
+    }
+}
+
+// DEBUGGING: Add this function to help debug date issues
+fun debugDateFormats(dateString: String) {
+    Log.d("DateDebug", "Original date string: '$dateString'")
+
+    val formats = listOf(
+        "yyyy-MM-dd HH:mm:ss" to "API Format",
+        "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'" to "ISO Microseconds",
+        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'" to "ISO Milliseconds",
+        "yyyy-MM-dd'T'HH:mm:ss'Z'" to "ISO Basic",
+        "yyyy-MM-dd'T'HH:mm:ss" to "ISO No Z"
+    )
+
+    for ((format, name) in formats) {
+        try {
+            val sdf = SimpleDateFormat(format, Locale.US)
+            sdf.timeZone = TimeZone.getTimeZone("UTC")
+            val date = sdf.parse(dateString)
+            if (date != null) {
+                Log.d("DateDebug", "$name: SUCCESS -> ${formatDateToString(date)}")
+                return
+            }
+        } catch (e: Exception) {
+            Log.d("DateDebug", "$name: FAILED -> ${e.message}")
+        }
+    }
+
+    Log.e("DateDebug", "ALL FORMATS FAILED for: '$dateString'")
+}
+
+// ENHANCED: Date range queries for reports
+suspend fun getTransactionsInDateRange(
+    transactionDao: TransactionDao,
+    startDate: Date,
+    endDate: Date
+): List<TransactionSummary> {
+    return try {
+        // Get all transactions and filter by date
+        val allTransactions = transactionDao.getAllTransactionSummaries()
+
+        allTransactions.filter { transaction ->
+            isDateInRange(transaction.createdDate, startDate, endDate)
+        }.also { filteredTransactions ->
+            Log.d("DateFilter", "Original count: ${allTransactions.size}")
+            Log.d("DateFilter", "Filtered count: ${filteredTransactions.size}")
+            Log.d("DateFilter", "Date range: ${formatDateToString(startDate)} to ${formatDateToString(endDate)}")
+        }
+    } catch (e: Exception) {
+        Log.e("DateFilter", "Error filtering transactions by date range", e)
+        emptyList()
+    }
+}
+fun formatDateToString(date: Date): String {
+    return try {
+        val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+        format.format(date)
+    } catch (e: Exception) {
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+    }
+}
+fun getCurrentDateString(): String {
+    return try {
+        val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+        format.format(Date())
+    } catch (e: Exception) {
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+    }
+}
+
+
+fun String?.toDateObject(): Date {
+    if (this.isNullOrEmpty()) return Date()
+
+    val formats = listOf(
+        "yyyy-MM-dd HH:mm:ss",
+        "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'",
+        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+        "yyyy-MM-dd'T'HH:mm:ss'Z'",
+        "yyyy-MM-dd'T'HH:mm:ss",
+        "yyyy-MM-dd",
+        "MM/dd/yyyy HH:mm:ss",
+        "dd/MM/yyyy HH:mm:ss"
+    )
+
+    for (format in formats) {
+        try {
+            val sdf = SimpleDateFormat(format, Locale.US)
+            sdf.timeZone = TimeZone.getTimeZone("UTC") // parse in UTC
+            val parsedDate = sdf.parse(this)
+            if (parsedDate != null) {
+                // Convert to Philippine Time
+                val calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Manila"))
+                calendar.time = parsedDate
+                return calendar.time
+            }
+        } catch (_: Exception) {
+            // Try next format
+        }
+    }
+
+    return Date()
+}
+
+fun String?.toTimestamp(): Long {
+    if (this.isNullOrEmpty()) return System.currentTimeMillis()
+
+    val formats = listOf(
+        "yyyy-MM-dd HH:mm:ss",
+        "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'",
+        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+        "yyyy-MM-dd'T'HH:mm:ss'Z'",
+        "yyyy-MM-dd'T'HH:mm:ss",
+        "yyyy-MM-dd",
+        "MM/dd/yyyy HH:mm:ss",
+        "dd/MM/yyyy HH:mm:ss"
+    )
+
+    for (format in formats) {
+        try {
+            val sdf = SimpleDateFormat(format, Locale.US)
+            sdf.timeZone = TimeZone.getTimeZone("UTC")
+            val date = sdf.parse(this)
+            if (date != null) {
+                // Convert UTC to Philippine time (UTC+8)
+                return date.time + TimeZone.getTimeZone("Asia/Manila").rawOffset
+            }
+        } catch (_: Exception) {
+            // Try next format
+        }
+    }
+
+    return System.currentTimeMillis()
 }

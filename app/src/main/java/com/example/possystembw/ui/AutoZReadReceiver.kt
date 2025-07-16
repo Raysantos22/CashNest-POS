@@ -40,7 +40,6 @@ class AutoZReadReceiver : BroadcastReceiver() {
                 val transactionDao = database.transactionDao()
                 val zReadDao = database.zReadDao()
 
-                // Use Philippines timezone
                 val philippinesTimeZone = TimeZone.getTimeZone("Asia/Manila")
                 val yesterday = Calendar.getInstance(philippinesTimeZone).apply {
                     add(Calendar.DAY_OF_MONTH, -1)
@@ -50,7 +49,6 @@ class AutoZReadReceiver : BroadcastReceiver() {
                     timeZone = philippinesTimeZone
                 }.format(yesterday)
 
-                // Check if Z-Read already exists for yesterday
                 val existingZRead = zReadDao.getZReadByDate(yesterdayString)
 
                 if (existingZRead != null) {
@@ -58,7 +56,6 @@ class AutoZReadReceiver : BroadcastReceiver() {
                     return@launch
                 }
 
-                // Get transactions for yesterday
                 val yesterdayStart = Calendar.getInstance(philippinesTimeZone).apply {
                     time = yesterday
                     set(Calendar.HOUR_OF_DAY, 0)
@@ -75,15 +72,17 @@ class AutoZReadReceiver : BroadcastReceiver() {
                     set(Calendar.MILLISECOND, 999)
                 }.time
 
-                val transactions = transactionDao.getTransactionsByDateRange(yesterdayStart, yesterdayEnd)
-                    .filter { it.transactionStatus == 1 } // Only completed transactions
+                // FIXED: Convert Date to String for DAO call
+                val transactions = transactionDao.getTransactionsByDateRange(
+                    formatDateToString(yesterdayStart),
+                    formatDateToString(yesterdayEnd)
+                ).filter { it.transactionStatus == 1 }
 
                 if (transactions.isEmpty()) {
                     Log.d("AutoZRead", "No transactions found for $yesterdayString")
                     return@launch
                 }
 
-                // Check if transactions already have Z-Report ID
                 val transactionsWithoutZRead = transactions.filter { it.zReportId.isNullOrEmpty() }
 
                 if (transactionsWithoutZRead.isEmpty()) {
@@ -91,12 +90,19 @@ class AutoZReadReceiver : BroadcastReceiver() {
                     return@launch
                 }
 
-                // Generate automatic Z-Read silently
                 generateAutomaticZReadSilent(context, transactionsWithoutZRead, yesterdayString, transactionDao, zReadDao)
 
             } catch (e: Exception) {
                 Log.e("AutoZRead", "Error in automatic Z-Read check", e)
             }
+        }
+    }
+    fun formatDateToString(date: Date): String {
+        return try {
+            val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+            format.format(date)
+        } catch (e: Exception) {
+            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
         }
     }
 

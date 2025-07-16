@@ -215,22 +215,15 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
                     return@launch
                 }
 
-                Log.d(TAG, "Starting sync for storeId: $currentStoreId, journalId: $currentJournalId")
-
-                // Get unsynced items that have actual values
-                val unsyncedItems = repository.getUnsyncedTransactions(currentJournalId).filter {
-                    it.hasAnyValue()
-                }
-
-                Log.d(TAG, "Found ${unsyncedItems.size} unsynced items with values")
-
+                // Get fresh unsynced items from database (in case items were just saved)
+                val unsyncedItems = repository.getUnsyncedTransactions(currentJournalId)
                 if (unsyncedItems.isEmpty()) {
                     _syncProgress.value = SyncProgress(isComplete = true, totalItems = 0)
-                    Log.d(TAG, "No items to sync")
                     return@launch
                 }
 
-                // Initialize progress
+                Log.d(TAG, "Starting sync for ${unsyncedItems.size} unsynced items")
+
                 _syncProgress.value = SyncProgress(
                     isComplete = false,
                     totalItems = unsyncedItems.size,
@@ -238,390 +231,83 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
                     currentItemId = ""
                 )
 
-                // Process items one by one with progress updates
-                var successCount = 0
-                var errorCount = 0
-                val failedItems = mutableListOf<String>()
-
-                for (index in unsyncedItems.indices) {
-                    val item = unsyncedItems[index]
-
+                unsyncedItems.forEachIndexed { index, item ->
                     try {
-                        // Update progress for current item
-                        _syncProgress.value = SyncProgress(
-                            isComplete = false,
-                            totalItems = unsyncedItems.size,
-                            currentItem = index,
+                        _syncProgress.value = _syncProgress.value?.copy(
+                            currentItem = index + 1,
                             currentItemId = item.itemId ?: "Unknown"
                         )
 
-                        // Validate and format values
-                        val adjustment = formatValue(item.adjustment)
-                        val receivedCount = formatValue(item.receivedCount)
-                        val transferCount = formatValue(item.transferCount)
-                        val wasteCount = formatValue(item.wasteCount)
-                        val counted = formatValue(item.counted)
-                        val wasteType = if (wasteCount.toIntOrNull() ?: 0 > 0) {
-                            item.wasteType?.takeIf { it.isNotBlank() && it != "Select type" } ?: "none"
+                        val response = withTimeout(5000) {
+                            repository.postLineDetails(
+                                itemId = item.itemId.orEmpty(),
+                                storeId = currentStoreId,
+                                journalId = currentJournalId,
+                                adjustment = (item.adjustment?.toDoubleOrNull() ?: 0.0).toInt().toString(),
+                                receivedCount = (item.receivedCount?.toDoubleOrNull() ?: 0.0).toInt().toString(),
+                                transferCount = (item.transferCount?.toDoubleOrNull() ?: 0.0).toInt().toString(),
+                                wasteCount = (item.wasteCount?.toDoubleOrNull() ?: 0.0).toInt().toString(),
+                                wasteType = item.wasteType ?: "none",
+                                counted = (item.counted?.toDoubleOrNull() ?: 0.0).toInt().toString()
+                            )
+                        }
+
+                        if (response.isSuccessful) {
+                            repository.updateSyncStatus(currentJournalId, item.itemId.orEmpty(), 1)
+                            Log.d(TAG, "Successfully synced item: ${item.itemId}")
                         } else {
-                            "none"
+                            Log.e(TAG, "Failed to sync item: ${item.itemId}, code: ${response.code()}")
+                            _syncProgress.value = SyncProgress(
+                                isComplete = true,
+                                totalItems = unsyncedItems.size,
+                                currentItem = index + 1,
+                                errorMessage = "Failed to sync item: ${item.itemId}"
+                            )
+                            return@launch
                         }
 
-                        Log.d(TAG, "Syncing item ${index + 1}/${unsyncedItems.size}: ${item.itemId}")
-
-                        // Try to sync the item with retries
-                        var retryCount = 0
-                        val maxRetries = 3
-                        var syncSuccess = false
-
-                        while (retryCount < maxRetries && !syncSuccess) {
-                            try {
-                                val success = postLineDetails(
-                                    itemId = item.itemId ?: "",
-                                    storeId = currentStoreId,
-                                    journalId = currentJournalId,
-                                    adjustment = adjustment,
-                                    receivedCount = receivedCount,
-                                    transferCount = transferCount,
-                                    wasteCount = wasteCount,
-                                    wasteType = wasteType,
-                                    counted = counted
-                                )
-
-                                if (success) {
-                                    // Mark as synced in database
-                                    updateSyncStatus(currentJournalId, item.itemId ?: "", 1)
-                                    successCount++
-                                    syncSuccess = true
-                                    Log.d(TAG, "Successfully synced item: ${item.itemId}")
-                                } else {
-                                    retryCount++
-                                    if (retryCount < maxRetries) {
-                                        Log.d(TAG, "Retrying ${item.itemId} (attempt ${retryCount + 1})")
-                                        delay(1000L * retryCount) // Exponential backoff
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Exception syncing item ${item.itemId} (attempt ${retryCount + 1})", e)
-                                retryCount++
-
-                                if (retryCount < maxRetries) {
-                                    delay(1000L * retryCount)
-                                }
-                            }
-                        }
-
-                        if (!syncSuccess) {
-                            errorCount++
-                            failedItems.add(item.itemId ?: "unknown")
-                            Log.e(TAG, "Failed to sync ${item.itemId} after $maxRetries attempts")
-                        }
-
-                        // Small delay between items
-                        delay(200L)
+                        delay(100)
 
                     } catch (e: Exception) {
-                        Log.e(TAG, "Unexpected error syncing item ${item.itemId}", e)
-                        errorCount++
-                        failedItems.add(item.itemId ?: "unknown")
-                    }
-
-                    // Update progress after each item
-                    _syncProgress.value = SyncProgress(
-                        isComplete = false,
-                        totalItems = unsyncedItems.size,
-                        currentItem = index + 1,
-                        currentItemId = ""
-                    )
-                }
-
-                Log.d(TAG, "Sync completed. Success: $successCount, Errors: $errorCount")
-
-                // Final progress update
-                if (errorCount > 0) {
-                    val errorMessage = if (failedItems.size <= 3) {
-                        "Failed to sync items: ${failedItems.joinToString(", ")}"
-                    } else {
-                        "Failed to sync ${failedItems.size} items including: ${failedItems.take(3).joinToString(", ")}..."
-                    }
-
-                    _syncProgress.value = SyncProgress(
-                        isComplete = true,
-                        totalItems = unsyncedItems.size,
-                        currentItem = unsyncedItems.size,
-                        errorMessage = "$errorMessage. Successful: $successCount, Failed: $errorCount"
-                    )
-                } else {
-                    _syncProgress.value = SyncProgress(
-                        isComplete = true,
-                        totalItems = unsyncedItems.size,
-                        currentItem = unsyncedItems.size
-                    )
-                }
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error in syncModifiedData", e)
-                _syncProgress.value = SyncProgress(
-                    isComplete = true,
-                    errorMessage = when {
-                        e.message?.contains("UnknownHostException") == true ||
-                                e.message?.contains("ConnectException") == true ||
-                                e.message?.contains("SocketTimeoutException") == true -> "No internet connection"
-                        else -> "Error: ${e.message}"
-                    }
-                )
-            }
-        }
-    }
-
-    // Helper function to format values consistently
-    private fun formatValue(value: String?): String {
-        if (value.isNullOrEmpty()) return "0"
-        return try {
-            val number = value.toDouble()
-            if (number == number.toInt().toDouble()) {
-                number.toInt().toString()
-            } else {
-                number.toString()
-            }
-        } catch (e: NumberFormatException) {
-            "0"
-        }
-    }
-    suspend fun saveModifiedLineDetails(storeId: String, journalId: String, modifiedItems: List<LineTransaction>): Boolean {
-        return withContext(Dispatchers.IO) {
-            try {
-                Log.d(TAG, "Saving ${modifiedItems.size} modified line transactions for journal: $journalId")
-
-                // Convert to entities
-                val entities = modifiedItems.map { it.toEntity() }
-
-                // Update only the specific items in the database
-                database.lineTransactionDao().updateSpecificItems(entities)
-
-                Log.d(TAG, "Successfully saved ${modifiedItems.size} modified items")
-                true
-            } catch (e: Exception) {
-                Log.e(TAG, "Error in saveModifiedLineDetails", e)
-                false
-            }
-        }
-
-
-    }
-    fun syncSpecificItems(itemsToSync: List<LineTransaction>) {
-        viewModelScope.launch {
-            try {
-                val currentStoreId = storeId ?: run {
-                    _syncProgress.value = SyncProgress(
-                        isComplete = true,
-                        errorMessage = "Store ID not set"
-                    )
-                    return@launch
-                }
-
-                val currentJournalId = journalId ?: run {
-                    _syncProgress.value = SyncProgress(
-                        isComplete = true,
-                        errorMessage = "Journal ID not set"
-                    )
-                    return@launch
-                }
-
-                Log.d(TAG, "Starting sync for ${itemsToSync.size} specific items")
-
-                if (itemsToSync.isEmpty()) {
-                    _syncProgress.value = SyncProgress(isComplete = true, totalItems = 0)
-                    Log.d(TAG, "No items to sync")
-                    return@launch
-                }
-
-                // Initialize progress
-                _syncProgress.value = SyncProgress(
-                    isComplete = false,
-                    totalItems = itemsToSync.size,
-                    currentItem = 0,
-                    currentItemId = ""
-                )
-
-                // Process items one by one with progress updates
-                var successCount = 0
-                var errorCount = 0
-                val failedItems = mutableListOf<String>()
-
-                for (index in itemsToSync.indices) {
-                    val item = itemsToSync[index]
-
-                    try {
-                        // Update progress for current item
-                        _syncProgress.value = SyncProgress(
-                            isComplete = false,
-                            totalItems = itemsToSync.size,
-                            currentItem = index,
-                            currentItemId = item.itemId ?: "Unknown"
-                        )
-
-                        // Validate and format values
-                        val adjustment = formatValue(item.adjustment)
-                        val receivedCount = formatValue(item.receivedCount)
-                        val transferCount = formatValue(item.transferCount)
-                        val wasteCount = formatValue(item.wasteCount)
-                        val counted = formatValue(item.counted)
-                        val wasteType = if (wasteCount.toIntOrNull() ?: 0 > 0) {
-                            item.wasteType?.takeIf { it.isNotBlank() && it != "Select type" } ?: "none"
-                        } else {
-                            "none"
-                        }
-
-                        Log.d(TAG, "Syncing item ${index + 1}/${itemsToSync.size}: ${item.itemId}")
-
-                        // Try to sync the item with retries
-                        var retryCount = 0
-                        val maxRetries = 3
-                        var syncSuccess = false
-
-                        while (retryCount < maxRetries && !syncSuccess) {
-                            try {
-                                val success = postLineDetails(
-                                    itemId = item.itemId ?: "",
-                                    storeId = currentStoreId,
-                                    journalId = currentJournalId,
-                                    adjustment = adjustment,
-                                    receivedCount = receivedCount,
-                                    transferCount = transferCount,
-                                    wasteCount = wasteCount,
-                                    wasteType = wasteType,
-                                    counted = counted
+                        when {
+                            e is UnknownHostException ||
+                                    e is ConnectException ||
+                                    e is SocketTimeoutException -> {
+                                _syncProgress.value = SyncProgress(
+                                    isComplete = true,
+                                    errorMessage = "No internet connection"
                                 )
-
-                                if (success) {
-                                    // Mark as synced in database
-                                    updateSyncStatus(currentJournalId, item.itemId ?: "", 1)
-                                    successCount++
-                                    syncSuccess = true
-                                    Log.d(TAG, "Successfully synced item: ${item.itemId}")
-                                } else {
-                                    retryCount++
-                                    if (retryCount < maxRetries) {
-                                        Log.d(TAG, "Retrying ${item.itemId} (attempt ${retryCount + 1})")
-                                        delay(1000L * retryCount) // Exponential backoff
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Exception syncing item ${item.itemId} (attempt ${retryCount + 1})", e)
-                                retryCount++
-
-                                if (retryCount < maxRetries) {
-                                    delay(1000L * retryCount)
-                                }
+                            }
+                            else -> {
+                                _syncProgress.value = SyncProgress(
+                                    isComplete = true,
+                                    errorMessage = "Error syncing data: ${e.message}"
+                                )
                             }
                         }
-
-                        if (!syncSuccess) {
-                            errorCount++
-                            failedItems.add(item.itemId ?: "unknown")
-                            Log.e(TAG, "Failed to sync ${item.itemId} after $maxRetries attempts")
-                        }
-
-                        // Small delay between items
-                        delay(200L)
-
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Unexpected error syncing item ${item.itemId}", e)
-                        errorCount++
-                        failedItems.add(item.itemId ?: "unknown")
+                        return@launch
                     }
-
-                    // Update progress after each item
-                    _syncProgress.value = SyncProgress(
-                        isComplete = false,
-                        totalItems = itemsToSync.size,
-                        currentItem = index + 1,
-                        currentItemId = ""
-                    )
                 }
 
-                Log.d(TAG, "Sync completed. Success: $successCount, Errors: $errorCount")
-
-                // Final progress update
-                if (errorCount > 0) {
-                    val errorMessage = if (failedItems.size <= 3) {
-                        "Failed to sync items: ${failedItems.joinToString(", ")}"
-                    } else {
-                        "Failed to sync ${failedItems.size} items including: ${failedItems.take(3).joinToString(", ")}..."
-                    }
-
-                    _syncProgress.value = SyncProgress(
-                        isComplete = true,
-                        totalItems = itemsToSync.size,
-                        currentItem = itemsToSync.size,
-                        errorMessage = "$errorMessage. Successful: $successCount, Failed: $errorCount"
-                    )
-                } else {
-                    _syncProgress.value = SyncProgress(
-                        isComplete = true,
-                        totalItems = itemsToSync.size,
-                        currentItem = itemsToSync.size
-                    )
-                }
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error in syncSpecificItems", e)
                 _syncProgress.value = SyncProgress(
                     isComplete = true,
-                    errorMessage = when {
-                        e.message?.contains("UnknownHostException") == true ||
-                                e.message?.contains("ConnectException") == true ||
-                                e.message?.contains("SocketTimeoutException") == true -> "No internet connection"
-                        else -> "Error: ${e.message}"
+                    totalItems = unsyncedItems.size,
+                    currentItem = unsyncedItems.size
+                )
+
+            } catch (e: Exception) {
+                _syncProgress.value = SyncProgress(
+                    isComplete = true,
+                    errorMessage = if (e is UnknownHostException ||
+                        e is ConnectException ||
+                        e is SocketTimeoutException
+                    ) {
+                        "No internet connection"
+                    } else {
+                        "Error: ${e.message}"
                     }
                 )
             }
-        }
-    }
-
-    suspend fun markAllItemsAsPosted(journalId: String) {
-        withContext(Dispatchers.IO) {
-            try {
-                Log.d(TAG, "Marking all items as posted for journal: $journalId")
-
-                // Update all line transactions to posted = 1
-                database.lineTransactionDao().markAllAsPosted(journalId)
-
-                // Also update stock counting to posted = 1
-                database.stockCountingDao().markAsPosted(journalId.toLong())
-
-                Log.d(TAG, "Successfully marked all items as posted")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error marking items as posted", e)
-                throw e
-            }
-        }
-    }
-
-    // Also add this method to help with debugging
-    suspend fun debugUnsyncedItems(journalId: String): String {
-        return try {
-            val unsyncedItems = repository.getUnsyncedTransactions(journalId)
-            buildString {
-                appendLine("=== UNSYNCED ITEMS DEBUG ===")
-                appendLine("Total unsynced items: ${unsyncedItems.size}")
-
-                unsyncedItems.forEach { item ->
-                    appendLine("Item: ${item.itemId}")
-                    appendLine("  - Adjustment: ${item.adjustment}")
-                    appendLine("  - Received: ${item.receivedCount}")
-                    appendLine("  - Transfer: ${item.transferCount}")
-                    appendLine("  - Waste: ${item.wasteCount}")
-                    appendLine("  - Counted: ${item.counted}")
-                    appendLine("  - Waste Type: ${item.wasteType}")
-                    appendLine("  - Sync Status: ${item.syncStatus}")
-                    appendLine("  - Has Values: ${item.hasAnyValue()}")
-                    appendLine("---")
-                }
-            }
-        } catch (e: Exception) {
-            "Error getting debug info: ${e.message}"
         }
     }
 
@@ -646,24 +332,6 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
                 Log.e(TAG, "Error updating sync status", e)
             }
         }
-    }
-    suspend fun updateSyncStatus(journalId: String, itemId: String, syncStatus: Int) {
-        withContext(Dispatchers.IO) {
-            try {
-                Log.d(TAG, "Updating sync status for item: $itemId to status: $syncStatus")
-                repository.updateSyncStatus(journalId, itemId, syncStatus)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error updating sync status for item: $itemId", e)
-                throw e
-            }
-        }
-    }
-    suspend fun markItemAsSynced(journalId: String, itemId: String) {
-        updateSyncStatus(journalId, itemId, 1)
-    }
-
-    suspend fun markItemAsUnsynced(journalId: String, itemId: String) {
-        updateSyncStatus(journalId, itemId, 0)
     }
     suspend fun getItemsWithTransactions(storeId: String, journalId: String): List<LineTransaction> {
         return withContext(Dispatchers.IO) {
@@ -862,35 +530,7 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
             false
         }
     }
-    suspend fun updateSingleItem(journalId: String, item: LineTransaction) {
-        withContext(Dispatchers.IO) {
-            try {
-                Log.d(TAG, "Updating single item: ${item.itemId}")
 
-                // Convert to entity and update in database
-                val entity = item.toEntity().copy(syncStatus = 0) // Mark as unsynced
-
-                // Use DAO method to update only this specific item
-                database.lineTransactionDao().updateSpecificItemData(
-                    journalId = journalId,
-                    itemId = item.itemId ?: "",
-                    adjustment = item.adjustment ?: "0",
-                    receivedCount = item.receivedCount ?: "0",
-                    transferCount = item.transferCount ?: "0",
-                    wasteCount = item.wasteCount ?: "0",
-                    counted = item.counted ?: "0",
-                    wasteType = item.wasteType,
-                    variantId = item.variantId,
-                    syncStatus = 0 // Mark as unsynced
-                )
-
-                Log.d(TAG, "Successfully updated item: ${item.itemId}")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error updating single item: ${item.itemId}", e)
-                throw e
-            }
-        }
-    }
     fun getCurrentData(): List<LineTransaction> = currentData
 
     suspend fun clearLocalData(journalId: String) {
@@ -982,7 +622,7 @@ class LineViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
-    }
+}
 
 // LineViewModelFactory.kt
 class LineViewModelFactory(
@@ -996,3 +636,4 @@ class LineViewModelFactory(
         throw IllegalArgumentException("Unknown ViewModel class")
     }
 }
+

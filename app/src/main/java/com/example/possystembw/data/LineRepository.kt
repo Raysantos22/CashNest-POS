@@ -65,180 +65,62 @@ class LineRepository(
 //        }
 
     suspend fun syncTransactions(storeId: String, journalId: String): Result<Unit> = runCatching {
-        Log.d(TAG, "Starting sync for storeId: $storeId, journalId: $journalId")
-
         // Get only unsynced transactions (syncStatus = 0)
         val unsyncedTransactions = dao.getUnsyncedTransactions(journalId)
-        Log.d(TAG, "Found ${unsyncedTransactions.size} unsynced transactions")
 
         if (unsyncedTransactions.isEmpty()) {
-            Log.d(TAG, "No unsynced transactions found")
-            return@runCatching Unit
+            return@runCatching Unit  // Return Unit instead of just returning
         }
 
-        // Filter transactions that have meaningful values to sync
-        val transactionsToSync = unsyncedTransactions.filter { transaction ->
-            val hasValues = transaction.hasAnyValue()
-            Log.d(TAG, "Transaction ${transaction.itemId}: hasValues=$hasValues")
-            hasValues
+        // Post stock counting first with posted = 1
+        val stockCountingResult = postStockCounting(storeId, journalId)
+        if (!stockCountingResult.isSuccessful) {
+            throw Exception("Failed to update stock counting")
         }
 
-        if (transactionsToSync.isEmpty()) {
-            Log.d(TAG, "No transactions with values to sync")
-            return@runCatching Unit
-        }
+        // Process items in parallel batches
+        val batchSize = 5
+        coroutineScope {
+            unsyncedTransactions
+                .filter { it.hasAnyValue() }
+                .chunked(batchSize)
+                .forEach { batch ->
+                    batch.map { item ->
+                        async {
+                            try {
+                                val response = api.postLineDetails(
+                                    itemId = item.itemId,
+                                    storeId = storeId,
+                                    journalId = journalId,
+                                    adjustment = (item.adjustment.toDoubleOrNull() ?: 0.0).toInt()
+                                        .toString(),
+                                    receivedCount = (item.receivedCount.toDoubleOrNull()
+                                        ?: 0.0).toInt().toString(),
+                                    transferCount = (item.transferCount?.toDoubleOrNull()
+                                        ?: 0.0).toInt().toString(),
+                                    wasteCount = (item.wasteCount.toDoubleOrNull() ?: 0.0).toInt()
+                                        .toString(),
+                                    wasteType = item.wasteType ?: "none",
+                                    counted = (item.counted.toDoubleOrNull() ?: 0.0).toInt()
+                                        .toString()
+                                )
 
-        Log.d(TAG, "Syncing ${transactionsToSync.size} transactions with values")
-
-        // Process items sequentially to avoid overwhelming the server
-        var successCount = 0
-        var errorCount = 0
-        val failedItems = mutableListOf<String>()
-
-        for (item in transactionsToSync) {
-            try {
-                Log.d(TAG, "Syncing item: ${item.itemId}")
-
-                // Validate and format values
-                val adjustment = formatValue(item.adjustment)
-                val receivedCount = formatValue(item.receivedCount)
-                val transferCount = formatValue(item.transferCount)
-                val wasteCount = formatValue(item.wasteCount)
-                val counted = formatValue(item.counted)
-                val wasteType = if (wasteCount.toIntOrNull() ?: 0 > 0) {
-                    item.wasteType?.takeIf { it.isNotBlank() && it != "Select type" } ?: "none"
-                } else {
-                    "none"
-                }
-
-                Log.d(TAG, "Posting data for ${item.itemId}: adj=$adjustment, rcv=$receivedCount, waste=$wasteCount, trans=$transferCount, count=$counted, wasteType=$wasteType")
-
-                // Add retry logic for individual items
-                var retryCount = 0
-                val maxRetries = 3
-                var lastException: Exception? = null
-
-                while (retryCount < maxRetries) {
-                    try {
-                        val response = api.postLineDetails(
-                            itemId = item.itemId ?: "",
-                            storeId = storeId,
-                            journalId = journalId,
-                            adjustment = adjustment,
-                            receivedCount = receivedCount,
-                            transferCount = transferCount,
-                            wasteCount = wasteCount,
-                            wasteType = wasteType,
-                            counted = counted
-                        )
-
-                        if (response.isSuccessful) {
-                            // Mark as synced in database
-                            dao.markAsSynced(journalId, item.itemId ?: "")
-                            Log.d(TAG, "Successfully synced item: ${item.itemId}")
-                            successCount++
-                            break // Success, exit retry loop
-                        } else {
-                            val errorBody = response.errorBody()?.string()
-                            Log.e(TAG, "Failed to sync item ${item.itemId}: ${response.code()} - ${response.message()}")
-                            Log.e(TAG, "Error body: $errorBody")
-
-                            // Don't retry 4xx errors (client errors)
-                            if (response.code() in 400..499) {
-                                errorCount++
-                                failedItems.add(item.itemId ?: "unknown")
-                                Log.e(TAG, "Client error for ${item.itemId}, not retrying")
-                                break
-                            }
-
-                            lastException = Exception("HTTP ${response.code()}: ${response.message()}")
-                            retryCount++
-
-                            if (retryCount < maxRetries) {
-                                Log.d(TAG, "Retrying ${item.itemId} (attempt ${retryCount + 1})")
-                                delay(1000L * retryCount) // Exponential backoff
+                                if (response.isSuccessful) {
+                                    // Mark as synced in database
+                                    dao.markAsSynced(journalId, item.itemId)
+                                }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error syncing item ${item.itemId}", e)
+                                throw e
                             }
                         }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Exception syncing item ${item.itemId} (attempt ${retryCount + 1})", e)
-                        lastException = e
-                        retryCount++
-
-                        if (retryCount < maxRetries) {
-                            delay(1000L * retryCount) // Exponential backoff
-                        }
-                    }
+                    }.awaitAll()
                 }
-
-                // If we exhausted retries, mark as failed
-                if (retryCount >= maxRetries) {
-                    errorCount++
-                    failedItems.add(item.itemId ?: "unknown")
-                    Log.e(TAG, "Failed to sync ${item.itemId} after $maxRetries attempts: ${lastException?.message}")
-                }
-
-                // Small delay between items to prevent overwhelming server
-                delay(100L)
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Unexpected error syncing item ${item.itemId}", e)
-                errorCount++
-                failedItems.add(item.itemId ?: "unknown")
-            }
         }
-
-        Log.d(TAG, "Sync completed. Success: $successCount, Errors: $errorCount")
-
-        if (errorCount > 0) {
-            val errorMessage = if (failedItems.size <= 3) {
-                "Failed to sync items: ${failedItems.joinToString(", ")}"
-            } else {
-                "Failed to sync ${failedItems.size} items including: ${failedItems.take(3).joinToString(", ")}..."
-            }
-            throw Exception("$errorMessage. Successful: $successCount, Failed: $errorCount")
-        }
-
-        // If we get here, all items synced successfully
-        Unit
-    }
-    suspend fun hasUnsyncedChanges(journalId: String): Boolean {
-        return try {
-            val unsyncedTransactions = dao.getUnsyncedTransactions(journalId)
-            val hasChanges = unsyncedTransactions.any { it.hasAnyValue() }
-            Log.d(TAG, "Checking unsynced changes for $journalId: ${unsyncedTransactions.size} unsynced, hasChanges=$hasChanges")
-            hasChanges
-        } catch (e: Exception) {
-            Log.e(TAG, "Error checking unsynced changes", e)
-            false
-        }
-    }
-    private fun formatValue(value: String?): String {
-        if (value.isNullOrEmpty()) return "0"
-        return try {
-            val number = value.toDouble()
-            if (number == number.toInt().toDouble()) {
-                number.toInt().toString()
-            } else {
-                number.toString()
-            }
-        } catch (e: NumberFormatException) {
-            "0"
-        }
+        Unit  // Explicit return type at the end of runCatching block
     }
 
-    // Enhanced error handling for network issues
-//    private suspend fun isNetworkAvailable(): Boolean {
-//        return try {
-//            // Simple connectivity check - you can implement a more sophisticated one
-//            val response = withContext(Dispatchers.IO) {
-//                api.testConnection() // You'd need to add this to your API
-//            }
-//            response.isSuccessful
-//        } catch (e: Exception) {
-//            Log.w(TAG, "Network check failed: ${e.message}")
-//            false
-//        }
-//    }
+
     suspend fun getLineDetails(storeId: String, journalId: String): Result<List<LineTransaction>> =
         runCatching {
             // Validate input parameters

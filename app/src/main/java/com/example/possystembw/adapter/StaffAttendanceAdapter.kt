@@ -26,6 +26,7 @@ import com.bumptech.glide.load.engine.GlideException
 import com.bumptech.glide.request.RequestListener
 import com.bumptech.glide.request.RequestOptions
 import com.bumptech.glide.request.target.Target
+import com.bumptech.glide.signature.ObjectKey
 import com.example.possystembw.R
 import com.example.possystembw.DAO.PhilippinesServerTime
 import com.example.possystembw.DAO.ServerAttendanceRecord
@@ -73,7 +74,23 @@ class StaffAttendanceAdapter(
         // Start background image loading for all visible items
         loadImagesInBackground()
     }
+    fun updateStaffAttendanceImmediately(staffId: String, attendanceData: com.example.possystembw.DAO.ServerAttendanceRecord) {
+        // Update server data map
+        val key = "${staffId}_${attendanceData.date}"
+        val updatedMap = serverAttendanceData.toMutableMap()
+        updatedMap[key] = attendanceData
+        serverAttendanceData = updatedMap
 
+        // Find and update specific staff position
+        val position = getPositionForStaffId(staffId)
+        if (position != -1) {
+            Log.d("StaffAttendanceAdapter", "Updating position $position for staff $staffId")
+            notifyItemChanged(position)
+        } else {
+            Log.w("StaffAttendanceAdapter", "Could not find position for staff $staffId")
+            notifyDataSetChanged() // Fallback to full refresh
+        }
+    }
     private fun loadImagesInBackground() {
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch {
@@ -430,41 +447,50 @@ class StaffAttendanceAdapter(
                 .show()
         }
 
-        private suspend fun getAttendanceRecord(staff: StaffEntity): ServerAttendanceRecord? {
-            val staffId = "${staff.name}_${staff.storeId}"
-            val key = "${staffId}_${selectedDate}"
-
-            // First try server data
-            serverAttendanceData[key]?.let { return it }
-
-            // Fallback to local database
+        // Replace your getAttendanceRecord method in the ViewHolder class with this:
+        private suspend fun getAttendanceRecord(staff: StaffEntity): com.example.possystembw.DAO.ServerAttendanceRecord? {
             return try {
-                val localRecord = withContext(Dispatchers.IO) {
-                    AppDatabase.getDatabase(context).attendanceDao()
-                        .getAttendanceForStaffOnDate(staffId, selectedDate)
+                val staffId = "${staff.name}_${staff.storeId}"
+                // FIXED: Use the selectedDate from the adapter class, not from local scope
+                val dateStr = this@StaffAttendanceAdapter.selectedDate
+                val key = "${staffId}_${dateStr}"
+
+                Log.d("StaffAttendanceAdapter", "Getting attendance record for key: $key")
+
+                // FIXED: Always check server data first (this is updated immediately after photo capture)
+                serverAttendanceData[key]?.let {
+                    Log.d("StaffAttendanceAdapter", "Found server record: timeIn=${it.timeIn}, timeOut=${it.timeOut}")
+                    return it
                 }
 
-                localRecord?.let {
-                    ServerAttendanceRecord(
-                        id = it.id.toInt(),
-                        staffId = it.staffId,
-                        storeId = it.storeId,
-                        date = it.date,
-                        timeIn = it.timeIn.takeIf { time -> time.isNotEmpty() },
-                        timeInPhoto = it.timeInPhoto.takeIf { photo -> photo.isNotEmpty() },
-                        breakIn = it.breakIn,
-                        breakInPhoto = it.breakInPhoto,
-                        breakOut = it.breakOut,
-                        breakOutPhoto = it.breakOutPhoto,
-                        timeOut = it.timeOut,
-                        timeOutPhoto = it.timeOutPhoto,
-                        status = it.status,
+                // FIXED: Also check local database and create server record format
+                val localRecord = withContext(Dispatchers.IO) {
+                    AppDatabase.getDatabase(context).attendanceDao()
+                        .getAttendanceForStaffOnDate(staffId, dateStr)
+                }
+
+                localRecord?.let { record ->
+                    Log.d("StaffAttendanceAdapter", "Found local record: timeIn=${record.timeIn}, timeOut=${record.timeOut}")
+                    com.example.possystembw.DAO.ServerAttendanceRecord(
+                        id = record.id.toInt(),
+                        staffId = record.staffId,
+                        storeId = record.storeId,
+                        date = record.date,
+                        timeIn = record.timeIn?.takeIf { it.isNotEmpty() },
+                        timeInPhoto = record.timeInPhoto?.takeIf { it.isNotEmpty() },
+                        breakIn = record.breakIn,
+                        breakInPhoto = record.breakInPhoto,
+                        breakOut = record.breakOut,
+                        breakOutPhoto = record.breakOutPhoto,
+                        timeOut = record.timeOut?.takeIf { it.isNotEmpty() },
+                        timeOutPhoto = record.timeOutPhoto?.takeIf { it.isNotEmpty() },
+                        status = record.status,
                         created_at = "",
                         updated_at = ""
                     )
                 }
             } catch (e: Exception) {
-                Log.e("StaffAttendanceAdapter", "Error getting local attendance record", e)
+                Log.e("StaffAttendanceAdapter", "Error getting attendance record", e)
                 null
             }
         }
@@ -535,29 +561,105 @@ class StaffAttendanceAdapter(
         }
 
         private fun loadAttendanceImage(imageView: CircleImageView, photoPath: String?, staffId: String, imageType: String) {
-            if (photoPath.isNullOrEmpty()) return
+            Log.d("StaffAttendanceAdapter", "Loading image - staffId: $staffId, type: $imageType, path: $photoPath")
 
-            // Check if currently loading
-            if (isImageLoading(staffId, imageType)) {
-                showLoadingState(imageView)
+            if (photoPath.isNullOrEmpty()) {
+                Log.d("StaffAttendanceAdapter", "Photo path is null or empty")
+                imageView.setImageResource(R.drawable.ic_camera_placeholder)
+                imageView.borderColor = ContextCompat.getColor(context, R.color.gray)
                 return
             }
 
-            // Try local file first
-            val localFile = getLocalImageFile(staffId, imageType, selectedDate)
-            if (localFile.exists()) {
-                loadImageWithGlide(imageView, localFile.absolutePath)
-                imageView.borderColor = ContextCompat.getColor(context, R.color.green)
+            // CRITICAL: Always check if file exists first
+            val photoFile = File(photoPath)
+            if (photoFile.exists()) {
+                Log.d("StaffAttendanceAdapter", "File exists, loading: $photoPath")
+
+                // Clear any previous image first
+                imageView.setImageResource(R.drawable.ic_camera_placeholder)
+
+                Glide.with(context)
+                    .load(photoFile)
+                    .apply(
+                        RequestOptions()
+                            .placeholder(R.drawable.ic_camera_placeholder)
+                            .error(R.drawable.ic_camera_placeholder)
+                            .centerCrop()
+                            .diskCacheStrategy(DiskCacheStrategy.NONE) // Don't cache
+                            .skipMemoryCache(true) // Force reload from file
+                            .signature(ObjectKey(System.currentTimeMillis())) // Force refresh
+                    )
+                    .listener(object : RequestListener<android.graphics.drawable.Drawable> {
+                        override fun onLoadFailed(
+                            e: GlideException?,
+                            model: Any?,
+                            target: Target<android.graphics.drawable.Drawable>?,
+                            isFirstResource: Boolean
+                        ): Boolean {
+                            Log.e("StaffAttendanceAdapter", "Failed to load image: $photoPath", e)
+                            imageView.borderColor = ContextCompat.getColor(context, R.color.red)
+                            return false
+                        }
+
+                        override fun onResourceReady(
+                            resource: android.graphics.drawable.Drawable?,
+                            model: Any?,
+                            target: Target<android.graphics.drawable.Drawable>?,
+                            dataSource: DataSource?,
+                            isFirstResource: Boolean
+                        ): Boolean {
+                            Log.d("StaffAttendanceAdapter", "Successfully loaded image: $photoPath")
+                            imageView.borderColor = ContextCompat.getColor(context, R.color.green)
+                            return false
+                        }
+                    })
+                    .into(imageView)
                 return
             }
 
-            // If server path, check if it's being downloaded
+            // If server path, load from URL
             if (photoPath.startsWith("/storage")) {
-                showLoadingState(imageView)
+                val fullImageUrl = BASE_URL + photoPath
+                Log.d("StaffAttendanceAdapter", "Loading server image: $fullImageUrl")
+
+                Glide.with(context)
+                    .load(fullImageUrl)
+                    .apply(
+                        RequestOptions()
+                            .placeholder(R.drawable.ic_camera_placeholder)
+                            .error(R.drawable.ic_camera_placeholder)
+                            .centerCrop()
+                            .diskCacheStrategy(DiskCacheStrategy.ALL)
+                    )
+                    .listener(object : RequestListener<android.graphics.drawable.Drawable> {
+                        override fun onLoadFailed(
+                            e: GlideException?,
+                            model: Any?,
+                            target: Target<android.graphics.drawable.Drawable>?,
+                            isFirstResource: Boolean
+                        ): Boolean {
+                            Log.e("StaffAttendanceAdapter", "Failed to load server image: $fullImageUrl", e)
+                            imageView.borderColor = ContextCompat.getColor(context, R.color.red)
+                            return false
+                        }
+
+                        override fun onResourceReady(
+                            resource: android.graphics.drawable.Drawable?,
+                            model: Any?,
+                            target: Target<android.graphics.drawable.Drawable>?,
+                            dataSource: DataSource?,
+                            isFirstResource: Boolean
+                        ): Boolean {
+                            Log.d("StaffAttendanceAdapter", "Successfully loaded server image: $fullImageUrl")
+                            imageView.borderColor = ContextCompat.getColor(context, R.color.green)
+                            return false
+                        }
+                    })
+                    .into(imageView)
             } else {
-                // Local path - load directly
-                loadImageWithGlide(imageView, photoPath)
-                imageView.borderColor = ContextCompat.getColor(context, R.color.green)
+                Log.w("StaffAttendanceAdapter", "Unknown photo path format: $photoPath")
+                imageView.setImageResource(R.drawable.ic_camera_placeholder)
+                imageView.borderColor = ContextCompat.getColor(context, R.color.gray)
             }
         }
 
@@ -617,54 +719,85 @@ class StaffAttendanceAdapter(
             var totalBreakMinutes = 0L
 
             try {
-                val timeInDate = timeFormat.parse(record.timeIn!!) ?: return TimeCalculationResult(0, 0)
-                val currentTime = Calendar.getInstance().time
-
-                // Determine end time for work calculation
-                val workEndTime = when {
-                    record.timeOut != null -> timeFormat.parse(record.timeOut)
-                    record.breakIn != null && record.breakOut == null -> timeFormat.parse(record.breakIn) // Currently on break
-                    else -> currentTime // Still working
-                } ?: currentTime
-
-                // Calculate total time from time in to end
-                val totalMinutes = (workEndTime.time - timeInDate.time) / (60 * 1000)
-
-                // Calculate break time
-                if (record.breakIn != null) {
-                    val breakInDate = timeFormat.parse(record.breakIn) ?: timeInDate
-
-                    if (record.breakOut != null) {
-                        // Break completed
-                        val breakOutDate = timeFormat.parse(record.breakOut) ?: breakInDate
-                        totalBreakMinutes = (breakOutDate.time - breakInDate.time) / (60 * 1000)
-
-                        // If there's time after break out
-                        if (record.timeOut != null) {
-                            val timeOutDate = timeFormat.parse(record.timeOut) ?: breakOutDate
-                            val workAfterBreak = (timeOutDate.time - breakOutDate.time) / (60 * 1000)
-                            totalWorkMinutes = totalMinutes - totalBreakMinutes
-                        } else {
-                            // Still working after break
-                            val workAfterBreak = (currentTime.time - breakOutDate.time) / (60 * 1000)
-                            totalWorkMinutes = totalMinutes - totalBreakMinutes + workAfterBreak
-                        }
-                    } else {
-                        // Currently on break
-                        totalBreakMinutes = (currentTime.time - breakInDate.time) / (60 * 1000)
-                        totalWorkMinutes = (breakInDate.time - timeInDate.time) / (60 * 1000)
-                    }
-                } else {
-                    // No break taken
-                    totalWorkMinutes = totalMinutes
+                if (record.timeIn.isNullOrEmpty()) {
+                    return TimeCalculationResult(0, 0)
                 }
 
-                // Ensure no negative values
-                totalWorkMinutes = maxOf(0, totalWorkMinutes)
-                totalBreakMinutes = maxOf(0, totalBreakMinutes)
+                val timeInDate = timeFormat.parse(record.timeIn) ?: return TimeCalculationResult(0, 0)
+                val timeInCalendar = Calendar.getInstance().apply { time = timeInDate }
+
+                val currentTime = Calendar.getInstance()
+
+                // Convert to minutes since start of day for accurate calculation
+                fun timeToMinutesSinceStartOfDay(timeStr: String): Long {
+                    return try {
+                        val time = timeFormat.parse(timeStr) ?: return 0L
+                        val cal = Calendar.getInstance().apply { this.time = time }
+                        (cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)).toLong()
+                    } catch (e: Exception) {
+                        Log.e("StaffAttendanceAdapter", "Error parsing time: $timeStr", e)
+                        0L
+                    }
+                }
+
+                val timeInMinutes = timeToMinutesSinceStartOfDay(record.timeIn)
+                var workEndMinutes: Long
+
+                when {
+                    // Case 1: Has time out (shift completed)
+                    !record.timeOut.isNullOrEmpty() -> {
+                        workEndMinutes = timeToMinutesSinceStartOfDay(record.timeOut)
+                        totalWorkMinutes = workEndMinutes - timeInMinutes
+
+                        // Subtract break time if any
+                        if (!record.breakIn.isNullOrEmpty() && !record.breakOut.isNullOrEmpty()) {
+                            val breakInMinutes = timeToMinutesSinceStartOfDay(record.breakIn)
+                            val breakOutMinutes = timeToMinutesSinceStartOfDay(record.breakOut)
+                            totalBreakMinutes = breakOutMinutes - breakInMinutes
+                            totalWorkMinutes -= totalBreakMinutes
+                        }
+                    }
+
+                    // Case 2: Currently on break
+                    !record.breakIn.isNullOrEmpty() && record.breakOut.isNullOrEmpty() -> {
+                        val breakInMinutes = timeToMinutesSinceStartOfDay(record.breakIn)
+                        totalWorkMinutes = breakInMinutes - timeInMinutes
+
+                        // Calculate current break duration
+                        val currentMinutes = currentTime.get(Calendar.HOUR_OF_DAY) * 60 + currentTime.get(Calendar.MINUTE)
+                        totalBreakMinutes = currentMinutes - breakInMinutes
+                    }
+
+                    // Case 3: Returned from break, still working
+                    !record.breakIn.isNullOrEmpty() && !record.breakOut.isNullOrEmpty() && record.timeOut.isNullOrEmpty() -> {
+                        val breakInMinutes = timeToMinutesSinceStartOfDay(record.breakIn)
+                        val breakOutMinutes = timeToMinutesSinceStartOfDay(record.breakOut)
+                        val currentMinutes = currentTime.get(Calendar.HOUR_OF_DAY) * 60 + currentTime.get(Calendar.MINUTE)
+
+                        // Work before break + work after break
+                        val workBeforeBreak = breakInMinutes - timeInMinutes
+                        val workAfterBreak = currentMinutes - breakOutMinutes
+                        totalWorkMinutes = workBeforeBreak + workAfterBreak
+                        totalBreakMinutes = breakOutMinutes - breakInMinutes
+                    }
+
+                    // Case 4: Still working, no break
+                    else -> {
+                        val currentMinutes = currentTime.get(Calendar.HOUR_OF_DAY) * 60 + currentTime.get(Calendar.MINUTE)
+                        totalWorkMinutes = currentMinutes - timeInMinutes
+                    }
+                }
+
+                // Ensure no negative values and reasonable limits
+                totalWorkMinutes = maxOf(0, minOf(totalWorkMinutes, 24 * 60)) // Max 24 hours
+                totalBreakMinutes = maxOf(0, minOf(totalBreakMinutes, 12 * 60)) // Max 12 hours break
+
+                Log.d("StaffAttendanceAdapter",
+                    "Time calculation - Work: ${totalWorkMinutes}min, Break: ${totalBreakMinutes}min for ${record.staffId}")
 
             } catch (e: Exception) {
-                Log.e("StaffAttendanceAdapter", "Error calculating work time", e)
+                Log.e("StaffAttendanceAdapter", "Error calculating work time for ${record.staffId}", e)
+                return TimeCalculationResult(0, 0)
             }
 
             return TimeCalculationResult(totalWorkMinutes, totalBreakMinutes)
@@ -749,8 +882,8 @@ class StaffAttendanceAdapter(
                         .placeholder(R.drawable.ic_camera_placeholder)
                         .error(R.drawable.ic_camera_placeholder)
                         .centerCrop()
-                        .diskCacheStrategy(DiskCacheStrategy.NONE)
-                        .skipMemoryCache(true)
+                        .diskCacheStrategy(DiskCacheStrategy.NONE) // Don't cache locally captured images
+                        .skipMemoryCache(false) // Allow memory cache for better performance
                 )
                 .listener(object : RequestListener<android.graphics.drawable.Drawable> {
                     override fun onLoadFailed(
@@ -760,6 +893,8 @@ class StaffAttendanceAdapter(
                         isFirstResource: Boolean
                     ): Boolean {
                         Log.e("StaffAttendanceAdapter", "Failed to load image: $photoPath", e)
+                        // Set a visual indicator that image failed to load
+                        imageView.borderColor = ContextCompat.getColor(context, R.color.red)
                         return false
                     }
 
@@ -770,13 +905,20 @@ class StaffAttendanceAdapter(
                         dataSource: DataSource?,
                         isFirstResource: Boolean
                     ): Boolean {
+                        // Set border color to indicate successful load
+                        imageView.borderColor = ContextCompat.getColor(context, R.color.green)
                         return false
                     }
                 })
                 .into(imageView)
         }
     }
-
+    fun refreshStaffAttendance(staffId: String) {
+        val position = getPositionForStaffId(staffId)
+        if (position != -1) {
+            notifyItemChanged(position)
+        }
+    }
     data class TimeCalculationResult(
         val workMinutes: Long,
         val breakMinutes: Long

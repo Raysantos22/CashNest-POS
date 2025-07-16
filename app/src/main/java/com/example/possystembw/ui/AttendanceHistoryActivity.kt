@@ -33,7 +33,8 @@ class AttendanceHistoryActivity : AppCompatActivity() {
     private lateinit var calendar: Calendar
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
 //    private val BASE_URL = "http://10.151.5.239:8000" // Your server base URL
-    private val BASE_URL = "http://10.151.5.239:8000" // Your server base URL
+
+    private val BASE_URL = "https://eljin.org/" // Your server base URL
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -78,15 +79,6 @@ class AttendanceHistoryActivity : AppCompatActivity() {
     }
 
     private fun loadAttendanceData() {
-        // First, try to use cached data
-        val cachedData = SessionManager.getAttendanceData()
-        if (cachedData.isNotEmpty() && SessionManager.isAttendanceDataFresh()) {
-            Log.d("AttendanceHistory", "Using cached attendance data: ${cachedData.size} records")
-            processCachedAttendanceData(cachedData)
-            return
-        }
-
-        // If no cached data or data is stale, fetch from server
         showLoading(true)
         lifecycleScope.launch {
             try {
@@ -94,9 +86,6 @@ class AttendanceHistoryActivity : AppCompatActivity() {
 
                 if (result.isSuccess) {
                     allAttendanceRecords = result.getOrNull() ?: emptyList()
-
-                    // Update cache
-                    SessionManager.setAttendanceData(allAttendanceRecords)
 
                     // Filter records for this specific staff member
                     val staffRecords = allAttendanceRecords.filter { record ->
@@ -132,25 +121,6 @@ class AttendanceHistoryActivity : AppCompatActivity() {
                 }
             }
         }
-    }
-    private fun processCachedAttendanceData(cachedData: List<ServerAttendanceRecord>) {
-        allAttendanceRecords = cachedData
-
-        // Filter records for this specific staff member
-        val staffRecords = allAttendanceRecords.filter { record ->
-            record.staffId == staffId
-        }
-
-        // Store dates with attendance
-        attendanceDates = staffRecords.map { it.date }.toSet()
-
-        updateAttendanceIndicators(staffRecords)
-
-        // Load current date's attendance
-        val currentDate = dateFormat.format(Date())
-        loadAttendanceForDate(currentDate)
-
-        showToast("Loaded ${staffRecords.size} cached attendance records")
     }
 
     private fun updateAttendanceIndicators(records: List<ServerAttendanceRecord>) {
@@ -300,7 +270,9 @@ class AttendanceHistoryActivity : AppCompatActivity() {
                 text = time
                 visibility = View.VISIBLE
             }
-            loadImageFromServer(imageView, photoPath)
+            if (photoPath != null) {
+                loadImageFromServer(imageView, photoPath)
+            }
         } else {
             staffText.visibility = View.GONE
             timeText.visibility = View.GONE
@@ -308,15 +280,43 @@ class AttendanceHistoryActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadImageFromServer(imageView: ImageView, photoPath: String?) {
+    private fun loadImageFromServer(imageView: ImageView, photoPath: String) {
         if (!photoPath.isNullOrEmpty()) {
-            val fullImageUrl = BASE_URL + photoPath
+            val fullImageUrl = if (photoPath.startsWith("http")) {
+                photoPath // Already a full URL
+            } else {
+                BASE_URL + photoPath // Append to base URL
+            }
+
+            Log.d("AttendanceHistory", "Loading image from: $fullImageUrl")
 
             Glide.with(this)
                 .load(fullImageUrl)
                 .placeholder(R.drawable.placeholder_image)
                 .error(R.drawable.placeholder_image)
                 .centerCrop()
+                .listener(object : com.bumptech.glide.request.RequestListener<android.graphics.drawable.Drawable> {
+                    override fun onLoadFailed(
+                        e: com.bumptech.glide.load.engine.GlideException?,
+                        model: Any?,
+                        target: com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable>?,
+                        isFirstResource: Boolean
+                    ): Boolean {
+                        Log.e("AttendanceHistory", "Failed to load image: $fullImageUrl", e)
+                        return false
+                    }
+
+                    override fun onResourceReady(
+                        resource: android.graphics.drawable.Drawable?,
+                        model: Any?,
+                        target: com.bumptech.glide.request.target.Target<android.graphics.drawable.Drawable>?,
+                        dataSource: com.bumptech.glide.load.DataSource?,
+                        isFirstResource: Boolean
+                    ): Boolean {
+                        Log.d("AttendanceHistory", "Successfully loaded image: $fullImageUrl")
+                        return false
+                    }
+                })
                 .into(imageView)
         } else {
             imageView.setImageResource(R.drawable.placeholder_image)

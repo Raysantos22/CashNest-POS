@@ -28,6 +28,7 @@ import com.example.possystembw.database.TransactionRecord
 import com.example.possystembw.database.WindowTable
 import com.example.possystembw.ui.RequestApiService
 import com.example.possystembw.ui.ViewModel.CustomDateAdapter
+import com.example.possystembw.ui.ViewModel.CustomDateDeserializer
 import com.example.possystembw.ui.ViewModel.WindowTableListDeserializer
 import com.google.gson.FieldNamingPolicy
 import com.google.gson.GsonBuilder
@@ -58,7 +59,7 @@ object RetrofitClient {
 //    private const val BASE_URL = "https://ecposeljin.com.ecticketph.com/"
 
     //   local
-      private const val BASE_URL = "http://10.151.5.145:3000/"
+//      private const val BASE_URL = "http://10.151.5.145:3000/"
 //   private const val BASE_URL = "http://10.151.5.239:8000/"
 //    private const val BASE_URL = "http://localhost:3000/"
 
@@ -67,7 +68,7 @@ object RetrofitClient {
 
 //    private const val BASE_URL = "https://ecposmiddleware-aj1882pz3-progenxs-projects.vercel.app/"
 
-//    private const val BASE_URL = "https://mwaremiddleware.vercel.app/"
+    private const val BASE_URL = "https://mwaremiddleware.vercel.app/"
     private const val WORLD_TIME_API = "http://worldtimeapi.org/api/"
 
     private const val TAG = "RetrofitClient"
@@ -336,10 +337,13 @@ object RetrofitClient {
 //}
     val transactionApi: TransactionApi by lazy {
         val gson = GsonBuilder()
-            .setDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
-            .setPrettyPrinting() // Add this for better JSON formatting in logs
+            .registerTypeAdapter(Date::class.java, CustomDateDeserializer()) // Add this line
+            .setDateFormat("yyyy-MM-dd HH:mm:ss")  // Keep simple format for serialization
+            .setPrettyPrinting()
             .serializeNulls()
             .create()
+
+        // ... rest of your existing code stays the same
 
         val loggingInterceptor = HttpLoggingInterceptor { message ->
             Log.d(TAG, message)
@@ -353,7 +357,6 @@ object RetrofitClient {
                 val original = chain.request()
                 val requestBody = original.body
 
-                // Ensure we're not sending an empty body
                 if (requestBody == null || requestBody.contentLength() == 0L) {
                     Log.e(TAG, "Empty request body detected!")
                 }
@@ -363,18 +366,14 @@ object RetrofitClient {
                     .method(original.method, requestBody)
                     .build()
 
-                // Log the complete request for debugging
                 Log.d(TAG, "Request URL: ${request.url}")
                 Log.d(TAG, "Request Headers: ${request.headers}")
-                Log.d(TAG, "Request Body: ${requestBody?.toString()}")
 
                 val response = chain.proceed(request)
 
-                // Add detailed error logging for 500 errors
                 if (!response.isSuccessful && response.code == 500) {
                     val errorBody = response.body?.string()
                     Log.e(TAG, "API 500 ERROR: $errorBody")
-                    // Must recreate the response since body can only be consumed once
                     return@addInterceptor response.newBuilder()
                         .body(ResponseBody.create(response.body?.contentType(), errorBody ?: ""))
                         .build()

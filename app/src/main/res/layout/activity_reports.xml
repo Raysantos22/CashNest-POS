@@ -5,7 +5,54 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#F1F5F9">
+    <LinearLayout
+        android:id="@+id/syncControlsLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:gravity="center_vertical"
+        android:background="#F8F9FA"
+        android:visibility="gone">
 
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🔄 Auto-sync:"
+            android:textSize="12sp"
+            android:textColor="#6B7280" />
+
+        <Switch
+            android:id="@+id/autoSyncSwitch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:checked="true"
+            android:scaleX="0.8"
+            android:scaleY="0.8" />
+
+        <Button
+            android:id="@+id/manualRefreshBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:layout_marginStart="16dp"
+            android:text="Refresh"
+            android:textSize="10sp"
+            android:background="@drawable/date_picker_background"
+            android:textColor="@color/black" />
+
+        <TextView
+            android:id="@+id/syncStatusText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="16dp"
+            android:text="Ready"
+            android:textSize="10sp"
+            android:textColor="#10B981"
+            android:gravity="end" />
+
+    </LinearLayout>
     <!-- Header -->
     <LinearLayout
         android:id="@+id/headerLayout"
@@ -18,6 +65,7 @@
         app:layout_constraintTop_toTopOf="parent">
 
         <TextView
+            android:id="@+id/reportsTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="ECPOS REPORTS 📊"

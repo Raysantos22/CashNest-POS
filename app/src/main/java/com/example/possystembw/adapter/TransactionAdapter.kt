@@ -14,6 +14,7 @@ import com.google.android.material.imageview.ShapeableImageView
 import java.text.SimpleDateFormat
 import java.util.*
 import android.util.Base64
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -30,15 +31,28 @@ class TransactionAdapter(private val onItemClick: (TransactionSummary) -> Unit) 
     private val coroutineScope = CoroutineScope(Dispatchers.Main + Job())
 
     fun setSortComparator(comp: Comparator<TransactionSummary>) {
+        Log.d("TransactionAdapter", "setSortComparator called")
         comparator = comp
         sortAndUpdateLists()
     }
 
     private fun sortAndUpdateLists() {
+        Log.d("TransactionAdapter", "=== SORTING AND UPDATING ===")
+        Log.d("TransactionAdapter", "Before sorting - transactions: ${transactions.size}, filtered: ${filteredTransactions.size}")
+
         comparator?.let { comp ->
             transactions = transactions.sortedWith(comp)
             filteredTransactions = filteredTransactions.sortedWith(comp)
+
+            Log.d("TransactionAdapter", "After sorting - transactions: ${transactions.size}, filtered: ${filteredTransactions.size}")
+
+            // Log first few after sorting
+            filteredTransactions.take(3).forEachIndexed { index, transaction ->
+                Log.d("TransactionAdapter", "Sorted transaction $index: ${transaction.transactionId} - ${transaction.createdDate}")
+            }
+
             notifyDataSetChanged()
+            Log.d("TransactionAdapter", "notifyDataSetChanged() called")
         }
     }
 
@@ -142,23 +156,45 @@ class TransactionAdapter(private val onItemClick: (TransactionSummary) -> Unit) 
         holder.bind(filteredTransactions[position])
     }
 
-    override fun getItemCount(): Int = filteredTransactions.size
+    override fun getItemCount(): Int {
+        val count = filteredTransactions.size
+        Log.d("TransactionAdapter", "getItemCount(): $count")
+        return count
+    }
 
     fun setTransactions(newTransactions: List<TransactionSummary>) {
+        Log.d("TransactionAdapter", "=== SET TRANSACTIONS ===")
+        Log.d("TransactionAdapter", "setTransactions called with ${newTransactions.size} transactions")
+
+        newTransactions.take(3).forEachIndexed { index, transaction ->
+            Log.d("TransactionAdapter", "New transaction $index: ${transaction.transactionId} - ${transaction.createdDate}")
+        }
+
         transactions = newTransactions
         filter("") // This will also apply sorting
+
+        Log.d("TransactionAdapter", "After setTransactions - final filtered count: ${filteredTransactions.size}")
     }
 
     fun filter(query: String) {
+        Log.d("TransactionAdapter", "=== FILTER ===")
+        Log.d("TransactionAdapter", "filter called with query: '$query'")
+        Log.d("TransactionAdapter", "Filtering from ${transactions.size} transactions")
+
         filteredTransactions = if (query.isEmpty()) {
+            Log.d("TransactionAdapter", "Empty query - showing all transactions")
             transactions
         } else {
-            transactions.filter {
+            val filtered = transactions.filter {
                 it.receiptId.contains(query, ignoreCase = true) ||
                         it.staff.contains(query, ignoreCase = true) ||
                         it.transactionId.contains(query, ignoreCase = true)
             }
+            Log.d("TransactionAdapter", "Filtered to ${filtered.size} transactions with query '$query'")
+            filtered
         }
+
+        Log.d("TransactionAdapter", "Before sortAndUpdateLists - filteredTransactions: ${filteredTransactions.size}")
         sortAndUpdateLists()
     }
 

@@ -1218,161 +1218,190 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
         return (dp * resources.displayMetrics.density).toInt()
     }
 
-                                                                                                                                                    private fun showTransactionListDialog() {
-                                                                                                                                                        val dialogView = layoutInflater.inflate(R.layout.dialog_transaction_list, null)
-                                                                                                                                                        val recyclerView = dialogView.findViewById<RecyclerView>(R.id.transactionRecyclerView)
-                                                                                                                                                        val searchEditText = dialogView.findViewById<EditText>(R.id.searchEditText)
-                                                                                                                                                        val searchButton = dialogView.findViewById<ImageButton>(R.id.searchButton)
-                                                                                                                                                        val closeButton = dialogView.findViewById<Button>(R.id.closeButton)
-                                                                                                                                                        val datePickerButton = dialogView.findViewById<Button>(R.id.datePickerButton)
-                                                                                                                                                        val itemSalesButton = dialogView.findViewById<Button>(R.id.itemSalesButton)
+    private fun showTransactionListDialog() {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_transaction_list, null)
+        val recyclerView = dialogView.findViewById<RecyclerView>(R.id.transactionRecyclerView)
+        val searchEditText = dialogView.findViewById<EditText>(R.id.searchEditText)
+        val searchButton = dialogView.findViewById<ImageButton>(R.id.searchButton)
+        val closeButton = dialogView.findViewById<Button>(R.id.closeButton)
+        val datePickerButton = dialogView.findViewById<Button>(R.id.datePickerButton)
+        val itemSalesButton = dialogView.findViewById<Button>(R.id.itemSalesButton)
 
-                                                                                                                                                        // Set current date as default
-                                                                                                                                                        val currentDate = Calendar.getInstance()
-                                                                                                                                                        datePickerButton.text = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(currentDate.time)
+        // Set current date as default
+        val currentDate = Calendar.getInstance()
+        datePickerButton.text = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(currentDate.time)
+        recyclerView.layoutManager = LinearLayoutManager(this)
 
-                                                                                                                                                        recyclerView.layoutManager = LinearLayoutManager(this)
+        // Create adapter with sorting logic
+        val transactionAdapter = TransactionAdapter { transaction ->
+            showTransactionDetailsDialog(transaction)
+        }.apply {
+            setSortComparator { t1, t2 ->
+                Log.d(TAG, "Dialog sorting: ${t1.transactionId} vs ${t2.transactionId}")
+                t2.createdDate.compareTo(t1.createdDate)
+            }
+        }
+        recyclerView.adapter = transactionAdapter
 
-                                                                                                                                                        // Create adapter with sorting logic
-                                                                                                                                                        val transactionAdapter = TransactionAdapter { transaction ->
-                                                                                                                                                            showTransactionDetailsDialog(transaction)
-                                                                                                                                                        }.apply {
-                                                                                                                                                            setSortComparator { t1, t2 ->
-                                                                                                                                                                t2.createdDate.compareTo(t1.createdDate)
-                                                                                                                                                            }
-                                                                                                                                                        }
+        // FIXED: Date picker functionality with proper date range handling
+        datePickerButton.setOnClickListener {
+            val datePickerDialog = DatePickerDialog(
+                this,
+                { _, year, month, day ->
+                    Log.d(TAG, "=== DIALOG DATE PICKER CLICKED ===")
+                    Log.d(TAG, "Selected: year=$year, month=$month, day=$day")
 
-                                                                                                                                                        recyclerView.adapter = transactionAdapter
+                    val selectedDate = Calendar.getInstance().apply {
+                        set(Calendar.YEAR, year)
+                        set(Calendar.MONTH, month)
+                        set(Calendar.DAY_OF_MONTH, day)
+                        set(Calendar.HOUR_OF_DAY, 0)
+                        set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }
+                    val endDate = Calendar.getInstance().apply {
+                        time = selectedDate.time
+                        set(Calendar.HOUR_OF_DAY, 23)
+                        set(Calendar.MINUTE, 59)
+                        set(Calendar.SECOND, 59)
+                        set(Calendar.MILLISECOND, 999)
+                    }
 
-                                                                                                                                                        // FIXED: Date picker functionality with proper date range handling
-                                                                                                                                                        datePickerButton.setOnClickListener {
-                                                                                                                                                            val datePickerDialog = DatePickerDialog(
-                                                                                                                                                                this,
-                                                                                                                                                                { _, year, month, day ->
-                                                                                                                                                                    val selectedDate = Calendar.getInstance().apply {
-                                                                                                                                                                        set(Calendar.YEAR, year)
-                                                                                                                                                                        set(Calendar.MONTH, month)
-                                                                                                                                                                        set(Calendar.DAY_OF_MONTH, day)
-                                                                                                                                                                        set(Calendar.HOUR_OF_DAY, 0)
-                                                                                                                                                                        set(Calendar.MINUTE, 0)
-                                                                                                                                                                        set(Calendar.SECOND, 0)
-                                                                                                                                                                        set(Calendar.MILLISECOND, 0)
-                                                                                                                                                                    }
-                                                                                                                                                                    val endDate = Calendar.getInstance().apply {
-                                                                                                                                                                        time = selectedDate.time
-                                                                                                                                                                        set(Calendar.HOUR_OF_DAY, 23)
-                                                                                                                                                                        set(Calendar.MINUTE, 59)
-                                                                                                                                                                        set(Calendar.SECOND, 59)
-                                                                                                                                                                        set(Calendar.MILLISECOND, 999)
-                                                                                                                                                                    }
+                    Log.d(TAG, "Dialog selectedDate: ${selectedDate.time}")
+                    Log.d(TAG, "Dialog endDate: ${endDate.time}")
 
-                                                                                                                                                                    // Update button text
-                                                                                                                                                                    datePickerButton.text = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
-                                                                                                                                                                        .format(selectedDate.time)
+                    // Update button text
+                    datePickerButton.text = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+                        .format(selectedDate.time)
 
-                                                                                                                                                                    lifecycleScope.launch {
-                                                                                                                                                                        try {
-                                                                                                                                                                            val currentStoreId = SessionManager.getCurrentUser()?.storeid
-                                                                                                                                                                            if (currentStoreId != null) {
-                                                                                                                                                                                val transactions = withContext(Dispatchers.IO) {
-                                                                                                                                                                                    // Use the updated formatDateToString function
-                                                                                                                                                                                    val startDateStr = formatDateToString(selectedDate.time)
-                                                                                                                                                                                    val endDateStr = formatDateToString(endDate.time)
+                    lifecycleScope.launch {
+                        try {
+                            val currentStoreId = SessionManager.getCurrentUser()?.storeid
+                            Log.d(TAG, "Dialog currentStoreId: $currentStoreId")
 
-                                                                                                                                                                                    Log.d(TAG, "Querying transactions from $startDateStr to $endDateStr")
+                            if (currentStoreId != null) {
+                                val transactions = withContext(Dispatchers.IO) {
+                                    // Use the updated formatDateToString function
+                                    val startDateStr = formatDateToString(selectedDate.time)
+                                    val endDateStr = formatDateToString(endDate.time)
 
-                                                                                                                                                                                    transactionDao.getTransactionsByDateRange(startDateStr, endDateStr)
-                                                                                                                                                                                }
+                                    Log.d(TAG, "=== DIALOG QUERY ===")
+                                    Log.d(TAG, "Dialog querying transactions from $startDateStr to $endDateStr")
 
-                                                                                                                                                                                Log.d(TAG, "Found ${transactions.size} transactions for selected date")
-                                                                                                                                                                                transactionAdapter.setTransactions(transactions)
-                                                                                                                                                                            }
-                                                                                                                                                                        } catch (e: Exception) {
-                                                                                                                                                                            Log.e(TAG, "Error loading transactions for date range", e)
-                                                                                                                                                                            Toast.makeText(
-                                                                                                                                                                                this@Window1,
-                                                                                                                                                                                "Error loading transactions: ${e.message}",
-                                                                                                                                                                                Toast.LENGTH_SHORT
-                                                                                                                                                                            ).show()
-                                                                                                                                                                        }
-                                                                                                                                                                    }
-                                                                                                                                                                },
-                                                                                                                                                                currentDate.get(Calendar.YEAR),
-                                                                                                                                                                currentDate.get(Calendar.MONTH),
-                                                                                                                                                                currentDate.get(Calendar.DAY_OF_MONTH)
-                                                                                                                                                            )
-                                                                                                                                                            datePickerDialog.show()
-                                                                                                                                                        }
+                                    val result = transactionDao.getTransactionsByDateRange(startDateStr, endDateStr)
 
-                                                                                                                                                        // Load initial transactions for current date
-                                                                                                                                                        lifecycleScope.launch {
-                                                                                                                                                            try {
-                                                                                                                                                                val currentStoreId = SessionManager.getCurrentUser()?.storeid
-                                                                                                                                                                if (currentStoreId != null) {
-                                                                                                                                                                    // Create today's date range
-                                                                                                                                                                    val todayStart = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
-                                                                                                                                                                        set(Calendar.HOUR_OF_DAY, 0)
-                                                                                                                                                                        set(Calendar.MINUTE, 0)
-                                                                                                                                                                        set(Calendar.SECOND, 0)
-                                                                                                                                                                        set(Calendar.MILLISECOND, 0)
-                                                                                                                                                                    }
+                                    Log.d(TAG, "Dialog raw result: ${result.size} transactions")
+                                    result.take(3).forEach { transaction ->
+                                        Log.d(TAG, "Dialog transaction: ${transaction.transactionId} - ${transaction.createdDate}")
+                                    }
 
-                                                                                                                                                                    val todayEnd = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
-                                                                                                                                                                        time = todayStart.time
-                                                                                                                                                                        set(Calendar.HOUR_OF_DAY, 23)
-                                                                                                                                                                        set(Calendar.MINUTE, 59)
-                                                                                                                                                                        set(Calendar.SECOND, 59)
-                                                                                                                                                                        set(Calendar.MILLISECOND, 999)
-                                                                                                                                                                    }
+                                    result
+                                }
 
-                                                                                                                                                                    val transactions = withContext(Dispatchers.IO) {
-                                                                                                                                                                        transactionDao.getTransactionsByDateRange(
-                                                                                                                                                                            formatDateToString(todayStart.time),
-                                                                                                                                                                            formatDateToString(todayEnd.time)
-                                                                                                                                                                        )
-                                                                                                                                                                    }
-                                                                                                                                                                    transactionAdapter.setTransactions(transactions)
-                                                                                                                                                                }
-                                                                                                                                                            } catch (e: Exception) {
-                                                                                                                                                                Log.e(TAG, "Error loading initial transactions", e)
-                                                                                                                                                            }
-                                                                                                                                                        }
+                                Log.d(TAG, "Dialog found ${transactions.size} transactions for selected date")
+                                transactionAdapter.setTransactions(transactions)
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Dialog error loading transactions for date range", e)
+                            Toast.makeText(
+                                this@Window1,
+                                "Error loading transactions: ${e.message}",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                },
+                currentDate.get(Calendar.YEAR),
+                currentDate.get(Calendar.MONTH),
+                currentDate.get(Calendar.DAY_OF_MONTH)
+            )
+            datePickerDialog.show()
+        }
 
-                                                                                                                                                        // Rest of your existing code for search functionality, dialog setup, etc...
+        // Load initial transactions for current date
+        lifecycleScope.launch {
+            try {
+                val currentStoreId = SessionManager.getCurrentUser()?.storeid
+                Log.d(TAG, "=== DIALOG INITIAL LOAD ===")
+                Log.d(TAG, "Dialog initial currentStoreId: $currentStoreId")
 
-                                                                                                                                                        // Search functionality
-                                                                                                                                                        searchEditText.addTextChangedListener(object : TextWatcher {
-                                                                                                                                                            override fun afterTextChanged(s: Editable?) {
-                                                                                                                                                                transactionAdapter.filter(s.toString())
-                                                                                                                                                            }
-                                                                                                                                                            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                                                                                                                                                            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-                                                                                                                                                        })
+                if (currentStoreId != null) {
+                    // Create today's date range - THE KEY DIFFERENCE: UTC TIMEZONE!
+                    val todayStart = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+                        set(Calendar.HOUR_OF_DAY, 0)
+                        set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }
+                    val todayEnd = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+                        time = todayStart.time
+                        set(Calendar.HOUR_OF_DAY, 23)
+                        set(Calendar.MINUTE, 59)
+                        set(Calendar.SECOND, 59)
+                        set(Calendar.MILLISECOND, 999)
+                    }
 
-                                                                                                                                                        searchButton.setOnClickListener {
-                                                                                                                                                            transactionAdapter.filter(searchEditText.text.toString())
-                                                                                                                                                        }
+                    Log.d(TAG, "Dialog UTC todayStart: ${todayStart.time}")
+                    Log.d(TAG, "Dialog UTC todayEnd: ${todayEnd.time}")
 
-                                                                                                                                                        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle1)
-                                                                                                                                                            .setView(dialogView)
-                                                                                                                                                            .create()
+                    val transactions = withContext(Dispatchers.IO) {
+                        val startDateStr = formatDateToString(todayStart.time)
+                        val endDateStr = formatDateToString(todayEnd.time)
 
-                                                                                                                                                        dialog.setOnDismissListener {
-                                                                                                                                                            transactionAdapter.cleanup()
-                                                                                                                                                        }
+                        Log.d(TAG, "Dialog initial query: $startDateStr to $endDateStr")
 
-                                                                                                                                                        closeButton.setOnClickListener {
-                                                                                                                                                            dialog.dismiss()
-                                                                                                                                                        }
+                        val result = transactionDao.getTransactionsByDateRange(startDateStr, endDateStr)
 
-                                                                                                                                                        dialog.window?.apply {
-                                                                                                                                                            setBackgroundDrawableResource(R.drawable.dialog_background)
-                                                                                                                                                            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                                                                                                                                                        }
+                        Log.d(TAG, "Dialog initial result: ${result.size} transactions")
+                        result.take(3).forEach { transaction ->
+                            Log.d(TAG, "Dialog initial: ${transaction.transactionId} - ${transaction.createdDate}")
+                        }
 
-                                                                                                                                                        dialog.show()
-                                                                                                                                                    }
+                        result
+                    }
 
+                    Log.d(TAG, "Dialog setting ${transactions.size} initial transactions")
+                    transactionAdapter.setTransactions(transactions)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Dialog error loading initial transactions", e)
+            }
+        }
+
+        // Rest of your existing code for search functionality, dialog setup, etc...
+        // Search functionality
+        searchEditText.addTextChangedListener(object : TextWatcher {
+            override fun afterTextChanged(s: Editable?) {
+                transactionAdapter.filter(s.toString())
+            }
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+        })
+
+        searchButton.setOnClickListener {
+            transactionAdapter.filter(searchEditText.text.toString())
+        }
+
+        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle1)
+            .setView(dialogView)
+            .create()
+
+        dialog.setOnDismissListener {
+            transactionAdapter.cleanup()
+        }
+
+        closeButton.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        dialog.window?.apply {
+            setBackgroundDrawableResource(R.drawable.dialog_background)
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+
+        dialog.show()
+    }
     private fun showTransactionDetailsDialog(transaction: TransactionSummary) {
         Log.d(TAG, "Showing transaction details dialog for transaction ID: ${transaction.transactionId}")
 

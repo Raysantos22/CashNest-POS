@@ -21,6 +21,8 @@ interface TransactionDao {
 
     @Query("SELECT * FROM transactions WHERE transaction_id = :transactionId")
     suspend fun getTransactionById(transactionId: String): TransactionRecord?
+    @Query("SELECT * FROM transaction_summary LIMIT 30")
+ fun getRecentTransactions(): List<TransactionSummary>
 
     @Query("SELECT * FROM transaction_summary WHERE store = :storeId ORDER BY createddate DESC")
     suspend fun getTransactionsByStore(storeId: String): List<TransactionSummary>
@@ -141,10 +143,14 @@ interface TransactionDao {
     @Query("SELECT * FROM transaction_summary WHERE refundReceiptId = :originalTransactionId")
     suspend fun findReturnTransactionsForOriginal(originalTransactionId: String): List<TransactionSummary>
 
-    // FIXED: Use string date range comparison
+//     FIXED: Use string date range comparison
     @Query("SELECT * FROM transaction_summary WHERE createddate BETWEEN :startDate AND :endDate ORDER BY createddate DESC")
-    suspend fun getTransactionsByDateRange(startDate: String, endDate: String): List<TransactionSummary>
+     fun getTransactionsByDateRange(startDate: String, endDate: String): List<TransactionSummary>
+    @Query("SELECT * FROM transaction_summary WHERE DATE(createddate) = :dateString ORDER BY createddate DESC")
+     fun getTransactionsByDate(dateString: String): List<TransactionSummary>
 
+    @Query("SELECT * FROM transaction_summary WHERE createddate LIKE :datePattern ORDER BY createddate DESC")
+     fun getTransactionsByDatePattern(datePattern: String): List<TransactionSummary>
     // FIXED: Use string date comparison
     @Query("SELECT * FROM transactions WHERE createddate >= :dateString")
     suspend fun getTransactionRecordsSince(dateString: String): List<TransactionRecord>
@@ -209,4 +215,21 @@ interface TransactionDao {
 
     @Query("UPDATE transaction_summary SET receiptId = :orNumber WHERE transaction_id = :transactionId")
     suspend fun updateReceiptId(transactionId: String, orNumber: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrReplaceTransactionSummaries(transactions: List<TransactionSummary>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOrReplaceAll(records: List<TransactionRecord>)
+
+    @Update
+    suspend fun updateTransactionRecord(record: TransactionRecord)
+
+
+
+    @Query("DELETE FROM transactions")
+    suspend fun deleteAllTransactionRecords()
+
+
+
 }

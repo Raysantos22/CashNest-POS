@@ -60,6 +60,8 @@ interface TransactionSummaryDao {
     @Query("SELECT * FROM transaction_summary")
     fun getAllTransactionSummaries(): Flow<List<TransactionSummary>>
 
+
+
     // FIXED: Use string date range comparison
     @Query("SELECT * FROM transaction_summary WHERE createddate BETWEEN :startDate AND :endDate")
     fun getTransactionSummariesByDateRange(startDate: String, endDate: String): Flow<List<TransactionSummary>>

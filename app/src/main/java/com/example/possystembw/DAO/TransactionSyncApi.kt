@@ -1,6 +1,7 @@
 package com.example.possystembw.DAO
 
 import android.util.Log
+import com.example.possystembw.DAO.DateUtils.getCurrentDateString
 import com.example.possystembw.database.TransactionRecord
 import com.example.possystembw.database.TransactionSummary
 import com.google.gson.JsonObject
@@ -192,6 +193,224 @@ fun TransactionSummaryResponse.toTransactionSummary(): TransactionSummary {
     )
 }
 
+fun TransactionSummaryResponse.getFormattedDate(): String {
+    return createddate?.let { dateString ->
+        try {
+            // Parse the API format
+            val apiFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'", Locale.US)
+            apiFormat.timeZone = TimeZone.getTimeZone("UTC")
+            val date = apiFormat.parse(dateString)
+
+            // Convert to your simple format
+            val simpleFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+            simpleFormat.timeZone = TimeZone.getTimeZone("Asia/Manila")
+            simpleFormat.format(date ?: Date())
+        } catch (e: Exception) {
+            dateString.convertApiDateToSimple() // Fallback to extension function
+        }
+    } ?: getCurrentDateString()
+}
+
+// KEEP your existing convertApiDateToSimple extension - it's perfect
+fun String.convertApiDateToSimple(): String {
+    return try {
+        // Parse the API format: 2025-07-01T01:22:35.000000Z
+        val apiFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'", Locale.US)
+        apiFormat.timeZone = TimeZone.getTimeZone("UTC")
+        val date = apiFormat.parse(this)
+
+        // Convert to simple format
+        val simpleFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+        simpleFormat.timeZone = TimeZone.getTimeZone("Asia/Manila")
+        simpleFormat.format(date ?: Date())
+    } catch (e: Exception) {
+        Log.w("DateConverter", "Could not convert date: $this")
+        this // Return original if conversion fails
+    }
+}
+
+// UPDATE your normalizeApiDate function to use the extension:
+fun normalizeApiDate(dateString: String): String {
+    if (dateString.isEmpty()) return getCurrentDateString()
+
+    try {
+        // Use the extension function to convert API date to simple format
+        return dateString.convertApiDateToSimple()
+    } catch (e: Exception) {
+        Log.e("DateNormalization", "Error normalizing date '$dateString': ${e.message}")
+        return getCurrentDateString()
+    }
+}
+fun String?.toDateObject(): Date {
+    if (this.isNullOrEmpty()) return Date()
+
+    val formats = listOf(
+        "yyyy-MM-dd HH:mm:ss",           // API format: 2025-07-16 19:01:33
+        "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'", // ISO with microseconds
+        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",    // ISO with milliseconds
+        "yyyy-MM-dd'T'HH:mm:ss'Z'",        // ISO basic
+        "yyyy-MM-dd'T'HH:mm:ss",           // ISO without Z
+        "yyyy-MM-dd",                      // Date only
+        "MM/dd/yyyy HH:mm:ss",
+        "dd/MM/yyyy HH:mm:ss"
+    )
+
+    for (format in formats) {
+        try {
+            val sdf = SimpleDateFormat(format, Locale.US)
+
+            // FIXED: Set timezone based on format
+            if (format.contains("'Z'")) {
+                sdf.timeZone = TimeZone.getTimeZone("UTC")
+            } else {
+                // For API format like "2025-07-16 19:01:33", treat as Philippine time
+                sdf.timeZone = TimeZone.getTimeZone("Asia/Manila")
+            }
+
+            val parsedDate = sdf.parse(this)
+            if (parsedDate != null) {
+                Log.d("DateConversion", "Successfully parsed '$this' using format '$format' -> $parsedDate")
+                return parsedDate
+            }
+        } catch (e: Exception) {
+            Log.d("DateConversion", "Failed to parse '$this' with format '$format': ${e.message}")
+        }
+    }
+
+    Log.e("DateConversion", "Failed to parse date: '$this', using current date")
+    return Date()
+}
+
+fun String?.toTimestamp(): Long {
+    if (this.isNullOrEmpty()) return System.currentTimeMillis()
+
+    val formats = listOf(
+        "yyyy-MM-dd HH:mm:ss",           // API format: 2025-07-16 19:01:33
+        "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'",
+        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+        "yyyy-MM-dd'T'HH:mm:ss'Z'",
+        "yyyy-MM-dd'T'HH:mm:ss",
+        "yyyy-MM-dd",
+        "MM/dd/yyyy HH:mm:ss",
+        "dd/MM/yyyy HH:mm:ss"
+    )
+
+    for (format in formats) {
+        try {
+            val sdf = SimpleDateFormat(format, Locale.US)
+
+            // FIXED: Set timezone based on format
+            if (format.contains("'Z'")) {
+                sdf.timeZone = TimeZone.getTimeZone("UTC")
+            } else {
+                // For API format, treat as Philippine time already
+                sdf.timeZone = TimeZone.getTimeZone("Asia/Manila")
+            }
+
+            val date = sdf.parse(this)
+            if (date != null) {
+                Log.d("TimestampConversion", "Successfully converted '$this' to timestamp: ${date.time}")
+                return date.time
+            }
+        } catch (e: Exception) {
+            Log.d("TimestampConversion", "Failed to convert '$this' with format '$format': ${e.message}")
+        }
+    }
+
+    Log.e("TimestampConversion", "Failed to convert timestamp: '$this', using current time")
+    return System.currentTimeMillis()
+}
+
+// FIXED: Updated normalizeApiDate function
+//fun normalizeApiDate(dateString: String): String {
+//    if (dateString.isEmpty()) return getCurrentDateString()
+//
+//    try {
+//        // Parse the date using our enhanced function
+//        val date = dateString.toDateObject()
+//
+//        // Format it to our standard format in Philippine time
+//        val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+//        format.timeZone = TimeZone.getTimeZone("Asia/Manila")
+//
+//        val normalizedDate = format.format(date)
+//        Log.d("DateNormalization", "Normalized '$dateString' -> '$normalizedDate'")
+//
+//        return normalizedDate
+//    } catch (e: Exception) {
+//        Log.e("DateNormalization", "Error normalizing date '$dateString': ${e.message}")
+//        return getCurrentDateString()
+//    }
+//}
+
+// FIXED: Updated formatDateToString function
+fun formatDateToString(date: Date): String {
+    return try {
+        val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+        format.timeZone = TimeZone.getTimeZone("Asia/Manila") // Always format in Philippine time
+        format.format(date)
+    } catch (e: Exception) {
+        Log.e("DateFormatting", "Error formatting date: ${e.message}")
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+    }
+}
+
+// FIXED: Updated getCurrentDateString function
+fun getCurrentDateString(): String {
+    return try {
+        val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+        format.timeZone = TimeZone.getTimeZone("Asia/Manila") // Philippine time
+        format.format(Date())
+    } catch (e: Exception) {
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+    }
+}
+
+// ENHANCED: Date comparison for date ranges
+fun isDateInRange(dateString: String, startDate: Date, endDate: Date): Boolean {
+    return try {
+        val transactionDate = dateString.toDateObject()
+
+        // Create calendar instances for proper date comparison
+        val transactionCal = Calendar.getInstance().apply { time = transactionDate }
+        val startCal = Calendar.getInstance().apply { time = startDate }
+        val endCal = Calendar.getInstance().apply { time = endDate }
+
+        // Compare just the date part (ignore time)
+        val transactionDateOnly = Calendar.getInstance().apply {
+            set(transactionCal.get(Calendar.YEAR),
+                transactionCal.get(Calendar.MONTH),
+                transactionCal.get(Calendar.DAY_OF_MONTH), 0, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+
+        val startDateOnly = Calendar.getInstance().apply {
+            set(startCal.get(Calendar.YEAR),
+                startCal.get(Calendar.MONTH),
+                startCal.get(Calendar.DAY_OF_MONTH), 0, 0, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+
+        val endDateOnly = Calendar.getInstance().apply {
+            set(endCal.get(Calendar.YEAR),
+                endCal.get(Calendar.MONTH),
+                endCal.get(Calendar.DAY_OF_MONTH), 23, 59, 59)
+            set(Calendar.MILLISECOND, 999)
+        }
+
+        val isInRange = transactionDateOnly.time >= startDateOnly.time &&
+                transactionDateOnly.time <= endDateOnly.time
+
+        Log.d("DateRange", "Checking if '$dateString' is between ${formatDateToString(startDate)} and ${formatDateToString(endDate)}: $isInRange")
+
+        return isInRange
+    } catch (e: Exception) {
+        Log.e("DateRange", "Error checking date range for '$dateString': ${e.message}")
+        return false
+    }
+}
+
+// FIXED: Update your TransactionDetailResponse.toTransactionRecord() function
 fun TransactionDetailResponse.toTransactionRecord(): TransactionRecord {
     return TransactionRecord(
         id = id ?: 0,
@@ -206,7 +425,14 @@ fun TransactionDetailResponse.toTransactionRecord(): TransactionRecord {
         discountAmount = discount_amount ?: 0.0,
         total = total ?: 0.0,
         receiptNumber = receipt_number ?: "",
-        timestamp = timestamp ?: createddate?.toTimestamp() ?: System.currentTimeMillis(),
+
+        // FIXED: Handle timestamp properly - use createddate string if timestamp is null
+        timestamp = if (timestamp != null && timestamp != 0L) {
+            timestamp
+        } else {
+            createddate?.toTimestamp() ?: System.currentTimeMillis()
+        },
+
         paymentMethod = paymentMethod ?: "",
         ar = ar ?: 0.0,
         windowNumber = window_number ?: 1,
@@ -232,12 +458,16 @@ fun TransactionDetailResponse.toTransactionRecord(): TransactionRecord {
         unitQuantity = unitqty,
         unitPrice = unitprice,
         taxAmount = taxamount,
-        // FIXED: Use enhanced date conversion
+
+        // FIXED: Use normalizeApiDate for consistent formatting
         createdDate = normalizeApiDate(createddate ?: ""),
+
         remarks = remarks,
         inventoryBatchId = inventbatchid,
-        // FIXED: Use enhanced date conversion
-        inventoryBatchExpiryDate = normalizeApiDate(inventbatchexpdate ?: ""),
+
+        // FIXED: Use normalizeApiDate for expiry date too
+        inventoryBatchExpiryDate = if (inventbatchexpdate.isNullOrEmpty()) "" else normalizeApiDate(inventbatchexpdate),
+
         giftCard = giftcard,
         returnTransactionId = returntransactionid,
         returnQuantity = returnqty,
@@ -254,158 +484,4 @@ fun TransactionDetailResponse.toTransactionRecord(): TransactionRecord {
         storeSequence = store_sequence ?: "",
         syncStatusRecord = syncstatusrecord ?: false
     )
-}
-
-// NEW: Function to normalize API dates to consistent format
-fun normalizeApiDate(dateString: String): String {
-    if (dateString.isEmpty()) return getCurrentDateString()
-
-    // First try to parse the date in any format
-    val date = dateString.toDateObject()
-
-    // Then convert it to our standard format
-    return formatDateToString(date)
-}
-
-// UPDATED: Enhanced date range comparison for reports
-fun isDateInRange(dateString: String, startDate: Date, endDate: Date): Boolean {
-    return try {
-        val transactionDate = dateString.toDateObject()
-        transactionDate.time >= startDate.time && transactionDate.time <= endDate.time
-    } catch (e: Exception) {
-        false
-    }
-}
-
-// DEBUGGING: Add this function to help debug date issues
-fun debugDateFormats(dateString: String) {
-    Log.d("DateDebug", "Original date string: '$dateString'")
-
-    val formats = listOf(
-        "yyyy-MM-dd HH:mm:ss" to "API Format",
-        "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'" to "ISO Microseconds",
-        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'" to "ISO Milliseconds",
-        "yyyy-MM-dd'T'HH:mm:ss'Z'" to "ISO Basic",
-        "yyyy-MM-dd'T'HH:mm:ss" to "ISO No Z"
-    )
-
-    for ((format, name) in formats) {
-        try {
-            val sdf = SimpleDateFormat(format, Locale.US)
-            sdf.timeZone = TimeZone.getTimeZone("UTC")
-            val date = sdf.parse(dateString)
-            if (date != null) {
-                Log.d("DateDebug", "$name: SUCCESS -> ${formatDateToString(date)}")
-                return
-            }
-        } catch (e: Exception) {
-            Log.d("DateDebug", "$name: FAILED -> ${e.message}")
-        }
-    }
-
-    Log.e("DateDebug", "ALL FORMATS FAILED for: '$dateString'")
-}
-
-// ENHANCED: Date range queries for reports
-suspend fun getTransactionsInDateRange(
-    transactionDao: TransactionDao,
-    startDate: Date,
-    endDate: Date
-): List<TransactionSummary> {
-    return try {
-        // Get all transactions and filter by date
-        val allTransactions = transactionDao.getAllTransactionSummaries()
-
-        allTransactions.filter { transaction ->
-            isDateInRange(transaction.createdDate, startDate, endDate)
-        }.also { filteredTransactions ->
-            Log.d("DateFilter", "Original count: ${allTransactions.size}")
-            Log.d("DateFilter", "Filtered count: ${filteredTransactions.size}")
-            Log.d("DateFilter", "Date range: ${formatDateToString(startDate)} to ${formatDateToString(endDate)}")
-        }
-    } catch (e: Exception) {
-        Log.e("DateFilter", "Error filtering transactions by date range", e)
-        emptyList()
-    }
-}
-fun formatDateToString(date: Date): String {
-    return try {
-        val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
-        format.format(date)
-    } catch (e: Exception) {
-        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
-    }
-}
-fun getCurrentDateString(): String {
-    return try {
-        val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
-        format.format(Date())
-    } catch (e: Exception) {
-        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
-    }
-}
-
-
-fun String?.toDateObject(): Date {
-    if (this.isNullOrEmpty()) return Date()
-
-    val formats = listOf(
-        "yyyy-MM-dd HH:mm:ss",
-        "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'",
-        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
-        "yyyy-MM-dd'T'HH:mm:ss'Z'",
-        "yyyy-MM-dd'T'HH:mm:ss",
-        "yyyy-MM-dd",
-        "MM/dd/yyyy HH:mm:ss",
-        "dd/MM/yyyy HH:mm:ss"
-    )
-
-    for (format in formats) {
-        try {
-            val sdf = SimpleDateFormat(format, Locale.US)
-            sdf.timeZone = TimeZone.getTimeZone("UTC") // parse in UTC
-            val parsedDate = sdf.parse(this)
-            if (parsedDate != null) {
-                // Convert to Philippine Time
-                val calendar = Calendar.getInstance(TimeZone.getTimeZone("Asia/Manila"))
-                calendar.time = parsedDate
-                return calendar.time
-            }
-        } catch (_: Exception) {
-            // Try next format
-        }
-    }
-
-    return Date()
-}
-
-fun String?.toTimestamp(): Long {
-    if (this.isNullOrEmpty()) return System.currentTimeMillis()
-
-    val formats = listOf(
-        "yyyy-MM-dd HH:mm:ss",
-        "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'",
-        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
-        "yyyy-MM-dd'T'HH:mm:ss'Z'",
-        "yyyy-MM-dd'T'HH:mm:ss",
-        "yyyy-MM-dd",
-        "MM/dd/yyyy HH:mm:ss",
-        "dd/MM/yyyy HH:mm:ss"
-    )
-
-    for (format in formats) {
-        try {
-            val sdf = SimpleDateFormat(format, Locale.US)
-            sdf.timeZone = TimeZone.getTimeZone("UTC")
-            val date = sdf.parse(this)
-            if (date != null) {
-                // Convert UTC to Philippine time (UTC+8)
-                return date.time + TimeZone.getTimeZone("Asia/Manila").rawOffset
-            }
-        } catch (_: Exception) {
-            // Try next format
-        }
-    }
-
-    return System.currentTimeMillis()
 }

@@ -1,56 +1,42 @@
 package com.example.possystembw.DAO
 
+import android.util.Log
 import java.text.SimpleDateFormat
 import java.util.*
 
 object DateUtils {
-    private const val TIMEZONE_MANILA = "Asia/Manila"
-    private const val DATE_FORMAT_ISO = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
-    private const val DATE_FORMAT_DISPLAY = "yyyy-MM-dd HH:mm:ss"
-    
-    val philippineTimeZone: TimeZone = TimeZone.getTimeZone(TIMEZONE_MANILA)
-    
-    fun getCurrentPhilippineTime(): Date {
-        val calendar = Calendar.getInstance(philippineTimeZone)
-        return calendar.time
-    }
-    
+    private val philippineTimeZone = TimeZone.getTimeZone("Asia/Manila")
+
     fun formatToPhilippineTime(date: Date?): String {
+        if (date == null) return getCurrentDateString()
+
         return try {
-            SimpleDateFormat(DATE_FORMAT_ISO, Locale.US).apply {
-                timeZone = philippineTimeZone
-            }.format(date ?: getCurrentPhilippineTime())
+            val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+            format.timeZone = philippineTimeZone
+            format.format(date)
         } catch (e: Exception) {
-            SimpleDateFormat(DATE_FORMAT_ISO, Locale.US).apply {
-                timeZone = philippineTimeZone
-            }.format(getCurrentPhilippineTime())
+            Log.e("DateUtils", "Error formatting date: ${e.message}")
+            getCurrentDateString()
         }
     }
-    
-    fun formatToDisplayTime(date: Date?): String {
+
+    fun getCurrentDateString(): String {
         return try {
-            SimpleDateFormat(DATE_FORMAT_DISPLAY, Locale.US).apply {
-                timeZone = philippineTimeZone
-            }.format(date ?: getCurrentPhilippineTime())
+            val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+            format.timeZone = philippineTimeZone
+            format.format(Date())
         } catch (e: Exception) {
-            SimpleDateFormat(DATE_FORMAT_DISPLAY, Locale.US).apply {
-                timeZone = philippineTimeZone
-            }.format(getCurrentPhilippineTime())
+            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
         }
     }
-    
-    fun parseFromString(dateString: String?): Date? {
+
+    fun isDateInRange(dateString: String, startDate: Date, endDate: Date): Boolean {
         return try {
-            if (dateString.isNullOrBlank()) return null
-            SimpleDateFormat(DATE_FORMAT_ISO, Locale.US).apply {
-                timeZone = philippineTimeZone
-            }.parse(dateString)
+            val transactionDate = dateString.toDateObject()
+            transactionDate.time >= startDate.time && transactionDate.time <= endDate.time
         } catch (e: Exception) {
-            null
+            Log.e("DateUtils", "Error checking date range: ${e.message}")
+            false
         }
-    }
-    
-    fun getPhilippineTimestamp(): Long {
-        return getCurrentPhilippineTime().time
     }
 }

@@ -1,23 +1,10 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
-    id("kotlin-kapt")
-    id ("kotlin-android")
-    id ("kotlin-parcelize")
-
-
+    id("com.google.devtools.ksp") version "1.9.10-1.0.13"
+    id("kotlin-parcelize")
 }
-android {
-    defaultConfig {
-        kapt {
-            arguments {
-                arg("room.schemaLocation", "$projectDir/schemas")
-                arg("room.incremental", "true")
-                arg("room.expandProjection", "true")
-            }
-        }
-    }
-}
+
 android {
     namespace = "com.example.possystembw"
     compileSdk = 34
@@ -30,8 +17,13 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    }
 
+        ksp {
+            arg("room.schemaLocation", "$projectDir/schemas")
+            arg("room.incremental", "true")
+            arg("room.expandProjection", "true")
+        }
+    }
 
     buildTypes {
         release {
@@ -39,25 +31,25 @@ android {
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
-
             )
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
     }
+
     kotlinOptions {
         jvmTarget = "1.8"
     }
+
     buildFeatures {
         viewBinding = true
     }
-
 }
 
 dependencies {
-
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
@@ -68,71 +60,54 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.runner)
     implementation(libs.androidx.swiperefreshlayout)
-//    implementation(libs.play.services.mlkit.barcode.scanning)
-//    implementation(libs.androidx.camera.lifecycle)
-//    implementation(libs.androidx.camera.view)
-    implementation  ("org.nanohttpd:nanohttpd:2.3.1")
 
-    implementation ("de.hdodenhof:circleimageview:3.1.0")
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
+    implementation("de.hdodenhof:circleimageview:3.1.0")
+
     // ML Kit for barcode scanning
     implementation("com.google.mlkit:barcode-scanning:17.2.0")
 
-// CameraX dependencies
+    // CameraX dependencies
     val camerax_version = "1.3.0"
     implementation("androidx.camera:camera-core:${camerax_version}")
     implementation("androidx.camera:camera-camera2:${camerax_version}")
     implementation("androidx.camera:camera-lifecycle:${camerax_version}")
     implementation("androidx.camera:camera-view:${camerax_version}")
 
-// Additional required dependencies for CameraX
+    // Additional required dependencies for CameraX
     implementation("androidx.concurrent:concurrent-futures-ktx:1.1.0")
     implementation("androidx.window:window:1.0.0")
-    /*
-        implementation(libs.androidx.ui.test.android)
-    */
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-    implementation ("androidx.lifecycle:lifecycle-livedata-ktx:2.4.1")
-    implementation ("androidx.lifecycle:lifecycle-viewmodel-ktx:2.4.1")
+
+    implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.4.1")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.4.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.1")
-    implementation ("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.1")
-    implementation ("com.github.bumptech.glide:glide:4.11.0")
-    implementation ("androidx.drawerlayout:drawerlayout:1.1.1")
-    implementation ("com.google.android.material:material:1.4.0")
-    implementation ("com.google.android.material:material:1.9.0")
-  // or latest version
-    annotationProcessor ("com.github.bumptech.glide:compiler:4.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.1")
+    implementation("com.github.bumptech.glide:glide:4.11.0")
+    implementation("androidx.drawerlayout:drawerlayout:1.1.1")
+    implementation("com.google.android.material:material:1.9.0")
+
+    annotationProcessor("com.github.bumptech.glide:compiler:4.11.0")
+
+    // Room with KSP (NO KAPT!)
     val room_version = "2.6.1"
-
-    implementation(libs.androidx.room.runtime)
-    annotationProcessor("androidx.room:room-compiler:$room_version")
-    implementation("androidx.room:room-rxjava2:$room_version")
-
-
-    // To use Kotlin annotation processing tool (kapt)
-    kapt("androidx.room:room-compiler:$room_version")
-    // To use Kotlin Symbol Processing (KSP)
-
-    // optional - Kotlin Extensions and Coroutines support for Room
+    implementation("androidx.room:room-runtime:$room_version")
     implementation("androidx.room:room-ktx:$room_version")
-    implementation("com.google.devtools.ksp:symbol-processing-api:1.8.0-1.0.8")
 
-    // optional - RxJava2 support for Room
+    // Use KSP instead of KAPT - this will work!
+    ksp("androidx.room:room-compiler:$room_version")
 
-    // optional - RxJava3 support for Room
+    implementation("androidx.room:room-rxjava2:$room_version")
     implementation("androidx.room:room-rxjava3:$room_version")
-
-    // optional - Guava support for Room, including Optional and ListenableFuture
     implementation("androidx.room:room-guava:$room_version")
+    implementation("androidx.room:room-paging:$room_version")
 
-    // optional - Test helpers
     testImplementation("androidx.room:room-testing:$room_version")
 
-    // optional - Paging 3 Integration
-    implementation("androidx.room:room-paging:$room_version")
-    val lifecycle_version = "2.8.5"
-    val arch_version = "2.2.0"
+    val lifecycle_version = "2.6.2"
 
     // ViewModel
     implementation("androidx.lifecycle:lifecycle-viewmodel:$lifecycle_version")
@@ -159,25 +134,13 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-reactivestreams:$lifecycle_version")
 
     // optional - Test helpers for LiveData
-    testImplementation("androidx.arch.core:core-testing:$arch_version")
+    testImplementation("androidx.arch.core:core-testing:2.2.0")
 
     // optional - Test helpers for Lifecycle runtime
     testImplementation("androidx.lifecycle:lifecycle-runtime-testing:$lifecycle_version")
 
-// https://mvnrepository.com/artifact/mysql/mysql-connector-java
-   // implementation("mysql:mysql-connector-java:5.1.49")
-    //implementation ("mysql:mysql-connector-java:8.0.28")
-
-    implementation ("com.squareup.retrofit2:retrofit:2.9.0")
-    implementation ("com.squareup.retrofit2:converter-gson:2.9.0")
-    implementation ("com.squareup.okhttp3:logging-interceptor:4.9.0")
-    implementation ("at.favre.lib:bcrypt:0.9.0")
-
-
-
-
-
+    implementation("com.squareup.retrofit2:retrofit:2.9.0")
+    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
+    implementation("com.squareup.okhttp3:logging-interceptor:4.9.0")
+    implementation("at.favre.lib:bcrypt:0.9.0")
 }
-
-
-

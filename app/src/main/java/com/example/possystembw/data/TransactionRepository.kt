@@ -15,6 +15,7 @@ import com.example.possystembw.DAO.TransactionSummaryRequest
 import com.example.possystembw.DAO.TransactionSyncRequest
 import com.example.possystembw.DAO.TransactionSyncResponse
 import com.example.possystembw.DAO.ZReportUpdateResponse
+import com.example.possystembw.DAO.toDateObject
 import com.example.possystembw.RetrofitClient
 import com.example.possystembw.database.TransactionRecord
 import com.example.possystembw.database.TransactionSummary
@@ -28,6 +29,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
@@ -230,6 +232,7 @@ class TransactionRepository(
     fun formatDateToString(date: Date): String {
         return try {
             val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+            format.timeZone = TimeZone.getTimeZone("Asia/Manila")
             format.format(date)
         } catch (e: Exception) {
             SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
@@ -248,6 +251,7 @@ class TransactionRepository(
     fun getCurrentDateString(): String {
         return try {
             val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+            format.timeZone = TimeZone.getTimeZone("Asia/Manila")
             format.format(Date())
         } catch (e: Exception) {
             SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
@@ -445,11 +449,61 @@ class TransactionRepository(
         return transactionDao.getTransactionsByStore(storeId)
     }
     suspend fun getTransactionsByDateRange(startDate: Date, endDate: Date): List<TransactionSummary> {
-        // Convert Date to String for database query
-        val startDateString = formatDateToString(startDate)
-        val endDateString = formatDateToString(endDate)
-        return transactionDao.getTransactionsByDateRange(startDateString, endDateString)
+        return try {
+            Log.d("TransactionRepo", "Getting transactions from ${formatDateToString(startDate)} to ${formatDateToString(endDate)}")
+
+            // Get all transactions
+            val allTransactions = transactionDao.getAllTransactionSummaries()
+
+            Log.d("TransactionRepo", "Total transactions before filtering: ${allTransactions.size}")
+
+            // Prepare start and end of day boundaries using Calendar
+            val startCal = Calendar.getInstance().apply {
+                time = startDate
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val endCal = Calendar.getInstance().apply {
+                time = endDate
+                set(Calendar.HOUR_OF_DAY, 23)
+                set(Calendar.MINUTE, 59)
+                set(Calendar.SECOND, 59)
+                set(Calendar.MILLISECOND, 999)
+            }
+
+            val startOfDay = startCal.time
+            val endOfDay = endCal.time
+
+            // Filter by date
+            val filteredTransactions = allTransactions.filter { transaction ->
+                try {
+                    val transactionDate = transaction.createdDate.toDateObject()
+
+                    val isInRange = transactionDate.time >= startOfDay.time && transactionDate.time <= endOfDay.time
+
+                    Log.d(
+                        "TransactionRepo",
+                        "Transaction ${transaction.transactionId}: ${transaction.createdDate} -> ${formatDateToString(transactionDate)} -> In range: $isInRange"
+                    )
+
+                    isInRange
+                } catch (e: Exception) {
+                    Log.e("TransactionRepo", "Error parsing date for transaction ${transaction.transactionId}: ${transaction.createdDate}", e)
+                    false
+                }
+            }
+
+            Log.d("TransactionRepo", "Date range filter - Original: ${allTransactions.size}, Filtered: ${filteredTransactions.size}")
+
+            filteredTransactions.sortedByDescending { it.transactionId }
+        } catch (e: Exception) {
+            Log.e("TransactionRepo", "Error filtering transactions by date range", e)
+            emptyList()
+        }
     }
+
 
     // Updated helper functions with null safety and proper formatting
     private fun formatDecimal(value: Double?): String {
@@ -556,5 +610,6 @@ class TransactionRepository(
     private fun formatDate(date: Date?): String {
         return DateUtils.formatToPhilippineTime(date)
     }
+
 }
 

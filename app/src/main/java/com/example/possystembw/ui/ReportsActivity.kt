@@ -50,6 +50,15 @@ import android.graphics.Typeface
 import android.os.Build
 import android.provider.Settings
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.forEach
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.collectLatest
+import androidx.lifecycle.lifecycleScope
+
 
 class ReportsActivity : AppCompatActivity() {
     private lateinit var binding: ActivityReportsBinding
@@ -72,54 +81,46 @@ class ReportsActivity : AppCompatActivity() {
     private lateinit var alarmManager: AlarmManager
     private lateinit var transactionRepository: TransactionRepository
 
+    private var autoSyncJob: Job? = null
+    private var lastSyncTimestamp: Long = 0L
+    private var isAutoSyncEnabled: Boolean = true
+    private val autoSyncIntervalMs: Long = 30000L
+    private var lastKnownTransactionCount: Int = 0  // <- This fixes your error
+
+
     companion object {
-        private val PHILIPPINES_TIMEZONE = TimeZone.getTimeZone("Asia/Manila")
+        // FIXED: Use simple formatters like in showTransactionListDialog
+        private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+        private val DISPLAY_DATE_FORMAT = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
 
-        // Create Philippine time formatters
-        private fun createPhilippineFormatter(pattern: String): SimpleDateFormat {
-            return SimpleDateFormat(pattern, Locale.getDefault()).apply {
-                timeZone = PHILIPPINES_TIMEZONE
-            }
-        }
-
-        private val DATE_FORMAT = createPhilippineFormatter("yyyy-MM-dd")
-        private val TIME_FORMAT = createPhilippineFormatter("HH:mm:ss")
-        private val DISPLAY_DATE_FORMAT = createPhilippineFormatter("MM/dd/yyyy")
-        private val DISPLAY_DATE_RANGE_FORMAT = createPhilippineFormatter("MMM dd, yyyy")
-        private val DATETIME_FORMAT = createPhilippineFormatter("yyyy-MM-dd HH:mm:ss")
-
-        // FIXED: Helper function to convert Date to string for DAO queries
-        fun formatDateToString(date: Date): String {
+        // FIXED: Use the same date formatting as showTransactionListDialog
+        private fun formatDateToString(date: Date): String {
             return try {
-                DATETIME_FORMAT.format(date)
+                val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'", Locale.US)
+                format.timeZone = TimeZone.getTimeZone("UTC")
+                val result = format.format(date)
+                Log.d("ReportsActivity", "Reports formatDateToString: $date -> '$result'")
+                result
             } catch (e: Exception) {
-                Log.e("DateFormat", "Error formatting date: $date", e)
-                SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+                Log.e("ReportsActivity", "Error formatting date to string: ${e.message}")
+                val fallbackFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'", Locale.US)
+                fallbackFormat.timeZone = TimeZone.getTimeZone("UTC")
+                fallbackFormat.format(Date())
             }
         }
 
-        // Helper function to get Philippine Calendar
-        fun getPhilippineCalendar(): Calendar {
-            return Calendar.getInstance(PHILIPPINES_TIMEZONE)
+        fun formatDateForDisplay(date: Date): String {
+            return DISPLAY_DATE_FORMAT.format(date)
         }
 
-        // Helper function to create date in Philippine timezone
-        fun createPhilippineDate(year: Int, month: Int, day: Int, hour: Int = 0, minute: Int = 0, second: Int = 0): Date {
-            val calendar = getPhilippineCalendar().apply {
-                set(Calendar.YEAR, year)
-                set(Calendar.MONTH, month)
-                set(Calendar.DAY_OF_MONTH, day)
-                set(Calendar.HOUR_OF_DAY, hour)
-                set(Calendar.MINUTE, minute)
-                set(Calendar.SECOND, second)
-                set(Calendar.MILLISECOND, 0)
-            }
-            return calendar.time
+        private fun isSameDay(date1: Date, date2: Date): Boolean {
+            val cal1 = Calendar.getInstance().apply { time = date1 }
+            val cal2 = Calendar.getInstance().apply { time = date2 }
+            return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR) &&
+                    cal1.get(Calendar.DAY_OF_YEAR) == cal2.get(Calendar.DAY_OF_YEAR)
         }
-
-        // Helper function to get start of day in Philippine timezone
         fun getStartOfDay(date: Date): Date {
-            val calendar = getPhilippineCalendar().apply {
+            val calendar = Calendar.getInstance().apply {
                 time = date
                 set(Calendar.HOUR_OF_DAY, 0)
                 set(Calendar.MINUTE, 0)
@@ -129,9 +130,8 @@ class ReportsActivity : AppCompatActivity() {
             return calendar.time
         }
 
-        // Helper function to get end of day in Philippine timezone
         fun getEndOfDay(date: Date): Date {
-            val calendar = getPhilippineCalendar().apply {
+            val calendar = Calendar.getInstance().apply {
                 time = date
                 set(Calendar.HOUR_OF_DAY, 23)
                 set(Calendar.MINUTE, 59)
@@ -141,48 +141,12 @@ class ReportsActivity : AppCompatActivity() {
             return calendar.time
         }
 
-        // Helper function to format date for display
-        fun formatDateForDisplay(date: Date): String {
-            return DISPLAY_DATE_FORMAT.format(date)
-        }
-
-        // Helper function to check if two dates are the same day in Philippine timezone
-        private fun isSameDay(date1: Date, date2: Date): Boolean {
-            val cal1 = getPhilippineCalendar().apply { time = date1 }
-            val cal2 = getPhilippineCalendar().apply { time = date2 }
-            return cal1.get(Calendar.YEAR) == cal2.get(Calendar.YEAR) &&
-                    cal1.get(Calendar.DAY_OF_YEAR) == cal2.get(Calendar.DAY_OF_YEAR)
-        }
-
-        // Helper function to get current Philippine time
         fun getCurrentPhilippineTime(): Date {
-            return getPhilippineCalendar().time
-        }
-
-        // Helper function to parse date string in Philippine timezone
-        fun parseDateString(dateString: String): Date? {
-            return try {
-                DATE_FORMAT.parse(dateString)
-            } catch (e: Exception) {
-                Log.e("DateUtils", "Error parsing date: $dateString", e)
-                null
-            }
-        }
-
-        // Helper function to format date as string in Philippine timezone
-        fun formatDateAsString(date: Date): String {
-            return DATE_FORMAT.format(date)
-        }
-
-        // Debug helper to log date information
-        fun logDateInfo(tag: String, description: String, date: Date) {
-            val philCal = getPhilippineCalendar().apply { time = date }
-            Log.d(tag, "$description: ${DATETIME_FORMAT.format(date)} (Philippine Time)")
-            Log.d(tag, "  Year: ${philCal.get(Calendar.YEAR)}, Month: ${philCal.get(Calendar.MONTH)}, Day: ${philCal.get(Calendar.DAY_OF_MONTH)}")
-            Log.d(tag, "  Hour: ${philCal.get(Calendar.HOUR_OF_DAY)}, Minute: ${philCal.get(Calendar.MINUTE)}, Second: ${philCal.get(Calendar.SECOND)}")
+            return Date() // Use system current time
         }
     }
 
+    // Keep your existing data classes...
     data class PaymentDistribution(
         val cash: Double = 0.0,
         val card: Double = 0.0,
@@ -232,10 +196,12 @@ class ReportsActivity : AppCompatActivity() {
         val totalQuantity: Int,
         val itemSales: List<ItemSalesSummary>
     )
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityReportsBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        simpleTest()
 
         initializeComponents()
         setupDatePickers()
@@ -243,14 +209,160 @@ class ReportsActivity : AppCompatActivity() {
         loadTodaysReport()
         checkForExistingCashFund()
         setupAutomaticZRead()
+        testShowTransactionListDialogMethod()
+        testDateFormats()
+        debugWhatDialogWouldShow()
+
+        // Test the date format fix
+        testDateFormats()
         checkYesterdayTransactionsOnStartup()
 
+        setupSimpleAutoSync()
+
+    }
+    private fun setupSimpleAutoSync() {
+        lifecycleScope.launch {
+            delay(3000) // Wait for everything to load
+            startSimpleMonitoring()
+        }
+    }
+
+    private fun startSimpleMonitoring() {
+        autoSyncJob = lifecycleScope.launch {
+            try {
+                Log.d("AutoSync", "Starting simple transaction monitoring with date conversion...")
+
+                // Initialize the count
+                val currentStoreId = SessionManager.getCurrentUser()?.storeid
+                if (currentStoreId != null) {
+                    lastKnownTransactionCount = withContext(Dispatchers.IO) {
+                        transactionDao.getTransactionsByStore(currentStoreId).size
+                    }
+                }
+
+                // Run initial date conversion
+                convertAllTransactionDates()
+
+                while (isAutoSyncEnabled) {
+                    try {
+                        val hasChanges = checkForAPIChanges()
+                        if (hasChanges) {
+                            Log.d("AutoSync", "Changes detected, refreshing UI with date conversion...")
+                            refreshReportsFromAPI()
+                        }
+                        delay(autoSyncIntervalMs)
+                    } catch (e: Exception) {
+                        Log.e("AutoSync", "Error in monitoring loop", e)
+                        delay(autoSyncIntervalMs * 2)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("AutoSync", "Error in simple monitoring", e)
+            }
+        }
+    }
+
+    // ADD: Method to convert transaction records too (if needed)
+    private fun convertAllTransactionRecordDates() {
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    Log.d("DateConverter", "Converting transaction record dates...")
+
+                    val allRecords = transactionDao.getAllTransactionRecords()
+                    val convertedRecords = mutableListOf<TransactionRecord>()
+
+                    allRecords.forEach { record ->
+                        val originalDate = record.createdDate
+
+                        if (originalDate?.contains("T") == true && originalDate.contains("Z")) {
+                            try {
+                                val convertedDate = originalDate.convertApiDateToSimple()
+
+                                if (convertedDate != originalDate) {
+                                    val updatedRecord = record.copy(
+                                        createdDate = convertedDate
+                                    )
+                                    convertedRecords.add(updatedRecord)
+                                }
+                            } catch (e: Exception) {
+                                Log.e("DateConverter", "Error converting record date: ${e.message}")
+                            }
+                        }
+                    }
+
+                    if (convertedRecords.isNotEmpty()) {
+                        transactionDao.insertAll(convertedRecords)
+                        Log.d("DateConverter", "Updated ${convertedRecords.size} transaction records with converted dates")
+                    }
+
+                } catch (e: Exception) {
+                    Log.e("DateConverter", "Error converting transaction record dates: ${e.message}")
+                }
+            }
+        }
+    }
+
+    // ADD: Convert both summaries and records
+
+//    private fun convertAllTransactionData() {
+//        lifecycleScope.launch {
+//            try {
+//                showSyncIndicator(true)
+//
+//                convertAllTransactionDates()
+//
+//                delay(1000)
+//
+//                Toast.makeText(this@ReportsActivity, "All transaction dates converted to simple format", Toast.LENGTH_SHORT).show()
+//
+//            } catch (e: Exception) {
+//                Toast.makeText(this@ReportsActivity, "Error converting dates: ${e.message}", Toast.LENGTH_SHORT).show()
+//            } finally {
+//                showSyncIndicator(false)
+//            }
+//        }
+//    }
+
+    // ADD: Button to manually trigger conversion (add this to your setupButtons method)
+    private fun addDateConverterButton() {
+        // Add long press to any existing button for manual conversion
+        binding.reprintZreadButton.setOnLongClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("Convert Date Formats")
+                .setMessage("Convert all transaction dates from API format to simple format?\n\nFrom: 2025-07-01T01:27:32.000000Z\nTo: 2025-07-01 09:27:32")
+                .setPositiveButton("Convert All") { _, _ ->
+                    convertAllTransactionData()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+            true
+        }
+    }
+    fun manualRefreshOnly() {
+        lifecycleScope.launch {
+            try {
+                Log.d("AutoSync", "Manual refresh triggered")
+
+                showSyncIndicator(true)
+
+                // Just reload the UI with current local data
+                loadReportForDateRange()
+
+                Toast.makeText(this@ReportsActivity, "Reports refreshed", Toast.LENGTH_SHORT).show()
+
+            } catch (e: Exception) {
+                Toast.makeText(this@ReportsActivity, "Refresh failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                showSyncIndicator(false)
+            }
+        }
     }
 
     // New method to check if current date has Z-Read
     private suspend fun hasZReadForCurrentDate(): Boolean {
         return withContext(Dispatchers.IO) {
-            val currentDateString = formatDateAsString(getCurrentPhilippineTime())
+            val currentDateString = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(getCurrentDate())
             val existingZRead = zReadDao.getZReadByDate(currentDateString)
             Log.d("ReportsActivity", "Checking Z-Read for date: $currentDateString, found: ${existingZRead != null}")
             existingZRead != null
@@ -411,12 +523,12 @@ class ReportsActivity : AppCompatActivity() {
                 val isToday = isSameDay(currentDate, selectedDate)
 
                 if (!isToday) {
-                    val selectedDateString = formatDateAsString(selectedDate)
+                    val selectedDateString = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(selectedDate)
                     val existingZRead = zReadDao.getZReadByDate(selectedDateString)
 
                     withContext(Dispatchers.Main) {
                         if (existingZRead != null) {
-                            // FIXED: Use string date format for DAO call
+                            // Use the same date range logic as showTransactionListDialog
                             val transactions = withContext(Dispatchers.IO) {
                                 transactionDao.getTransactionsByDateRange(
                                     formatDateToString(startDate),
@@ -445,13 +557,24 @@ class ReportsActivity : AppCompatActivity() {
                     return@launch
                 }
 
-                val todayStart = getStartOfDay(currentDate)
-                val todayEnd = getEndOfDay(currentDate)
+                // For today's X-Read, create the same date range as showTransactionListDialog
+                val todayStart = Calendar.getInstance().apply {
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
+                val todayEnd = Calendar.getInstance().apply {
+                    time = todayStart.time
+                    set(Calendar.HOUR_OF_DAY, 23)
+                    set(Calendar.MINUTE, 59)
+                    set(Calendar.SECOND, 59)
+                    set(Calendar.MILLISECOND, 999)
+                }
 
-                // FIXED: Convert Date to String for DAO call
                 val transactions = transactionDao.getTransactionsByDateRange(
-                    formatDateToString(todayStart),
-                    formatDateToString(todayEnd)
+                    formatDateToString(todayStart.time),
+                    formatDateToString(todayEnd.time)
                 )
                 val currentTenderDeclaration = tenderDeclarationDao.getLatestTenderDeclaration()
                 val hasZRead = hasZReadForCurrentDate()
@@ -472,6 +595,8 @@ class ReportsActivity : AppCompatActivity() {
             }
         }
     }
+
+
     private fun isSameDay(date1: Date, date2: Date): Boolean {
         val cal1 = Calendar.getInstance().apply { time = date1 }
         val cal2 = Calendar.getInstance().apply { time = date2 }
@@ -545,6 +670,9 @@ class ReportsActivity : AppCompatActivity() {
             cashFundRepository.insert(cashFundEntity)
         }
     }
+    private fun getCurrentDate(): String {
+        return formatDateToString(Date())
+    }
 
     private fun checkForExistingCashFund() {
         lifecycleScope.launch {
@@ -561,15 +689,15 @@ class ReportsActivity : AppCompatActivity() {
             }
         }
     }
-
-    private fun getCurrentDate(): String {
-        return formatDateAsString(getCurrentPhilippineTime())
-    }
-
-
-    private fun getCurrentTime(): String {
-        return TIME_FORMAT.format(getCurrentPhilippineTime())
-    }
+//
+//    private fun getCurrentDate(): String {
+//        return formatDateAsString(getCurrentPhilippineTime())
+//    }
+//
+//
+//    private fun getCurrentTime(): String {
+//        return TIME_FORMAT.format(getCurrentPhilippineTime())
+//    }
     // Rest of the existing methods...
     private fun showReprintZReadSelection() {
         lifecycleScope.launch {
@@ -625,91 +753,1210 @@ class ReportsActivity : AppCompatActivity() {
         val arViewModelFactory = ARViewModelFactory(arRepository)
         arViewModel = ViewModelProvider(this, arViewModelFactory)[ARViewModel::class.java]
 
-        // FIXED: Use Philippine timezone for current date
-        val currentPhilippineTime = getCurrentPhilippineTime()
-        val todayString = formatDateForDisplay(currentPhilippineTime)
-
         bluetoothPrinterHelper = BluetoothPrinterHelper.getInstance()
         bluetoothPrinterHelper.setTransactionDao(transactionDao)
 
-        binding.startDatePickerButton.text = todayString
-        binding.endDatePickerButton.text = todayString
+        // Set current date as default
+        val currentDate = Calendar.getInstance()
+        binding.startDatePickerButton.text = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(currentDate.time)
+        binding.endDatePickerButton.text = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(currentDate.time)
 
-        // FIXED: Set date range to full day in Philippine timezone
-        startDate = getStartOfDay(currentPhilippineTime)
-        endDate = getEndOfDay(currentPhilippineTime)
+        // Initialize date range
+        val todayStart = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val todayEnd = Calendar.getInstance().apply {
+            time = todayStart.time
+            set(Calendar.HOUR_OF_DAY, 23)
+            set(Calendar.MINUTE, 59)
+            set(Calendar.SECOND, 59)
+            set(Calendar.MILLISECOND, 999)
+        }
 
-        // Debug logging
-        logDateInfo("ReportsActivity", "Initialized startDate", startDate)
-        logDateInfo("ReportsActivity", "Initialized endDate", endDate)
+        startDate = todayStart.time
+        endDate = todayEnd.time
+
+        Log.d("ReportsActivity", "=== INITIALIZATION DEBUG ===")
+        Log.d("ReportsActivity", "Initialized with today's range:")
+        Log.d("ReportsActivity", "Start: ${formatDateToString(startDate)}")
+        Log.d("ReportsActivity", "End: ${formatDateToString(endDate)}")
+
+        // Run debugging functions
+        testDateQueries()
     }
 
-    private fun setupDatePickers() {
-        binding.startDatePickerButton.setOnClickListener {
-            showDatePicker(true) { selectedDate ->
-                startDate = getStartOfDay(selectedDate)
-                binding.startDatePickerButton.text = formatDateForDisplay(selectedDate)
+    // FIXED: Add method to check what works in your showTransactionListDialog
+    private fun testShowTransactionListDialogMethod() {
+        lifecycleScope.launch {
+            try {
+                val currentStoreId = SessionManager.getCurrentUser()?.storeid
+                if (currentStoreId != null) {
+                    // EXACT copy of the date logic from showTransactionListDialog
+                    val todayStart = Calendar.getInstance().apply {
+                        set(Calendar.HOUR_OF_DAY, 0)
+                        set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }
+                    val todayEnd = Calendar.getInstance().apply {
+                        time = todayStart.time
+                        set(Calendar.HOUR_OF_DAY, 23)
+                        set(Calendar.MINUTE, 59)
+                        set(Calendar.SECOND, 59)
+                        set(Calendar.MILLISECOND, 999)
+                    }
 
-                // If start date is after end date, adjust end date
-                if (startDate.after(endDate)) {
-                    endDate = getEndOfDay(selectedDate)
-                    binding.endDatePickerButton.text = formatDateForDisplay(selectedDate)
+                    // Use the EXACT same formatDateToString as in your working code
+                    val transactions = withContext(Dispatchers.IO) {
+                        transactionDao.getTransactionsByDateRange(
+                            formatDateToString(todayStart.time),
+                            formatDateToString(todayEnd.time)
+                        )
+                    }
+
+                    Log.d("ReportsActivity", "=== DIALOG METHOD TEST ===")
+                    Log.d("ReportsActivity", "Using exact dialog logic: ${transactions.size} transactions found")
+
+                    if (transactions.isNotEmpty()) {
+                        Log.d("ReportsActivity", "SUCCESS! Found transactions using dialog method")
+                        transactions.take(3).forEach { transaction ->
+                            Log.d("ReportsActivity", "  Transaction: ${transaction.transactionId} - ${transaction.createdDate}")
+                        }
+                    } else {
+                        Log.d("ReportsActivity", "Still no transactions found with dialog method")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("ReportsActivity", "Error testing dialog method", e)
+            }
+        }
+    }
+    // FIXED: Replace your setupDatePickers method with this:
+    // ADD this method to exactly replicate showTransactionListDialog behavior:
+    private fun getTransactionsLikeDialog(): List<TransactionSummary> {
+        return runBlocking {
+            withContext(Dispatchers.IO) {
+                val currentStoreId = SessionManager.getCurrentUser()?.storeid
+
+                // Create date range EXACTLY like showTransactionListDialog
+                val todayStart = Calendar.getInstance().apply {
+                    time = startDate  // Use the selected date instead of "today"
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
+                val todayEnd = Calendar.getInstance().apply {
+                    time = todayStart.time
+                    set(Calendar.HOUR_OF_DAY, 23)
+                    set(Calendar.MINUTE, 59)
+                    set(Calendar.SECOND, 59)
+                    set(Calendar.MILLISECOND, 999)
                 }
 
-                // Debug logging
-                logDateInfo("ReportsActivity", "Updated startDate", startDate)
-                logDateInfo("ReportsActivity", "Updated endDate", endDate)
+                // Use the EXACT same formatDateToString as showTransactionListDialog
+                fun formatDateToString(date: Date): String {
+                    val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                    return formatter.format(date)
+                }
 
-                loadReportForDateRange()
+                val startStr = formatDateToString(todayStart.time)
+                val endStr = formatDateToString(todayEnd.time)
+
+                Log.d("ReportsActivity", "Dialog-exact query: '$startStr' to '$endStr'")
+
+                try {
+                    // Try the exact same query as dialog first
+                    val exactDialogResults = transactionDao.getTransactionsByDateRange(startStr, endStr)
+                    Log.d("ReportsActivity", "Exact dialog query: ${exactDialogResults.size} results")
+
+                    if (exactDialogResults.isNotEmpty()) {
+                        return@withContext exactDialogResults
+                    }
+                } catch (e: Exception) {
+                    Log.e("ReportsActivity", "Exact dialog query failed: ${e.message}")
+                }
+
+                // Fallback: Use our working date-based approach but filter to current transactions only
+                val dateString = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(startDate)
+                val allForDate = transactionDao.getTransactionsByDate(dateString)
+
+                // Filter to only recent/relevant transactions (not old test data)
+                val recentTransactions = allForDate.filter { transaction ->
+                    // Only include transactions from this year/month to avoid old test data
+                    transaction.createdDate.startsWith("2025-07-") &&
+                            transaction.transactionStatus == 1 &&
+                            (currentStoreId == null || transaction.store == currentStoreId)
+                }
+
+                Log.d("ReportsActivity", "Filtered to recent: ${recentTransactions.size} from ${allForDate.size} total")
+
+                recentTransactions.sortedByDescending { it.createdDate }
             }
+        }
+    }
+
+    // UPDATE your loadReportForDateRange to use this exact method:
+    private fun loadReportForDateRangeExact() {
+        lifecycleScope.launch {
+            try {
+                Log.d("ReportsActivity", "=== EXACT DIALOG REPLICATION ===")
+
+                val transactions = getTransactionsLikeDialog()
+
+                Log.d("ReportsActivity", "Final exact result: ${transactions.size} transactions")
+
+                // Show what we got vs what dialog shows
+                transactions.take(3).forEach { transaction ->
+                    Log.d("ReportsActivity", "Reports exact: ${transaction.transactionId} - ${transaction.createdDate}")
+                }
+
+                val report = calculateSalesReport(transactions)
+                updateUI(report)
+
+            } catch (e: Exception) {
+                Log.e("ReportsActivity", "Error in exact replication", e)
+                Toast.makeText(this@ReportsActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // REPLACE the call in your date pickers - change loadReportForDateRange() to loadReportForDateRangeExact()
+    private fun setupDatePickers() {
+        binding.startDatePickerButton.setOnClickListener {
+            val currentDate = Calendar.getInstance()
+            val datePickerDialog = DatePickerDialog(
+                this,
+                { _, year, month, day ->
+                    Log.d("ReportsActivity", "=== REPORTS DATE PICKER ===")
+                    Log.d("ReportsActivity", "Reports selected: year=$year, month=$month, day=$day")
+
+                    // EXACT copy from Window1 date picker behavior
+                    val selectedDate = Calendar.getInstance().apply {
+                        set(Calendar.YEAR, year)
+                        set(Calendar.MONTH, month)
+                        set(Calendar.DAY_OF_MONTH, day)
+                        set(Calendar.HOUR_OF_DAY, 0)
+                        set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }
+                    val endDate = Calendar.getInstance().apply {
+                        time = selectedDate.time
+                        set(Calendar.HOUR_OF_DAY, 23)
+                        set(Calendar.MINUTE, 59)
+                        set(Calendar.SECOND, 59)
+                        set(Calendar.MILLISECOND, 999)
+                    }
+
+                    Log.d("ReportsActivity", "Reports selectedDate: ${selectedDate.time}")
+                    Log.d("ReportsActivity", "Reports endDate: ${endDate.time}")
+
+                    // Update button text - EXACTLY like Window1
+                    binding.startDatePickerButton.text = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+                        .format(selectedDate.time)
+                    binding.endDatePickerButton.text = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+                        .format(selectedDate.time)
+
+                    // Update the actual date variables
+                    startDate = selectedDate.time
+                    this@ReportsActivity.endDate = endDate.time
+
+                    // Call Window1-style loading
+                    loadTransactionsExactlyLikeWindow1()
+                },
+                currentDate.get(Calendar.YEAR),
+                currentDate.get(Calendar.MONTH),
+                currentDate.get(Calendar.DAY_OF_MONTH)
+            )
+            datePickerDialog.show()
         }
 
         binding.endDatePickerButton.setOnClickListener {
-            showDatePicker(false) { selectedDate ->
-                endDate = getEndOfDay(selectedDate)
-                binding.endDatePickerButton.text = formatDateForDisplay(selectedDate)
+            val currentDate = Calendar.getInstance()
+            val datePickerDialog = DatePickerDialog(
+                this,
+                { _, year, month, day ->
+                    Log.d("ReportsActivity", "=== REPORTS DATE PICKER ===")
+                    Log.d("ReportsActivity", "Reports selected: year=$year, month=$month, day=$day")
 
-                // If end date is before start date, automatically adjust start date
-                if (endDate.before(startDate)) {
-                    startDate = getStartOfDay(selectedDate)
-                    binding.startDatePickerButton.text = formatDateForDisplay(selectedDate)
+                    // EXACT copy from Window1 date picker behavior
+                    val selectedDate = Calendar.getInstance().apply {
+                        set(Calendar.YEAR, year)
+                        set(Calendar.MONTH, month)
+                        set(Calendar.DAY_OF_MONTH, day)
+                        set(Calendar.HOUR_OF_DAY, 0)
+                        set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }
+                    val endDateCalendar = Calendar.getInstance().apply {
+                        time = selectedDate.time
+                        set(Calendar.HOUR_OF_DAY, 23)
+                        set(Calendar.MINUTE, 59)
+                        set(Calendar.SECOND, 59)
+                        set(Calendar.MILLISECOND, 999)
+                    }
+
+                    Log.d("ReportsActivity", "Reports selectedDate: ${selectedDate.time}")
+                    Log.d("ReportsActivity", "Reports endDate: ${endDateCalendar.time}")
+
+                    // Update button text - EXACTLY like Window1
+                    binding.startDatePickerButton.text = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+                        .format(selectedDate.time)
+                    binding.endDatePickerButton.text = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
+                        .format(selectedDate.time)
+
+                    // Update the actual date variables
+                    startDate = selectedDate.time
+                    endDate = endDateCalendar.time
+
+                    // Call Window1-style loading
+                    loadTransactionsExactlyLikeWindow1()
+                },
+                currentDate.get(Calendar.YEAR),
+                currentDate.get(Calendar.MONTH),
+                currentDate.get(Calendar.DAY_OF_MONTH)
+            )
+            datePickerDialog.show()
+        }
+    }
+
+    private fun loadTransactionsExactlyLikeWindow1() {
+        lifecycleScope.launch {
+            try {
+                val currentStoreId = SessionManager.getCurrentUser()?.storeid
+                if (currentStoreId != null) {
+                    Log.d("ReportsActivity", "=== EXACT WINDOW1 REPLICATION ===")
+                    Log.d("ReportsActivity", "Reports currentStoreId: $currentStoreId")
+
+                    val transactions = withContext(Dispatchers.IO) {
+                        // Use the EXACT formatDateToString from Window1
+                        val startDateStr = formatDateToString(startDate)
+                        val endDateStr = formatDateToString(endDate)
+
+                        Log.d("ReportsActivity", "=== REPORTS QUERY (Window1 exact) ===")
+                        Log.d("ReportsActivity", "Reports querying transactions from $startDateStr to $endDateStr")
+
+                        // Use the EXACT same DAO method as Window1
+                        val result = transactionDao.getTransactionsByDateRange(startDateStr, endDateStr)
+
+                        Log.d("ReportsActivity", "Reports raw result: ${result.size} transactions")
+
+                        // Log the first few like in Window1
+                        result.take(3).forEach { transaction ->
+                            Log.d("ReportsActivity", "Reports transaction: ${transaction.transactionId} - ${transaction.createdDate}")
+                        }
+
+                        result
+                    }
+
+                    Log.d("ReportsActivity", "Reports found ${transactions.size} transactions for selected date")
+
+                    // Apply the SAME sorting as Window1 TransactionAdapter
+                    val sortedTransactions = transactions.sortedWith { t1, t2 ->
+                        Log.d("ReportsActivity", "Reports sorting: ${t1.transactionId} vs ${t2.transactionId}")
+                        t2.createdDate.compareTo(t1.createdDate)
+                    }
+
+                    Log.d("ReportsActivity", "Reports after sorting: ${sortedTransactions.size} transactions")
+                    sortedTransactions.take(3).forEach { transaction ->
+                        Log.d("ReportsActivity", "Reports sorted: ${transaction.transactionId} - ${transaction.createdDate}")
+                    }
+
+                    val report = calculateSalesReport(sortedTransactions)
+                    updateUI(report)
+
+                } else {
+                    Log.e("ReportsActivity", "Current store ID is null!")
+                    Toast.makeText(this@ReportsActivity, "Store ID not found", Toast.LENGTH_SHORT).show()
                 }
+            } catch (e: Exception) {
+                Log.e("ReportsActivity", "Error loading transactions exactly like Window1", e)
+                Toast.makeText(this@ReportsActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    // STEP 4: Copy the EXACT sorting extension from TransactionAdapter
+    private fun String.toTimestampForSorting(): Long {
+        return try {
+            if (this.isEmpty()) return 0L
+            val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+            val date = format.parse(this)
+            date?.time ?: 0L
+        } catch (e: Exception) {
+            0L
+        }
+    }
 
-                // Debug logging
-                logDateInfo("ReportsActivity", "Updated startDate", startDate)
-                logDateInfo("ReportsActivity", "Updated endDate", endDate)
+    // STEP 5: For debugging - let's see what your showTransactionListDialog would actually return
+    private fun debugWhatDialogWouldShow() {
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    Log.d("ReportsActivity", "=== DEBUG: WHAT DIALOG WOULD SHOW ===")
 
-                loadReportForDateRange()
+                    // Get current store ID like dialog does
+                    val currentStoreId = SessionManager.getCurrentUser()?.storeid
+                    Log.d("ReportsActivity", "Store ID: $currentStoreId")
+
+                    if (currentStoreId != null) {
+                        // Create the EXACT same date range as your dialog for July 16
+                        val july16Start = Calendar.getInstance().apply {
+                            set(2025, Calendar.JULY, 16, 0, 0, 0)
+                            set(Calendar.MILLISECOND, 0)
+                        }
+                        val july16End = Calendar.getInstance().apply {
+                            time = july16Start.time
+                            set(Calendar.HOUR_OF_DAY, 23)
+                            set(Calendar.MINUTE, 59)
+                            set(Calendar.SECOND, 59)
+                            set(Calendar.MILLISECOND, 999)
+                        }
+
+                        val startDateStr = formatDateToString(july16Start.time)
+                        val endDateStr = formatDateToString(july16End.time)
+
+                        Log.d("ReportsActivity", "Dialog would query: '$startDateStr' to '$endDateStr'")
+
+                        val dialogResults = transactionDao.getTransactionsByDateRange(startDateStr, endDateStr)
+                        Log.d("ReportsActivity", "Dialog would get: ${dialogResults.size} transactions")
+
+                        // Show what dialog would display
+                        dialogResults.take(5).forEach { transaction ->
+                            Log.d("ReportsActivity", "Dialog would show: ${transaction.transactionId} - ${transaction.createdDate} - ${transaction.receiptId}")
+                        }
+
+                        // Check if dialog does any additional filtering
+                        val filteredForStore = dialogResults.filter { it.store == currentStoreId }
+                        Log.d("ReportsActivity", "After store filter: ${filteredForStore.size} transactions")
+
+                        val filteredForStatus = filteredForStore.filter { it.transactionStatus == 1 }
+                        Log.d("ReportsActivity", "After status filter: ${filteredForStatus.size} transactions")
+
+                    } else {
+                        Log.e("ReportsActivity", "Store ID is null - dialog wouldn't work either!")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("ReportsActivity", "Error debugging dialog", e)
             }
         }
     }
 
-    private fun showDatePicker(isStartDate: Boolean, onDateSelected: (Date) -> Unit) {
-        val currentPhilippineTime = getPhilippineCalendar()
+//    private fun showDatePicker(isStartDate: Boolean, onDateSelected: (Date) -> Unit) {
+//        val currentPhilippineTime = getPhilippineCalendar()
+//
+//        val datePickerDialog = DatePickerDialog(
+//            this,
+//            { _, year, month, day ->
+//                // Create date in Philippine timezone
+//                val selectedDate = createPhilippineDate(year, month, day)
+//                onDateSelected(selectedDate)
+//            },
+//            currentPhilippineTime.get(Calendar.YEAR),
+//            currentPhilippineTime.get(Calendar.MONTH),
+//            currentPhilippineTime.get(Calendar.DAY_OF_MONTH)
+//        )
+//        datePickerDialog.show()
+//    }
+//
 
-        val datePickerDialog = DatePickerDialog(
-            this,
-            { _, year, month, day ->
-                // Create date in Philippine timezone
-                val selectedDate = createPhilippineDate(year, month, day)
-                onDateSelected(selectedDate)
-            },
-            currentPhilippineTime.get(Calendar.YEAR),
-            currentPhilippineTime.get(Calendar.MONTH),
-            currentPhilippineTime.get(Calendar.DAY_OF_MONTH)
-        )
-        datePickerDialog.show()
+
+//    private fun setupAutoSync() {
+//        lifecycleScope.launch {
+//            // Give a small delay to ensure everything is initialized
+//            delay(2000)
+//            startAutoSyncMonitoring()
+//        }
+//    }
+//    private fun setupAutoSync() {
+//        startAutoSyncMonitoring()
+//    }
+
+    // Main auto-sync monitoring function
+    private fun startAutoSyncMonitoring() {
+        autoSyncJob = lifecycleScope.launch {
+            try {
+                Log.d("ReportsActivity", "Starting auto-sync monitoring...")
+
+                createAutoSyncFlow().collectLatest { hasChanges ->
+                    if (hasChanges && isAutoSyncEnabled) {
+                        Log.d("ReportsActivity", "Changes detected, refreshing reports...")
+                        withContext(Dispatchers.Main) {
+                            refreshReportsFromAPI()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("ReportsActivity", "Error in auto-sync monitoring", e)
+            }
+        }
+    }
+
+    // Create a flow that periodically checks for API changes
+    private fun createAutoSyncFlow(): Flow<Boolean> = flow {
+        while (isAutoSyncEnabled) {
+            try {
+                val hasChanges = checkForAPIChanges()
+                emit(hasChanges)
+                delay(autoSyncIntervalMs)
+            } catch (e: Exception) {
+                Log.e("ReportsActivity", "Error checking for API changes", e)
+                emit(false)
+                delay(autoSyncIntervalMs * 2) // Wait longer on error
+            }
+        }
+    }
+
+    // Check if there are changes in the API data
+    private suspend fun checkForAPIChanges(): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val currentStoreId = SessionManager.getCurrentUser()?.storeid ?: return@withContext false
+
+                // Get current local transaction count
+                val currentLocalCount = transactionDao.getTransactionsByStore(currentStoreId).size
+
+                // Check if count changed from last time we checked
+                val hasChanges = currentLocalCount != lastKnownTransactionCount
+
+                if (hasChanges) {
+                    Log.d("AutoSync", "Transaction count changed: $lastKnownTransactionCount -> $currentLocalCount")
+                    lastKnownTransactionCount = currentLocalCount
+                }
+
+                return@withContext hasChanges
+
+            } catch (e: Exception) {
+                Log.e("AutoSync", "Error checking for changes: ${e.message}")
+                false
+            }
+        }
+    }
+    // Get transaction count from API using your existing TransactionSyncApi
+    private suspend fun getTransactionCountFromAPI(storeId: String): Int {
+        return try {
+            val response = RetrofitClient.transactionSyncApi.getTransactionSummaries(storeId)
+            if (response.isSuccessful) {
+                response.body()?.size ?: 0
+            } else {
+                Log.e("AutoSync", "API response failed: ${response.code()}")
+                0
+            }
+        } catch (e: Exception) {
+            Log.e("AutoSync", "Error getting transaction count from API", e)
+            0
+        }
+    }
+
+    // Get transaction sum from API for data integrity
+    private suspend fun getTransactionSumFromAPI(storeId: String): Double {
+        return try {
+            val response = RetrofitClient.transactionSyncApi.getTransactionSummaries(storeId)
+            if (response.isSuccessful) {
+                response.body()?.sumOf { it.netAmount ?: 0.0 } ?: 0.0
+            } else {
+                0.0
+            }
+        } catch (e: Exception) {
+            Log.e("AutoSync", "Error getting transaction sum from API", e)
+            0.0
+        }
+    }
+
+    // Get local transaction count
+    private suspend fun getLocalTransactionCount(): Int {
+        return try {
+            val currentStoreId = SessionManager.getCurrentUser()?.storeid ?: return 0
+            transactionDao.getTransactionsByStore(currentStoreId).size
+        } catch (e: Exception) {
+            Log.e("AutoSync", "Error getting local transaction count", e)
+            0
+        }
+    }
+
+    // Get local transaction sum
+    private suspend fun getLocalTransactionSum(): Double {
+        return try {
+            val currentStoreId = SessionManager.getCurrentUser()?.storeid ?: return 0.0
+            transactionDao.getTransactionsByStore(currentStoreId).sumOf { it.netAmount }
+        } catch (e: Exception) {
+            Log.e("AutoSync", "Error getting local transaction sum", e)
+            0.0
+        }
+    }
+    fun String.convertApiDateToSimple(): String {
+        return try {
+            val apiFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'", Locale.US)
+            apiFormat.timeZone = TimeZone.getTimeZone("UTC")
+            val date = apiFormat.parse(this)
+
+            val simpleFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+            simpleFormat.timeZone = TimeZone.getTimeZone("Asia/Manila")
+            simpleFormat.format(date ?: Date())
+        } catch (e: Exception) {
+            Log.w("DateConverter", "Could not convert date: $this")
+            this
+        }
     }
 
 
-    private fun setupButtons() {
-        // Show the cash management buttons
-//        binding.xreadButton.visibility = android.view.View.VISIBLE
-//        binding.cashfundButton.visibility = android.view.View.VISIBLE
-//        binding.pulloutButton.visibility = android.view.View.VISIBLE
-//        binding.tenderButton.visibility = android.view.View.VISIBLE
+    // Refresh reports from API and update UI
+    private fun convertAllTransactionDates() {
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    Log.d("DateConverter", "Starting comprehensive date conversion...")
 
-        // Set up button click listeners
+                    val currentStoreId = SessionManager.getCurrentUser()?.storeid ?: return@withContext
+
+                    // Step 1: Convert Transaction Summaries
+                    val allTransactions = transactionDao.getTransactionsByStore(currentStoreId)
+                    val convertedTransactions = mutableListOf<TransactionSummary>()
+
+                    Log.d("DateConverter", "Converting ${allTransactions.size} transaction summaries...")
+
+                    allTransactions.forEach { transaction ->
+                        val originalDate = transaction.createdDate
+
+                        // Check if date needs conversion (contains 'T' and 'Z')
+                        if (originalDate.contains("T") && originalDate.contains("Z")) {
+                            try {
+                                val convertedDate = originalDate.convertApiDateToSimple()
+
+                                if (convertedDate != originalDate) {
+                                    val updatedTransaction = transaction.copy(
+                                        createdDate = convertedDate,
+                                        // FIXED: Handle potential null fields during copy
+                                        paymentMethod = transaction.paymentMethod ?: "",
+                                        customerAccount = transaction.customerAccount ?: "",
+                                        staff = transaction.staff ?: "",
+                                        comment = transaction.comment ?: "",
+                                        currency = transaction.currency ?: "PHP",
+                                        receiptEmail = transaction.receiptEmail ?: "",
+                                        markupDescription = transaction.markupDescription ?: "",
+                                        discountType = transaction.discountType ?: "",
+                                        customerName = transaction.customerName ?: "",
+                                        refundReceiptId = transaction.refundReceiptId ?: "",
+                                        zReportId = transaction.zReportId ?: "",
+                                        storeKey = transaction.storeKey ?: "",
+                                        storeSequence = transaction.storeSequence ?: ""
+                                    )
+                                    convertedTransactions.add(updatedTransaction)
+                                    Log.d("DateConverter", "Summary converted: $originalDate -> $convertedDate")
+                                }
+                            } catch (e: Exception) {
+                                Log.e("DateConverter", "Error converting summary date for transaction ${transaction.transactionId}: ${e.message}")
+                            }
+                        }
+                    }
+
+                    if (convertedTransactions.isNotEmpty()) {
+                        transactionDao.insertTransactionSummaries(convertedTransactions)
+                        Log.d("DateConverter", "Updated ${convertedTransactions.size} transaction summaries with converted dates")
+                    }
+
+                    // Step 2: Convert Transaction Records
+                    Log.d("DateConverter", "Converting transaction records...")
+
+                    val allRecords = transactionDao.getAllTransactionRecords()
+                    val convertedRecords = mutableListOf<TransactionRecord>()
+
+                    Log.d("DateConverter", "Converting ${allRecords.size} transaction records...")
+
+                    allRecords.forEach { record ->
+                        val originalDate = record.createdDate
+
+                        if (originalDate?.contains("T") == true && originalDate.contains("Z")) {
+                            try {
+                                val convertedDate = originalDate.convertApiDateToSimple()
+
+                                if (convertedDate != originalDate) {
+                                    val updatedRecord = record.copy(
+                                        createdDate = convertedDate,
+                                        // FIXED: Handle potential null fields during copy
+                                        name = record.name ?: "",
+                                        receiptNumber = record.receiptNumber ?: "",
+                                        paymentMethod = record.paymentMethod ?: "",
+                                        comment = record.comment ?: "",
+                                        receiptId = record.receiptId ?: "",
+                                        itemId = record.itemId ?: "",
+                                        itemGroup = record.itemGroup ?: "",
+                                        customerAccount = record.customerAccount ?: "",
+                                        store = record.store ?: "",
+                                        staff = record.staff ?: "",
+                                        discountOfferId = record.discountOfferId ?: "",
+                                        unit = record.unit ?: "PCS",
+                                        remarks = record.remarks ?: "",
+                                        inventoryBatchId = record.inventoryBatchId ?: "",
+                                        inventoryBatchExpiryDate = record.inventoryBatchExpiryDate ?: "",
+                                        giftCard = record.giftCard ?: "",
+                                        returnTransactionId = record.returnTransactionId ?: "",
+                                        creditMemoNumber = record.creditMemoNumber ?: "",
+                                        description = record.description ?: "",
+                                        storeTaxGroup = record.storeTaxGroup ?: "",
+                                        currency = record.currency ?: "PHP",
+                                        storeKey = record.storeKey ?: "",
+                                        storeSequence = record.storeSequence ?: ""
+                                    )
+                                    convertedRecords.add(updatedRecord)
+                                    Log.d("DateConverter", "Record converted: $originalDate -> $convertedDate")
+                                }
+                            } catch (e: Exception) {
+                                Log.e("DateConverter", "Error converting record date for record ${record.id}: ${e.message}")
+                            }
+                        }
+                    }
+
+                    if (convertedRecords.isNotEmpty()) {
+                        transactionDao.insertAll(convertedRecords)
+                        Log.d("DateConverter", "Updated ${convertedRecords.size} transaction records with converted dates")
+                    }
+
+                    // Summary report
+                    val totalConverted = convertedTransactions.size + convertedRecords.size
+                    Log.d("DateConverter", "Date conversion complete:")
+                    Log.d("DateConverter", "  Transaction summaries: ${convertedTransactions.size}")
+                    Log.d("DateConverter", "  Transaction records: ${convertedRecords.size}")
+                    Log.d("DateConverter", "  Total converted: $totalConverted")
+
+                } catch (e: Exception) {
+                    Log.e("DateConverter", "Error in comprehensive date conversion: ${e.message}", e)
+                }
+            }
+        }
+    }
+    // UPDATE your refreshReportsFromAPI method to include date conversion
+    private fun refreshReportsFromAPI() {
+        lifecycleScope.launch {
+            try {
+                Log.d("AutoSync", "Refreshing reports and converting dates...")
+
+                // First convert all transaction dates
+                convertAllTransactionDates()
+
+                // Wait a moment for conversion to complete
+                delay(500)
+
+                // Then refresh the UI with converted dates
+                loadReportForDateRange()
+
+                Log.d("AutoSync", "Reports refreshed with converted dates")
+            } catch (e: Exception) {
+                Log.e("AutoSync", "Error refreshing UI: ${e.message}")
+            }
+        }
+    }
+
+    // ADD: Manual date conversion method (you can call this anytime)
+    fun convertAllDatesManually() {
+        lifecycleScope.launch {
+            try {
+                showSyncIndicator(true)
+
+                convertAllTransactionDates()
+
+                // Wait for conversion to complete
+                delay(1000)
+
+                // Refresh UI to show converted dates
+                loadReportForDateRange()
+
+                Toast.makeText(this@ReportsActivity, "All transaction dates converted to simple format", Toast.LENGTH_SHORT).show()
+
+            } catch (e: Exception) {
+                Toast.makeText(this@ReportsActivity, "Error converting dates: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                showSyncIndicator(false)
+            }
+        }
+    }
+
+    // Sync transactions from API using your existing infrastructure
+    private suspend fun syncTransactionsFromAPI(storeId: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                Log.d("APISync", "Starting fresh API sync for store: $storeId")
+
+                // STEP 1: Clear existing data to prevent duplicates
+                Log.d("APISync", "Clearing existing transaction data to prevent duplicates...")
+                transactionDao.deleteAllTransactionSummaries()
+                transactionDao.deleteAllTransactionRecords()
+
+                // STEP 2: Get fresh data from API
+                val summariesResponse = RetrofitClient.transactionSyncApi.getTransactionSummaries(storeId)
+                val detailsResponse = RetrofitClient.transactionSyncApi.getTransactionDetails(storeId)
+
+                var syncedCount = 0
+
+                if (summariesResponse.isSuccessful) {
+                    val apiSummaries = summariesResponse.body() ?: emptyList()
+                    Log.d("APISync", "Received ${apiSummaries.size} summaries from API")
+
+                    // FIXED: Convert dates and handle ALL null fields during sync
+                    val convertedSummaries = apiSummaries.map { summary ->
+                        summary.copy(
+                            createdDate = summary.createdDate?.convertApiDateToSimple() ?: getCurrentDateString(),
+                            syncStatus = true,
+                            // FIXED: Handle ALL nullable String fields
+                            paymentMethod = summary.paymentMethod ?: "",
+                            customerAccount = summary.customerAccount ?: "",
+                            staff = summary.staff ?: "",
+                            comment = summary.comment ?: "",
+                            currency = summary.currency ?: "PHP",
+                            receiptEmail = summary.receiptEmail ?: "",
+                            markupDescription = summary.markupDescription ?: "",
+                            discountType = summary.discountType ?: "",
+                            customerName = summary.customerName ?: "",
+                            refundReceiptId = summary.refundReceiptId ?: "",
+                            zReportId = summary.zReportId ?: "",
+                            storeKey = summary.storeKey ?: "",
+                            storeSequence = summary.storeSequence ?: ""
+                        )
+                    }
+
+                    transactionDao.insertTransactionSummaries(convertedSummaries)
+                    syncedCount += convertedSummaries.size
+
+                    Log.d("APISync", "Synced ${convertedSummaries.size} summaries with converted dates")
+                }
+
+                if (detailsResponse.isSuccessful) {
+                    val apiDetails = detailsResponse.body() ?: emptyList()
+                    Log.d("APISync", "Received ${apiDetails.size} details from API")
+
+                    // FIXED: Convert dates and handle ALL null fields during sync
+                    val convertedDetails = apiDetails.map { record ->
+                        record.copy(
+                            createdDate = record.createdDate?.convertApiDateToSimple() ?: getCurrentDateString(),
+                            syncStatusRecord = true,
+                            // FIXED: Handle ALL nullable String fields
+                            name = record.name ?: "",
+                            receiptNumber = record.receiptNumber ?: "",
+                            paymentMethod = record.paymentMethod ?: "",
+                            comment = record.comment ?: "",
+                            receiptId = record.receiptId ?: "",
+                            itemId = record.itemId ?: "",
+                            itemGroup = record.itemGroup ?: "",
+                            customerAccount = record.customerAccount ?: "",
+                            store = record.store ?: "",
+                            staff = record.staff ?: "",
+                            discountOfferId = record.discountOfferId ?: "",
+                            unit = record.unit ?: "PCS",
+                            remarks = record.remarks ?: "",
+                            inventoryBatchId = record.inventoryBatchId ?: "",
+                            inventoryBatchExpiryDate = record.inventoryBatchExpiryDate ?: "",
+                            giftCard = record.giftCard ?: "",
+                            returnTransactionId = record.returnTransactionId ?: "",
+                            creditMemoNumber = record.creditMemoNumber ?: "",
+                            description = record.description ?: "",
+                            storeTaxGroup = record.storeTaxGroup ?: "",
+                            currency = record.currency ?: "PHP",
+                            storeKey = record.storeKey ?: "",
+                            storeSequence = record.storeSequence ?: ""
+                        )
+                    }
+
+                    transactionDao.insertAll(convertedDetails)
+                    syncedCount += convertedDetails.size
+
+                    Log.d("APISync", "Synced ${convertedDetails.size} records with converted dates")
+                }
+
+                Log.d("APISync", "Successfully synced $syncedCount total items from API")
+                return@withContext true
+
+            } catch (e: Exception) {
+                Log.e("APISync", "Error syncing from API: ${e.message}", e)
+                return@withContext false
+            }
+        }
+    }
+
+    // Helper function to create a safe TransactionSummary with null handling
+    private fun createSafeTransactionSummary(apiSummary: TransactionSummary): TransactionSummary {
+        return TransactionSummary(
+            transactionId = apiSummary.transactionId,
+            type = apiSummary.type,
+            receiptId = apiSummary.receiptId,
+            store = apiSummary.store,
+            staff = apiSummary.staff,
+            customerAccount = apiSummary.customerAccount,
+            netAmount = apiSummary.netAmount,
+            costAmount = apiSummary.costAmount,
+            grossAmount = apiSummary.grossAmount,
+            partialPayment = apiSummary.partialPayment,
+            transactionStatus = apiSummary.transactionStatus,
+            discountAmount = apiSummary.discountAmount,
+            customerDiscountAmount = apiSummary.customerDiscountAmount,
+            totalDiscountAmount = apiSummary.totalDiscountAmount,
+            numberOfItems = apiSummary.numberOfItems,
+            refundReceiptId = apiSummary.refundReceiptId ?: "",
+            currency = apiSummary.currency ?: "PHP",
+            zReportId = apiSummary.zReportId ?: "",
+            createdDate = apiSummary.createdDate,
+            priceOverride = apiSummary.priceOverride,
+            comment = apiSummary.comment ?: "",
+            receiptEmail = apiSummary.receiptEmail ?: "",
+            markupAmount = apiSummary.markupAmount,
+            markupDescription = apiSummary.markupDescription ?: "",
+            taxIncludedInPrice = apiSummary.taxIncludedInPrice,
+            windowNumber = apiSummary.windowNumber,
+            totalAmountPaid = apiSummary.totalAmountPaid,
+            changeGiven = apiSummary.changeGiven,
+            paymentMethod = apiSummary.paymentMethod ?: "",
+            customerName = apiSummary.customerName ?: "",
+            vatAmount = apiSummary.vatAmount,
+            vatExemptAmount = apiSummary.vatExemptAmount,
+            vatableSales = apiSummary.vatableSales,
+            discountType = apiSummary.discountType ?: "",
+            gCash = apiSummary.gCash,
+            payMaya = apiSummary.payMaya,
+            cash = apiSummary.cash,
+            card = apiSummary.card,
+            loyaltyCard = apiSummary.loyaltyCard,
+            charge = apiSummary.charge,
+            foodpanda = apiSummary.foodpanda,
+            grabfood = apiSummary.grabfood,
+            representation = apiSummary.representation,
+            storeKey = apiSummary.storeKey ?: "",
+            storeSequence = apiSummary.storeSequence ?: "",
+            syncStatus = true // Mark as synced
+        )
+    }
+
+    // Helper function to create a safe TransactionRecord with null handling
+    private fun createSafeTransactionRecord(apiDetail: TransactionRecord): TransactionRecord {
+        return TransactionRecord(
+            id = apiDetail.id,
+            transactionId = apiDetail.transactionId ?: "",
+            name = apiDetail.name ?: "",
+            price = apiDetail.price,
+            quantity = apiDetail.quantity,
+            subtotal = apiDetail.subtotal,
+            vatRate = apiDetail.vatRate,
+            vatAmount = apiDetail.vatAmount,
+            discountRate = apiDetail.discountRate,
+            discountAmount = apiDetail.discountAmount,
+            total = apiDetail.total,
+            receiptNumber = apiDetail.receiptNumber ?: "",
+            timestamp = apiDetail.timestamp,
+            paymentMethod = apiDetail.paymentMethod ?: "",
+            ar = apiDetail.ar,
+            windowNumber = apiDetail.windowNumber,
+            partialPaymentAmount = apiDetail.partialPaymentAmount,
+            comment = apiDetail.comment ?: "",
+            lineNum = apiDetail.lineNum,
+            receiptId = apiDetail.receiptId,
+            itemId = apiDetail.itemId,
+            itemGroup = apiDetail.itemGroup,
+            netPrice = apiDetail.netPrice,
+            costAmount = apiDetail.costAmount,
+            netAmount = apiDetail.netAmount,
+            grossAmount = apiDetail.grossAmount,
+            customerAccount = apiDetail.customerAccount,
+            store = apiDetail.store,
+            priceOverride = apiDetail.priceOverride,
+            staff = apiDetail.staff,
+            discountOfferId = apiDetail.discountOfferId,
+            lineDiscountAmount = apiDetail.lineDiscountAmount,
+            lineDiscountPercentage = apiDetail.lineDiscountPercentage,
+            customerDiscountAmount = apiDetail.customerDiscountAmount,
+            unit = apiDetail.unit,
+            unitQuantity = apiDetail.unitQuantity,
+            unitPrice = apiDetail.unitPrice,
+            taxAmount = apiDetail.taxAmount,
+            createdDate = apiDetail.createdDate ?: getCurrentDateString(),
+            remarks = apiDetail.remarks,
+            inventoryBatchId = apiDetail.inventoryBatchId,
+            inventoryBatchExpiryDate = apiDetail.inventoryBatchExpiryDate,
+            giftCard = apiDetail.giftCard,
+            returnTransactionId = apiDetail.returnTransactionId,
+            returnQuantity = apiDetail.returnQuantity,
+            creditMemoNumber = apiDetail.creditMemoNumber,
+            taxIncludedInPrice = apiDetail.taxIncludedInPrice,
+            description = apiDetail.description,
+            returnLineId = apiDetail.returnLineId,
+            priceUnit = apiDetail.priceUnit,
+            netAmountNotIncludingTax = apiDetail.netAmountNotIncludingTax,
+            storeTaxGroup = apiDetail.storeTaxGroup,
+            currency = apiDetail.currency,
+            taxExempt = apiDetail.taxExempt,
+            storeKey = apiDetail.storeKey ?: "",
+            storeSequence = apiDetail.storeSequence ?: "",
+            syncStatusRecord = true // Mark as synced
+        )
+    }
+    private fun getCurrentDateString(): String {
+        return try {
+            val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+            format.timeZone = TimeZone.getTimeZone("Asia/Manila")
+            format.format(Date())
+        } catch (e: Exception) {
+            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+        }
+    }
+
+
+    // ALTERNATIVE VERSION: If the API returns different types, use this approach
+//    private suspend fun syncTransactionsFromAPIAlternative(storeId: String): Boolean {
+//        return withContext(Dispatchers.IO) {
+//            try {
+//                Log.d("AutoSync", "Starting API sync for store: $storeId")
+//
+//                // Get transaction summaries from API
+//                val summariesResponse = RetrofitClient.transactionSyncApi.getTransactionSummaries(storeId)
+//
+//                if (summariesResponse.isSuccessful) {
+//                    val apiSummaries = summariesResponse.body() ?: return@withContext false
+//                    Log.d("AutoSync", "Fetched ${apiSummaries.size} summaries from API")
+//
+//                    // Check what type apiSummaries actually is and convert accordingly
+//                    val localSummaries = when {
+//                        // If API returns TransactionSummaryResponse objects
+//                        apiSummaries.firstOrNull() is TransactionSummaryResponse -> {
+//                            (apiSummaries as List<TransactionSummaryResponse>).map { it.toTransactionSummary() }
+//                        }
+//                        // If API returns TransactionSummary objects directly
+//                        apiSummaries.firstOrNull() is TransactionSummary -> {
+//                            (apiSummaries as List<TransactionSummary>).map { it.copy(syncStatus = true) }
+//                        }
+//                        // Fallback: try to convert each item
+//                        else -> {
+//                            apiSummaries.mapNotNull { apiItem ->
+//                                try {
+//                                    when (apiItem) {
+//                                        is TransactionSummaryResponse -> apiItem.toTransactionSummary()
+//                                        is TransactionSummary -> apiItem.copy(syncStatus = true)
+//                                        else -> {
+//                                            Log.w("AutoSync", "Unknown summary type: ${apiItem::class.java}")
+//                                            null
+//                                        }
+//                                    }
+//                                } catch (e: Exception) {
+//                                    Log.e("AutoSync", "Error converting summary: $e")
+//                                    null
+//                                }
+//                            }
+//                        }
+//                    }
+//
+//                    if (localSummaries.isNotEmpty()) {
+//                        // Insert/update in local database
+//                        transactionDao.insertTransactionSummaries(localSummaries)
+//                        Log.d("AutoSync", "Inserted ${localSummaries.size} summaries to local DB")
+//                    }
+//
+//                    // Get transaction details if needed
+//                    val detailsResponse = RetrofitClient.transactionSyncApi.getTransactionDetails(storeId)
+//
+//                    if (detailsResponse.isSuccessful) {
+//                        val apiDetails = detailsResponse.body() ?: return@withContext true
+//                        Log.d("AutoSync", "Fetched ${apiDetails.size} details from API")
+//
+//                        // Convert API details to local entities
+//                        val localDetails = when {
+//                            // If API returns TransactionDetailResponse objects
+//                            apiDetails.firstOrNull() is TransactionDetailResponse -> {
+//                                (apiDetails as List<TransactionDetailResponse>).map { it.toTransactionRecord() }
+//                            }
+//                            // If API returns TransactionRecord objects directly
+//                            apiDetails.firstOrNull() is TransactionRecord -> {
+//                                (apiDetails as List<TransactionRecord>).map { it.copy(syncStatusRecord = true) }
+//                            }
+//                            // Fallback: try to convert each item
+//                            else -> {
+//                                apiDetails.mapNotNull { apiItem ->
+//                                    try {
+//                                        when (apiItem) {
+//                                            is TransactionDetailResponse -> apiItem.toTransactionRecord()
+//                                            is TransactionRecord -> apiItem.copy(syncStatusRecord = true)
+//                                            else -> {
+//                                                Log.w("AutoSync", "Unknown detail type: ${apiItem::class.java}")
+//                                                null
+//                                            }
+//                                        }
+//                                    } catch (e: Exception) {
+//                                        Log.e("AutoSync", "Error converting detail: $e")
+//                                        null
+//                                    }
+//                                }
+//                            }
+//                        }
+//
+//                        if (localDetails.isNotEmpty()) {
+//                            transactionDao.insertAll(localDetails)
+//                            Log.d("AutoSync", "Inserted ${localDetails.size} details to local DB")
+//                        }
+//                    }
+//
+//                    Log.d("AutoSync", "Successfully synced ${localSummaries.size} transactions from API")
+//                    return@withContext true
+//                } else {
+//                    Log.e("AutoSync", "Failed to fetch summaries: ${summariesResponse.code()}")
+//                    return@withContext false
+//                }
+//
+//            } catch (e: Exception) {
+//                Log.e("AutoSync", "Error syncing from API: ${e.message}", e)
+//                false
+//            }
+//        }
+//    }
+
+    // SIMPLIFIED VERSION: If you just want to check for changes without full sync
+    private suspend fun syncTransactionsFromAPISimplified(storeId: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                // Just refresh the current report data without complex conversion
+                // This approach reloads data that's already in your local database
+                Log.d("AutoSync", "Refreshing local data for store: $storeId")
+
+                // You can add a simple API call to verify server connection
+                val response = RetrofitClient.transactionSyncApi.getTransactionSummaries(storeId)
+
+                if (response.isSuccessful) {
+                    Log.d("AutoSync", "API connection verified, data is current")
+                    return@withContext true
+                } else {
+                    Log.w("AutoSync", "API response not successful: ${response.code()}")
+                    return@withContext false
+                }
+
+            } catch (e: Exception) {
+                Log.e("AutoSync", "Error in simplified sync: ${e.message}", e)
+                false
+            }
+        }
+    }
+
+    // DEBUGGING VERSION: Use this to understand what types your API actually returns
+//    private suspend fun debugAPITypes(storeId: String) {
+//        withContext(Dispatchers.IO) {
+//            try {
+//                Log.d("AutoSync", "=== DEBUGGING API TYPES ===")
+//
+//                val summariesResponse = RetrofitClient.transactionSyncApi.getTransactionSummaries(storeId)
+//                if (summariesResponse.isSuccessful) {
+//                    val apiSummaries = summariesResponse.body()
+//                    if (apiSummaries != null && apiSummaries.isNotEmpty()) {
+//                        val firstItem = apiSummaries.first()
+//                        Log.d("AutoSync", "Summary type: ${firstItem::class.java.simpleName}")
+//                        Log.d("AutoSync", "Summary content: $firstItem")
+//                    }
+//                }
+//
+//                val detailsResponse = RetrofitClient.transactionSyncApi.getTransactionDetails(storeId)
+//                if (detailsResponse.isSuccessful) {
+//                    val apiDetails = detailsResponse.body()
+//                    if (apiDetails != null && apiDetails.isNotEmpty()) {
+//                        val firstItem = apiDetails.first()
+//                        Log.d("AutoSync", "Detail type: ${firstItem::class.java.simpleName}")
+//                        Log.d("AutoSync", "Detail content: $firstItem")
+//                    }
+//                }
+//
+//            } catch (e: Exception) {
+//                Log.e("AutoSync", "Error debugging API types", e)
+//            }
+//        }
+//    }
+    // Show/hide sync indicator in UI
+    private fun showSyncIndicator(show: Boolean) {
+        // You can add a small sync indicator to your UI
+        // For example, change the title or show a small progress indicator
+        lifecycleScope.launch {
+            withContext(Dispatchers.Main) {
+                if (show) {
+                    // Optional: Add a sync indicator to your UI
+                    // binding.syncIndicator?.visibility = View.VISIBLE
+                    Log.d("AutoSync", "🔄 Syncing data...")
+                } else {
+                    // binding.syncIndicator?.visibility = View.GONE
+                }
+            }
+        }
+    }
+
+    // Show brief success message
+    private fun showAutoSyncSuccess() {
+        // Optional: Show a brief, non-intrusive success message
+        // Toast.makeText(this, "📊 Reports updated", Toast.LENGTH_SHORT).show()
+    }
+
+    // Manual refresh method (you can add a button for this)
+    fun manualRefresh() {
+        lifecycleScope.launch {
+            try {
+                Log.d("ManualRefresh", "Starting manual refresh with API sync and date conversion")
+                showSyncIndicator(true)
+
+                val currentStoreId = SessionManager.getCurrentUser()?.storeid
+                if (currentStoreId != null) {
+                    // Step 1: Clear old data (optional - remove if you want to keep old data)
+                    // withContext(Dispatchers.IO) {
+                    //     transactionDao.deleteAllTransactions()
+                    //     transactionDao.deleteAllTransactionSummaries()
+                    // }
+
+                    // Step 2: Fetch fresh data from API
+                    val success = syncTransactionsFromAPI(currentStoreId)
+
+                    if (success) {
+                        // Step 3: Convert all dates
+                        convertAllTransactionDates()
+
+                        // Step 4: Wait for conversion to complete
+                        delay(1000)
+
+                        // Step 5: Refresh UI
+                        loadReportForDateRange()
+
+                        Toast.makeText(this@ReportsActivity, "Data refreshed and dates converted", Toast.LENGTH_SHORT).show()
+                    } else {
+                        // If API sync fails, just convert existing data and refresh UI
+                        convertAllTransactionDates()
+                        delay(500)
+                        loadReportForDateRange()
+                        Toast.makeText(this@ReportsActivity, "Local data refreshed and dates converted", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    Toast.makeText(this@ReportsActivity, "No store ID found", Toast.LENGTH_SHORT).show()
+                }
+
+            } catch (e: Exception) {
+                Toast.makeText(this@ReportsActivity, "Error refreshing: ${e.message}", Toast.LENGTH_SHORT).show()
+            } finally {
+                showSyncIndicator(false)
+            }
+        }
+    }
+
+    // Control auto-sync (you can add toggle buttons for this)
+    fun toggleAutoSync(enabled: Boolean) {
+        isAutoSyncEnabled = enabled
+
+        if (enabled) {
+            startAutoSyncMonitoring()
+            Toast.makeText(this, "Auto-sync enabled", Toast.LENGTH_SHORT).show()
+        } else {
+            stopAutoSync()
+            Toast.makeText(this, "Auto-sync disabled", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Stop auto-sync
+    private fun stopAutoSync() {
+        autoSyncJob?.cancel()
+        autoSyncJob = null
+    }
+
+    // STEP 5: Modify your existing setupButtons method to include auto-sync controls
+    private fun setupButtons() {
         binding.xreadButton.setOnClickListener {
             performXRead()
         }
@@ -726,27 +1973,251 @@ class ReportsActivity : AppCompatActivity() {
             showTenderDeclarationDialog()
         }
 
-        // Z-Read functionality
         binding.zreadButton.setOnClickListener {
             checkForExistingZRead()
         }
+
         binding.itemsalesButton.setOnClickListener {
-            // FIXED: Use proper Philippine timezone formatting
             val selectedDateRange = if (isSameDay(startDate, endDate)) {
-                DISPLAY_DATE_RANGE_FORMAT.format(endDate)
+                formatDateForDisplay(endDate)
             } else {
-                "${SimpleDateFormat("MMM dd", Locale.getDefault()).apply { timeZone = PHILIPPINES_TIMEZONE }.format(startDate)} - ${DISPLAY_DATE_RANGE_FORMAT.format(endDate)}"
+                "${SimpleDateFormat("MMM dd", Locale.getDefault()).format(startDate)} - ${formatDateForDisplay(endDate)}"
             }
             showItemSalesDialog(selectedDateRange)
         }
 
+        binding.reprintZreadButton.setOnLongClickListener {
+            AlertDialog.Builder(this)
+                .setTitle("Manual Refresh")
+                .setMessage("Refresh reports with latest local data?")
+                .setPositiveButton("Refresh") { _, _ ->
+                    manualRefreshOnly()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+            true
+        }
 
-
-        // Add reprint Z-Read button
-        binding.reprintZreadButton.setOnClickListener {
-            showReprintZReadSelection()
+        // ADD THIS - Long press on title for manual refresh and auto-sync toggle
+        binding.root.findViewById<TextView>(R.id.reportsTitle)?.setOnLongClickListener {
+            showAutoSyncMenu()
+            true
+        } ?: run {
+            // If you don't have a title TextView, add long press to any suitable button
+            binding.xreadButton.setOnLongClickListener {
+                showAutoSyncMenu()
+                true
+            }
         }
     }
+    private fun debugDataDuplication() {
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    val currentStoreId = SessionManager.getCurrentUser()?.storeid ?: return@withContext
+                    val transactions = transactionDao.getTransactionsByStore(currentStoreId)
+
+                    Log.d("DEBUG_DUPLICATION", "=== CHECKING FOR DUPLICATES ===")
+                    Log.d("DEBUG_DUPLICATION", "Total transactions: ${transactions.size}")
+
+                    // Group by transaction ID to find duplicates
+                    val groupedById = transactions.groupBy { it.transactionId }
+                    val duplicates = groupedById.filter { it.value.size > 1 }
+
+                    if (duplicates.isNotEmpty()) {
+                        Log.w("DEBUG_DUPLICATION", "Found ${duplicates.size} duplicate transaction IDs:")
+                        duplicates.forEach { (id, transactions) ->
+                            Log.w("DEBUG_DUPLICATION", "  ID: $id appears ${transactions.size} times")
+                        }
+                    } else {
+                        Log.d("DEBUG_DUPLICATION", "No duplicate transaction IDs found")
+                    }
+
+                    // Check if there are recent duplicates in database
+                    val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                    val todayTransactions = transactionDao.getTransactionsByDate(today)
+                    Log.d("DEBUG_DUPLICATION", "Today's transactions: ${todayTransactions.size}")
+
+                } catch (e: Exception) {
+                    Log.e("DEBUG_DUPLICATION", "Error checking duplicates", e)
+                }
+            }
+        }
+    }
+
+
+    // STEP 6: Add this method to show auto-sync controls
+    private fun showAutoSyncMenu() {
+        val options = arrayOf(
+            "Manual Refresh Now",
+            "Fresh API Sync", // NEW: Full API sync
+            if (isAutoSyncEnabled) "Disable Auto-Sync" else "Enable Auto-Sync",
+            "Convert Date Formats",
+            "Cancel"
+        )
+
+        AlertDialog.Builder(this)
+            .setTitle("Sync Options")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> manualRefresh()
+                    1 -> freshApiSync() // NEW: Fresh API sync
+                    2 -> toggleAutoSync(!isAutoSyncEnabled)
+                    3 -> showDateConverterDialog()
+                    4 -> { /* Cancel */ }
+                }
+            }
+            .show()
+    }
+    private fun freshApiSync() {
+        AlertDialog.Builder(this)
+            .setTitle("Fresh API Sync")
+            .setMessage("This will:\n• Clear existing data\n• Fetch latest data from API\n• Convert all dates\n\nThis may take a moment.")
+            .setPositiveButton("Sync Now") { _, _ ->
+                lifecycleScope.launch {
+                    try {
+                        showSyncIndicator(true)
+
+                        val currentStoreId = SessionManager.getCurrentUser()?.storeid
+                        if (currentStoreId != null) {
+                            withContext(Dispatchers.Main) {
+                                showLoading("Clearing old data...")
+                            }
+
+                            delay(500)
+
+                            withContext(Dispatchers.Main) {
+                                showLoading("Fetching fresh data from API...")
+                            }
+
+                            val success = syncTransactionsFromAPI(currentStoreId)
+
+                            if (success) {
+                                withContext(Dispatchers.Main) {
+                                    showLoading("Converting date formats...")
+                                }
+
+                                delay(1000)
+
+                                withContext(Dispatchers.Main) {
+                                    showLoading("Refreshing reports...")
+                                }
+
+                                loadReportForDateRange()
+
+                                Toast.makeText(this@ReportsActivity, "Fresh data synced successfully", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(this@ReportsActivity, "API sync failed", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            Toast.makeText(this@ReportsActivity, "No store ID found", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        Log.e("FreshSync", "Error in fresh sync: ${e.message}", e)
+                        Toast.makeText(this@ReportsActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    } finally {
+                        showSyncIndicator(false)
+                        hideLoading()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    // ADD: Helper method to show loading overlay
+    private fun showLoading(message: String) {
+        // If you have a loading overlay, update it here
+        // For now, just log the progress
+        Log.d("FreshSync", "Progress: $message")
+    }
+
+    private fun hideLoading() {
+        // Hide loading overlay if you have one
+        Log.d("FreshSync", "Loading complete")
+    }
+
+    private fun showDateConverterDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Convert Date Formats")
+            .setMessage("Convert all transaction dates from API format to simple format?\n\n" +
+                    "From: 2025-07-01T01:27:32.000000Z\n" +
+                    "To: 2025-07-01 09:27:32\n\n" +
+                    "This will update BOTH transaction summaries AND transaction records in your local database.")
+            .setPositiveButton("Convert All Dates") { _, _ ->
+                convertAllTransactionDataComprehensive()
+            }
+            .setNeutralButton("Convert & Refresh") { _, _ ->
+                lifecycleScope.launch {
+                    try {
+                        showSyncIndicator(true)
+
+                        // Convert dates for both tables
+                        convertAllTransactionDates()
+
+                        // Wait for conversion
+                        delay(1500)
+
+                        // Refresh reports
+                        loadReportForDateRange()
+
+                        Toast.makeText(
+                            this@ReportsActivity,
+                            "All transaction dates converted and reports refreshed",
+                            Toast.LENGTH_LONG
+                        ).show()
+
+                    } catch (e: Exception) {
+                        Toast.makeText(
+                            this@ReportsActivity,
+                            "Error: ${e.message}",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } finally {
+                        showSyncIndicator(false)
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    // ADD: Comprehensive conversion method
+    private fun convertAllTransactionDataComprehensive() {
+        lifecycleScope.launch {
+            try {
+                showSyncIndicator(true)
+
+                convertAllTransactionDates()
+
+                // Wait a bit longer for both tables to be processed
+                delay(2000)
+
+                Toast.makeText(
+                    this@ReportsActivity,
+                    "All transaction summaries and records converted to simple format",
+                    Toast.LENGTH_LONG
+                ).show()
+
+            } catch (e: Exception) {
+                Toast.makeText(
+                    this@ReportsActivity,
+                    "Error converting dates: ${e.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+            } finally {
+                showSyncIndicator(false)
+            }
+        }
+    }
+
+    // REPLACE your existing convertAllTransactionData method
+    private fun convertAllTransactionData() {
+        convertAllTransactionDataComprehensive()
+    }
+
+    // ADD the conversion methods to your ReportsActivity:
+
     private fun checkForExistingZRead() {
         lifecycleScope.launch {
             try {
@@ -1462,11 +2933,11 @@ class ReportsActivity : AppCompatActivity() {
                     specificTransactions
                 } else {
                     withContext(Dispatchers.IO) {
+                        // Use the same date formatting as showTransactionListDialog
                         transactionDao.getTransactionsByDateRange(
                             formatDateToString(startDate),
                             formatDateToString(endDate)
-                        )
-                            .filter { it.transactionStatus == 1 }
+                        ).filter { it.transactionStatus == 1 }
                     }
                 }
 
@@ -1497,6 +2968,7 @@ class ReportsActivity : AppCompatActivity() {
             }
         }
     }
+
     private fun showZReadGenerationPreview(
         transactions: List<TransactionSummary>,
         zReportId: String,
@@ -1727,9 +3199,9 @@ class ReportsActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadTodaysReport() {
-        loadReportForDateRange()
-    }
+//    private fun loadTodaysReport() {
+//        loadReportForDateRange()
+//    }
 
 //    private fun loadReportForDateRange() {
 //        lifecycleScope.launch {
@@ -1808,30 +3280,447 @@ class ReportsActivity : AppCompatActivity() {
 //        }
 //    }
 // Instead of using DAO date range queries, use this approach:
-private fun loadReportForDateRange() {
+// FIXED: Use consistent date string formatting
+private fun simpleTest() {
     lifecycleScope.launch {
         try {
-            // FIXED: Convert Date objects to string format for DAO
-            val startDateString = formatDateToString(startDate)
-            val endDateString = formatDateToString(endDate)
+            Log.d("ReportsActivity", "=== SIMPLE TEST ===")
 
-            Log.d("ReportsActivity", "Loading report for date range: $startDateString to $endDateString")
+            withContext(Dispatchers.IO) {
+                // Test 1: Check if we can get any transactions
+                val recent = transactionDao.getRecentTransactions()
+                Log.d("ReportsActivity", "Can we get recent transactions? ${recent.size}")
 
-            val allTransactionsInRange = withContext(Dispatchers.IO) {
-                // FIXED: Use string parameters for DAO call
-                transactionDao.getTransactionsByDateRange(startDateString, endDateString)
+                if (recent.isNotEmpty()) {
+                    val first = recent[0]
+                    Log.d("ReportsActivity", "First transaction: ${first.transactionId}")
+                    Log.d("ReportsActivity", "First transaction date: '${first.createdDate}'")
+                    Log.d("ReportsActivity", "First transaction store: '${first.store}'")
+
+                    // Test 2: Try querying for this specific transaction's date
+                    val testDate = first.createdDate
+                    Log.d("ReportsActivity", "Testing query with date: '$testDate'")
+
+                    // Try different formats
+                    val testQueries = listOf(
+                        testDate,  // Exact match
+                        testDate.substring(0, 19),  // Remove microseconds if any
+                        testDate.substring(0, 10) + " 00:00:00" to testDate.substring(0, 10) + " 23:59:59"  // Date range
+                    )
+
+                    // Test exact match first
+                    try {
+                        val exactResult = transactionDao.getTransactionsByDateRange(testDate, testDate)
+                        Log.d("ReportsActivity", "Exact date query result: ${exactResult.size}")
+                    } catch (e: Exception) {
+                        Log.e("ReportsActivity", "Exact date query failed: ${e.message}")
+                    }
+
+                } else {
+                    Log.d("ReportsActivity", "NO TRANSACTIONS IN DATABASE!")
+                }
             }
-
-            Log.d("ReportsActivity", "Found ${allTransactionsInRange.size} transactions in range")
-
-            val report = calculateSalesReport(allTransactionsInRange)
-            updateUI(report)
-
         } catch (e: Exception) {
-            Log.e("ReportsActivity", "Error loading report", e)
+            Log.e("ReportsActivity", "Simple test failed", e)
         }
     }
 }
+    // FIXED: Let's test different date query approaches
+    private fun testDateQueries() {
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val testDate = "2025-07-16"
+
+                    Log.d("ReportsActivity", "=== TESTING DATE QUERIES ===")
+
+                    // Test 1: Query with different formats
+                    val formats = listOf(
+                        "$testDate 00:00:00" to "$testDate 23:59:59",
+                        "$testDate%" to "$testDate%", // Like pattern
+                        testDate to testDate
+                    )
+
+                    formats.forEachIndexed { index, (start, end) ->
+                        try {
+                            val results = transactionDao.getTransactionsByDateRange(start, end)
+                            Log.d("ReportsActivity", "Test $index - Query: '$start' to '$end' = ${results.size} results")
+                        } catch (e: Exception) {
+                            Log.e("ReportsActivity", "Test $index failed: ${e.message}")
+                        }
+                    }
+
+                    // Test 2: Try to find transactions from today
+                    val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                    val todayResults = transactionDao.getTransactionsByDateRange(
+                        "$today 00:00:00",
+                        "$today 23:59:59"
+                    )
+                    Log.d("ReportsActivity", "Today ($today) query results: ${todayResults.size}")
+
+                    // Test 3: Check what date format works with your showTransactionListDialog
+                    val currentCalendar = Calendar.getInstance()
+                    val dialogStart = Calendar.getInstance().apply {
+                        set(Calendar.HOUR_OF_DAY, 0)
+                        set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }
+                    val dialogEnd = Calendar.getInstance().apply {
+                        time = dialogStart.time
+                        set(Calendar.HOUR_OF_DAY, 23)
+                        set(Calendar.MINUTE, 59)
+                        set(Calendar.SECOND, 59)
+                        set(Calendar.MILLISECOND, 999)
+                    }
+
+                    val dialogStartStr = formatDateToString(dialogStart.time)
+                    val dialogEndStr = formatDateToString(dialogEnd.time)
+
+                    val dialogResults = transactionDao.getTransactionsByDateRange(dialogStartStr, dialogEndStr)
+                    Log.d("ReportsActivity", "Dialog-style query: '$dialogStartStr' to '$dialogEndStr' = ${dialogResults.size} results")
+                }
+            } catch (e: Exception) {
+                Log.e("ReportsActivity", "Error testing date queries", e)
+            }
+        }
+    }
+
+    // FIXED: Updated loadReportForDateRange with extensive debugging
+    /*private fun loadReportForDateRange() {
+        lifecycleScope.launch {
+            try {
+                Log.d("ReportsActivity", "=== LOADING REPORT WITH AUTO-SYNC ===")
+
+                val transactions = withContext(Dispatchers.IO) {
+                    val currentStoreId = SessionManager.getCurrentUser()?.storeid
+                    Log.d("ReportsActivity", "Current store ID: $currentStoreId")
+
+                    if (isSameDay(startDate, endDate)) {
+                        // For same day, use simple date string
+                        val dateString = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(startDate)
+                        Log.d("ReportsActivity", "Querying single date: '$dateString'")
+
+                        // Get transactions for the date
+                        val dateTransactions = try {
+                            transactionDao.getTransactionsByDate(dateString)
+                        } catch (e: Exception) {
+                            Log.e("ReportsActivity", "getTransactionsByDate failed, trying pattern", e)
+                            transactionDao.getTransactionsByDatePattern("$dateString%")
+                        }
+
+                        Log.d("ReportsActivity", "Raw date query result: ${dateTransactions.size} transactions")
+
+                        // FILTER to match showTransactionListDialog criteria:
+                        val filteredTransactions = dateTransactions.filter { transaction ->
+                            val isCurrentStore = currentStoreId == null || transaction.store == currentStoreId
+                            val isValidTransaction = transaction.transactionStatus == 1
+                            val isRecentTransaction = transaction.createdDate.startsWith("2025-07-")
+
+                            val shouldInclude = isCurrentStore && isValidTransaction && isRecentTransaction
+
+                            if (!shouldInclude) {
+                                Log.d("ReportsActivity", "Filtering out: ${transaction.transactionId} - Store: ${transaction.store}, Status: ${transaction.transactionStatus}, Date: ${transaction.createdDate}")
+                            }
+
+                            shouldInclude
+                        }
+
+                        Log.d("ReportsActivity", "After filtering: ${filteredTransactions.size} transactions")
+                        filteredTransactions.sortedByDescending { it.createdDate }
+
+                    } else {
+                        // For date range, get all and filter
+                        val startDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(startDate)
+                        val endDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(endDate)
+
+                        Log.d("ReportsActivity", "Querying date range: '$startDateStr' to '$endDateStr'")
+
+                        val allTransactions = transactionDao.getAllTransactionSummaries()
+                        val filtered = allTransactions.filter { transaction ->
+                            val transactionDate = transaction.createdDate.substring(0, 10)
+                            val isInRange = transactionDate >= startDateStr && transactionDate <= endDateStr
+                            val isCurrentStore = currentStoreId == null || transaction.store == currentStoreId
+                            val isValidTransaction = transaction.transactionStatus == 1
+                            val isRecentTransaction = transaction.createdDate.startsWith("2025-07-")
+
+                            isInRange && isCurrentStore && isValidTransaction && isRecentTransaction
+                        }.sortedByDescending { it.createdDate }
+
+                        Log.d("ReportsActivity", "Range filtered: ${filtered.size} transactions")
+                        filtered
+                    }
+                }
+
+                Log.d("ReportsActivity", "Final result: ${transactions.size} transactions")
+
+                val report = calculateSalesReport(transactions)
+                updateUI(report)
+
+                // Update last sync timestamp for change detection
+                lastSyncTimestamp = System.currentTimeMillis()
+
+            } catch (e: Exception) {
+                Log.e("ReportsActivity", "Error in loadReportForDateRange", e)
+                Toast.makeText(this@ReportsActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }*/
+    private fun loadReportForDateRange() {
+        lifecycleScope.launch {
+            try {
+                Log.d("ReportsActivity", "=== FILTERED DATE QUERY ===")
+
+                val transactions = withContext(Dispatchers.IO) {
+                    val currentStoreId = SessionManager.getCurrentUser()?.storeid
+                    Log.d("ReportsActivity", "Current store ID: $currentStoreId")
+
+                    if (isSameDay(startDate, endDate)) {
+                        // For same day, use simple date string
+                        val dateString = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(startDate)
+                        Log.d("ReportsActivity", "Querying single date: '$dateString'")
+
+                        // Get transactions for the date
+                        val dateTransactions = try {
+                            transactionDao.getTransactionsByDate(dateString)
+                        } catch (e: Exception) {
+                            Log.e("ReportsActivity", "getTransactionsByDate failed, trying pattern", e)
+                            transactionDao.getTransactionsByDatePattern("$dateString%")
+                        }
+
+                        Log.d("ReportsActivity", "Raw date query result: ${dateTransactions.size} transactions")
+
+                        // FILTER to match showTransactionListDialog criteria:
+                        val filteredTransactions = dateTransactions.filter { transaction ->
+                            // Apply the same filters as showTransactionListDialog
+                            val isCurrentStore = currentStoreId == null || transaction.store == currentStoreId
+                            val isValidTransaction = transaction.transactionStatus == 1 // Only completed transactions
+                            val isRecentTransaction = transaction.createdDate.startsWith("2025-07-") // Only current year/month transactions
+
+                            val shouldInclude = isCurrentStore && isValidTransaction && isRecentTransaction
+
+                            if (!shouldInclude) {
+                                Log.d("ReportsActivity", "Filtering out: ${transaction.transactionId} - Store: ${transaction.store}, Status: ${transaction.transactionStatus}, Date: ${transaction.createdDate}")
+                            }
+
+                            shouldInclude
+                        }
+
+                        Log.d("ReportsActivity", "After filtering: ${filteredTransactions.size} transactions")
+
+                        // Sort by date descending (newest first) - same as showTransactionListDialog
+                        filteredTransactions.sortedByDescending { it.createdDate }
+
+                    } else {
+                        // For date range, get all and filter
+                        val startDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(startDate)
+                        val endDateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(endDate)
+
+                        Log.d("ReportsActivity", "Querying date range: '$startDateStr' to '$endDateStr'")
+
+                        // Get all transactions in the range
+                        val allTransactions = transactionDao.getAllTransactionSummaries()
+                        val filtered = allTransactions.filter { transaction ->
+                            val transactionDate = transaction.createdDate.substring(0, 10) // Get YYYY-MM-DD part
+                            val isInRange = transactionDate >= startDateStr && transactionDate <= endDateStr
+                            val isCurrentStore = currentStoreId == null || transaction.store == currentStoreId
+                            val isValidTransaction = transaction.transactionStatus == 1
+                            val isRecentTransaction = transaction.createdDate.startsWith("2025-07-") // Only current transactions
+
+                            isInRange && isCurrentStore && isValidTransaction && isRecentTransaction
+                        }.sortedByDescending { it.createdDate }
+
+                        Log.d("ReportsActivity", "Range filtered: ${filtered.size} transactions")
+                        filtered
+                    }
+                }
+
+                Log.d("ReportsActivity", "Final result: ${transactions.size} transactions")
+
+                // Log some sample results to compare with showTransactionListDialog
+                Log.d("ReportsActivity", "=== COMPARING WITH DIALOG ===")
+                transactions.take(5).forEach { transaction ->
+                    Log.d("ReportsActivity", "Reports: ${transaction.transactionId} - ${transaction.createdDate} - Status: ${transaction.transactionStatus}")
+                }
+
+                val report = calculateSalesReport(transactions)
+                updateUI(report)
+
+            } catch (e: Exception) {
+                Log.e("ReportsActivity", "Error in loadReportForDateRange", e)
+                Toast.makeText(this@ReportsActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // STEP 8: Update your existing onDestroy method
+    // Keep your existing onDestroy, just make sure it includes this
+    override fun onDestroy() {
+        super.onDestroy()
+
+        // Stop the simple monitoring
+        stopAutoSync()
+
+        // Your existing onDestroy code...
+        try {
+            if (::autoZReadReceiver.isInitialized) {
+                unregisterReceiver(autoZReadReceiver)
+            }
+        } catch (e: Exception) {
+            Log.e("AutoZRead", "Error unregistering receiver", e)
+        }
+    }
+
+    // Helper method to stop monitoring
+    // STEP 9: Update your existing onResume method
+    override fun onResume() {
+        super.onResume()
+
+        // Your existing onResume code
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (alarmManager.canScheduleExactAlarms()) {
+                scheduleAutomaticZRead()
+            }
+        }
+
+        // Add auto-sync resume
+        if (isAutoSyncEnabled && autoSyncJob?.isActive != true) {
+            setupSimpleAutoSync()
+        }
+    }
+
+    // STEP 10: Add pause method for better resource management
+    override fun onPause() {
+        super.onPause()
+        // Optionally pause auto-sync when activity is not visible
+        // stopAutoSync()
+    }
+
+    // Add the main auto-sync methods here (copy from the first artifact)
+    // ... [All the auto-sync methods from the previous artifact]
+
+    // STEP 11: Optional UI enhancement - Add sync status to your existing UI
+    private fun updateSyncStatus(status: String) {
+        lifecycleScope.launch {
+            withContext(Dispatchers.Main) {
+                // You can update your title or add a status indicator
+                supportActionBar?.subtitle = status
+
+                // Or update any existing TextView you have
+                // binding.statusTextView?.text = status
+            }
+        }
+    }
+
+private fun testDateFormats() {
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    Log.d("ReportsActivity", "=== TESTING DATE FORMATS ===")
+
+                    // Get a sample transaction to work with
+                    val sample = transactionDao.getRecentTransactions().firstOrNull()
+                    if (sample != null) {
+                        Log.d("ReportsActivity", "Sample transaction date: '${sample.createdDate}'")
+
+                        // Extract just the date part
+                        val dateOnly = sample.createdDate.substring(0, 10) // "2025-07-01"
+                        Log.d("ReportsActivity", "Date only: '$dateOnly'")
+
+                        // Test different query approaches
+                        try {
+                            val exactMatch = transactionDao.getTransactionsByDate(dateOnly)
+                            Log.d("ReportsActivity", "DATE() function result: ${exactMatch.size}")
+                        } catch (e: Exception) {
+                            Log.e("ReportsActivity", "DATE() function failed: ${e.message}")
+                        }
+
+                        try {
+                            val likeMatch = transactionDao.getTransactionsByDatePattern("$dateOnly%")
+                            Log.d("ReportsActivity", "LIKE pattern result: ${likeMatch.size}")
+                        } catch (e: Exception) {
+                            Log.e("ReportsActivity", "LIKE pattern failed: ${e.message}")
+                        }
+
+                        // Test in-memory filtering
+                        val allTransactions = transactionDao.getAllTransactionSummaries()
+                        val memoryFiltered = allTransactions.filter { it.createdDate.startsWith(dateOnly) }
+                        Log.d("ReportsActivity", "Memory filter result: ${memoryFiltered.size} from ${allTransactions.size} total")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("ReportsActivity", "Error testing date formats", e)
+            }
+        }
+    }
+
+
+
+    // FIXED: Load today's report using same date handling
+    private fun loadTodaysReport() {
+        lifecycleScope.launch {
+            try {
+                val currentStoreId = SessionManager.getCurrentUser()?.storeid
+                if (currentStoreId != null) {
+                    Log.d("ReportsActivity", "=== REPORTS TODAY LOAD (Window1 exact) ===")
+                    Log.d("ReportsActivity", "Reports initial currentStoreId: $currentStoreId")
+
+                    // EXACTLY like Window1 initial load with UTC
+                    val todayStart = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+                        set(Calendar.HOUR_OF_DAY, 0)
+                        set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0)
+                        set(Calendar.MILLISECOND, 0)
+                    }
+                    val todayEnd = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+                        time = todayStart.time
+                        set(Calendar.HOUR_OF_DAY, 23)
+                        set(Calendar.MINUTE, 59)
+                        set(Calendar.SECOND, 59)
+                        set(Calendar.MILLISECOND, 999)
+                    }
+
+                    Log.d("ReportsActivity", "Reports UTC todayStart: ${todayStart.time}")
+                    Log.d("ReportsActivity", "Reports UTC todayEnd: ${todayEnd.time}")
+
+                    val transactions = withContext(Dispatchers.IO) {
+                        val startDateStr = formatDateToString(todayStart.time)
+                        val endDateStr = formatDateToString(todayEnd.time)
+
+                        Log.d("ReportsActivity", "Reports initial query: $startDateStr to $endDateStr")
+
+                        val result = transactionDao.getTransactionsByDateRange(startDateStr, endDateStr)
+
+                        Log.d("ReportsActivity", "Reports initial result: ${result.size} transactions")
+                        result.take(3).forEach { transaction ->
+                            Log.d("ReportsActivity", "Reports initial: ${transaction.transactionId} - ${transaction.createdDate}")
+                        }
+
+                        result
+                    }
+
+                    Log.d("ReportsActivity", "Reports setting ${transactions.size} initial transactions")
+
+                    // Set the dates for future picker use
+                    startDate = todayStart.time
+                    endDate = todayEnd.time
+
+                    // Apply sorting and show results
+                    val sortedTransactions = transactions.sortedWith { t1, t2 ->
+                        t2.createdDate.compareTo(t1.createdDate)
+                    }
+
+                    val report = calculateSalesReport(sortedTransactions)
+                    updateUI(report)
+
+                } else {
+                    Log.e("ReportsActivity", "Store ID is null in loadTodaysReport")
+                }
+            } catch (e: Exception) {
+                Log.e("ReportsActivity", "Error loading today's report", e)
+            }
+        }
+    }
 
     // Updated showCashFundDialog function - REPLACE your existing one
     private fun showCashFundDialog() {
@@ -2253,6 +4142,9 @@ private fun loadReportForDateRange() {
         }
     }
 
+    private fun getCurrentTime(): String {
+        return DATE_FORMAT.format(getCurrentPhilippineTime())
+    }
     private fun updatePaymentDistributionAndItemSales(
         paymentDistribution: PaymentDistribution,
         itemSales: List<ItemSalesSummary>
@@ -2478,7 +4370,6 @@ private fun loadReportForDateRange() {
         lifecycleScope.launch {
             try {
                 val transactions = withContext(Dispatchers.IO) {
-                    // FIXED: Convert Date to String for DAO call
                     transactionDao.getTransactionsByDateRange(
                         formatDateToString(startDate),
                         formatDateToString(endDate)
@@ -2910,8 +4801,7 @@ private fun loadReportForDateRange() {
         val totalTransactions = regularTransactions.size
         val totalReturns = returnTransactions.size
 
-        // FIXED: Get OR numbers from ALL transactions (including returns) for proper sequencing
-        val (startingOR, endingOR) = getORNumberRange(transactions) // Pass ALL transactions, not just regular ones
+        val (startingOR, endingOR) = getORNumberRange(transactions)
 
         // Combine item sales from both regular and return transactions
         val combinedItemSales = combineItemSales(regularItemCalculations.itemSales, returnItemCalculations.itemSales)
@@ -2933,7 +4823,96 @@ private fun loadReportForDateRange() {
             endingOR = endingOR
         )
     }
-//    private suspend fun getORNumberRange(transactions: List<TransactionSummary>): Pair<String, String> {
+
+    // FIXED: Update OR number range calculation to use String.toTimestamp() like TransactionAdapter
+    private suspend fun getORNumberRange(transactions: List<TransactionSummary>): Pair<String, String> {
+        return withContext(Dispatchers.IO) {
+            if (transactions.isEmpty()) {
+                return@withContext Pair("N/A", "N/A")
+            }
+
+            try {
+                Log.d("ORCalculation", "=== OR Number Calculation Debug ===")
+                Log.d("ORCalculation", "Processing ${transactions.size} transactions (including returns)")
+
+                // FIXED: Sort by date string using the same method as TransactionAdapter
+                val sortedTransactions = transactions.sortedBy { it.createdDate.toTimestampForSorting() }
+
+                sortedTransactions.forEach { transaction ->
+                    val transactionType = when {
+                        transaction.type == 2 -> "RETURN"
+                        transaction.type == 3 -> "AR"
+                        transaction.transactionStatus != 1 -> "VOID/PENDING"
+                        else -> "SALE"
+                    }
+
+                    Log.d("ORCalculation", "Transaction ID: ${transaction.transactionId} (${transactionType})")
+                    Log.d("ORCalculation", "Receipt ID: ${transaction.receiptId}")
+                    Log.d("ORCalculation", "Created Date: ${transaction.createdDate}")
+                    Log.d("ORCalculation", "Timestamp: ${transaction.createdDate.toTimestampForSorting()}")
+                    Log.d("ORCalculation", "Type: ${transaction.type}, Status: ${transaction.transactionStatus}")
+                    Log.d("ORCalculation", "---")
+                }
+
+                // Try to get OR numbers from receiptId field
+                val orNumbersFromReceiptId = sortedTransactions
+                    .mapNotNull { transaction ->
+                        extractORFromReceiptId(transaction.receiptId)?.let { orNumber ->
+                            val transactionType = when {
+                                transaction.type == 2 -> "RETURN"
+                                transaction.type == 3 -> "AR"
+                                transaction.transactionStatus != 1 -> "VOID/PENDING"
+                                else -> "SALE"
+                            }
+                            Log.d("ORCalculation", "Extracted OR from receiptId '${transaction.receiptId}': $orNumber (${transactionType})")
+                            orNumber to transaction.createdDate.toTimestampForSorting()
+                        }
+                    }
+                    .sortedBy { it.second }
+
+                if (orNumbersFromReceiptId.isNotEmpty()) {
+                    val startingOR = orNumbersFromReceiptId.first().first.toString()
+                    val endingOR = orNumbersFromReceiptId.last().first.toString()
+                    Log.d("ORCalculation", "Using receiptId method - Starting OR: $startingOR, Ending OR: $endingOR")
+                    return@withContext Pair(startingOR, endingOR)
+                }
+
+                // Fallback to sequential numbering
+                val lastORNumber = getLastUsedORNumber()
+                Log.d("ORCalculation", "Last used OR number: $lastORNumber")
+
+                val startingORNumber = lastORNumber + 1
+                val endingORNumber = lastORNumber + sortedTransactions.size
+
+                updateLastUsedORNumber(endingORNumber)
+
+                sortedTransactions.forEachIndexed { index, transaction ->
+                    val orNumber = startingORNumber + index
+                    val transactionType = when {
+                        transaction.type == 2 -> "RETURN"
+                        transaction.type == 3 -> "AR"
+                        transaction.transactionStatus != 1 -> "VOID/PENDING"
+                        else -> "SALE"
+                    }
+
+                    storeORAssignment(transaction.transactionId, orNumber)
+                    Log.d("ORCalculation", "Assigned OR $orNumber to transaction ${transaction.transactionId} (${transactionType})")
+                }
+
+                val startingOR = startingORNumber.toString()
+                val endingOR = endingORNumber.toString()
+
+                Log.d("ORCalculation", "Generated sequential - Starting OR: $startingOR, Ending OR: $endingOR")
+                return@withContext Pair(startingOR, endingOR)
+
+            } catch (e: Exception) {
+                Log.e("ORCalculation", "Error calculating OR numbers", e)
+                return@withContext Pair("Error", "Error")
+            }
+        }
+    }
+
+    //    private suspend fun getORNumberRange(transactions: List<TransactionSummary>): Pair<String, String> {
 //        return withContext(Dispatchers.IO) {
 //            if (transactions.isEmpty()) {
 //                return@withContext Pair("N/A", "N/A")
@@ -3045,126 +5024,114 @@ private fun loadReportForDateRange() {
 //            }
 //        }
 //    }
-private suspend fun getORNumberRange(transactions: List<TransactionSummary>): Pair<String, String> {
-    return withContext(Dispatchers.IO) {
-        if (transactions.isEmpty()) {
-            return@withContext Pair("N/A", "N/A")
-        }
+//private suspend fun getORNumberRange(transactions: List<TransactionSummary>): Pair<String, String> {
+//    return withContext(Dispatchers.IO) {
+//        if (transactions.isEmpty()) {
+//            return@withContext Pair("N/A", "N/A")
+//        }
+//
+//        try {
+//            Log.d("ORCalculation", "=== OR Number Calculation Debug ===")
+//            Log.d("ORCalculation", "Processing ${transactions.size} transactions (including returns)")
+//
+//            // FIXED: Sort by date string using timestamp conversion
+//            val sortedTransactions = transactions.sortedBy { it.createdDate.toTimestamp() }
+//
+//            sortedTransactions.forEach { transaction ->
+//                val transactionType = when {
+//                    transaction.type == 2 -> "RETURN"
+//                    transaction.type == 3 -> "AR"
+//                    transaction.transactionStatus != 1 -> "VOID/PENDING"
+//                    else -> "SALE"
+//                }
+//
+//                Log.d("ORCalculation", "Transaction ID: ${transaction.transactionId} (${transactionType})")
+//                Log.d("ORCalculation", "Receipt ID: ${transaction.receiptId}")
+//                Log.d("ORCalculation", "Created Date: ${transaction.createdDate}")
+//                Log.d("ORCalculation", "Timestamp: ${transaction.createdDate.toTimestamp()}")
+//                Log.d("ORCalculation", "Type: ${transaction.type}, Status: ${transaction.transactionStatus}")
+//                Log.d("ORCalculation", "---")
+//            }
+//
+//            // Method 1: Try to get OR numbers from receiptId field
+//            val orNumbersFromReceiptId = sortedTransactions
+//                .mapNotNull { transaction ->
+//                    extractORFromReceiptId(transaction.receiptId)?.let { orNumber ->
+//                        val transactionType = when {
+//                            transaction.type == 2 -> "RETURN"
+//                            transaction.type == 3 -> "AR"
+//                            transaction.transactionStatus != 1 -> "VOID/PENDING"
+//                            else -> "SALE"
+//                        }
+//                        Log.d("ORCalculation", "Extracted OR from receiptId '${transaction.receiptId}': $orNumber (${transactionType})")
+//                        orNumber to transaction.createdDate.toTimestamp()
+//                    }
+//                }
+//                .sortedBy { it.second } // Sort by timestamp
+//
+//            if (orNumbersFromReceiptId.isNotEmpty()) {
+//                val startingOR = orNumbersFromReceiptId.first().first.toString()
+//                val endingOR = orNumbersFromReceiptId.last().first.toString()
+//                Log.d("ORCalculation", "Using receiptId method - Starting OR: $startingOR, Ending OR: $endingOR")
+//                return@withContext Pair(startingOR, endingOR)
+//            }
+//
+//            // Method 2: Check if there's a sequence number in the database for these transactions
+//            val orNumbersFromSequence = mutableListOf<Pair<Int, Long>>()
+//
+//            sortedTransactions.forEach { transaction ->
+//                val sequenceNumber = getSequenceNumberForTransaction(transaction.transactionId)
+//                if (sequenceNumber != null) {
+//                    orNumbersFromSequence.add(sequenceNumber to transaction.createdDate.toTimestamp())
+//                    Log.d("ORCalculation", "Found sequence number for ${transaction.transactionId}: $sequenceNumber")
+//                }
+//            }
+//
+//            if (orNumbersFromSequence.isNotEmpty()) {
+//                val sortedByTime = orNumbersFromSequence.sortedBy { it.second }
+//                val startingOR = sortedByTime.first().first.toString()
+//                val endingOR = sortedByTime.last().first.toString()
+//                Log.d("ORCalculation", "Using sequence method - Starting OR: $startingOR, Ending OR: $endingOR")
+//                return@withContext Pair(startingOR, endingOR)
+//            }
+//
+//            // Method 3: Generate sequential numbers based on chronological order
+//            Log.d("ORCalculation", "Using chronological numbering method (including returns)")
+//
+//            val lastORNumber = getLastUsedORNumber()
+//            Log.d("ORCalculation", "Last used OR number: $lastORNumber")
+//
+//            val startingORNumber = lastORNumber + 1
+//            val endingORNumber = lastORNumber + sortedTransactions.size
+//
+//            updateLastUsedORNumber(endingORNumber)
+//
+//            sortedTransactions.forEachIndexed { index, transaction ->
+//                val orNumber = startingORNumber + index
+//                val transactionType = when {
+//                    transaction.type == 2 -> "RETURN"
+//                    transaction.type == 3 -> "AR"
+//                    transaction.transactionStatus != 1 -> "VOID/PENDING"
+//                    else -> "SALE"
+//                }
+//
+//                storeORAssignment(transaction.transactionId, orNumber)
+//                Log.d("ORCalculation", "Assigned OR $orNumber to transaction ${transaction.transactionId} (${transactionType})")
+//            }
+//
+//            val startingOR = startingORNumber.toString()
+//            val endingOR = endingORNumber.toString()
+//
+//            Log.d("ORCalculation", "Generated sequential - Starting OR: $startingOR, Ending OR: $endingOR")
+//            return@withContext Pair(startingOR, endingOR)
+//
+//        } catch (e: Exception) {
+//            Log.e("ORCalculation", "Error calculating OR numbers", e)
+//            return@withContext Pair("Error", "Error")
+//        }
+//    }
+//}
 
-        try {
-            Log.d("ORCalculation", "=== OR Number Calculation Debug ===")
-            Log.d("ORCalculation", "Processing ${transactions.size} transactions (including returns)")
-
-            // FIXED: Sort by date string using timestamp conversion
-            val sortedTransactions = transactions.sortedBy { it.createdDate.toTimestamp() }
-
-            sortedTransactions.forEach { transaction ->
-                val transactionType = when {
-                    transaction.type == 2 -> "RETURN"
-                    transaction.type == 3 -> "AR"
-                    transaction.transactionStatus != 1 -> "VOID/PENDING"
-                    else -> "SALE"
-                }
-
-                Log.d("ORCalculation", "Transaction ID: ${transaction.transactionId} (${transactionType})")
-                Log.d("ORCalculation", "Receipt ID: ${transaction.receiptId}")
-                Log.d("ORCalculation", "Created Date: ${transaction.createdDate}")
-                Log.d("ORCalculation", "Timestamp: ${transaction.createdDate.toTimestamp()}")
-                Log.d("ORCalculation", "Type: ${transaction.type}, Status: ${transaction.transactionStatus}")
-                Log.d("ORCalculation", "---")
-            }
-
-            // Method 1: Try to get OR numbers from receiptId field
-            val orNumbersFromReceiptId = sortedTransactions
-                .mapNotNull { transaction ->
-                    extractORFromReceiptId(transaction.receiptId)?.let { orNumber ->
-                        val transactionType = when {
-                            transaction.type == 2 -> "RETURN"
-                            transaction.type == 3 -> "AR"
-                            transaction.transactionStatus != 1 -> "VOID/PENDING"
-                            else -> "SALE"
-                        }
-                        Log.d("ORCalculation", "Extracted OR from receiptId '${transaction.receiptId}': $orNumber (${transactionType})")
-                        orNumber to transaction.createdDate.toTimestamp()
-                    }
-                }
-                .sortedBy { it.second } // Sort by timestamp
-
-            if (orNumbersFromReceiptId.isNotEmpty()) {
-                val startingOR = orNumbersFromReceiptId.first().first.toString()
-                val endingOR = orNumbersFromReceiptId.last().first.toString()
-                Log.d("ORCalculation", "Using receiptId method - Starting OR: $startingOR, Ending OR: $endingOR")
-                return@withContext Pair(startingOR, endingOR)
-            }
-
-            // Method 2: Check if there's a sequence number in the database for these transactions
-            val orNumbersFromSequence = mutableListOf<Pair<Int, Long>>()
-
-            sortedTransactions.forEach { transaction ->
-                val sequenceNumber = getSequenceNumberForTransaction(transaction.transactionId)
-                if (sequenceNumber != null) {
-                    orNumbersFromSequence.add(sequenceNumber to transaction.createdDate.toTimestamp())
-                    Log.d("ORCalculation", "Found sequence number for ${transaction.transactionId}: $sequenceNumber")
-                }
-            }
-
-            if (orNumbersFromSequence.isNotEmpty()) {
-                val sortedByTime = orNumbersFromSequence.sortedBy { it.second }
-                val startingOR = sortedByTime.first().first.toString()
-                val endingOR = sortedByTime.last().first.toString()
-                Log.d("ORCalculation", "Using sequence method - Starting OR: $startingOR, Ending OR: $endingOR")
-                return@withContext Pair(startingOR, endingOR)
-            }
-
-            // Method 3: Generate sequential numbers based on chronological order
-            Log.d("ORCalculation", "Using chronological numbering method (including returns)")
-
-            val lastORNumber = getLastUsedORNumber()
-            Log.d("ORCalculation", "Last used OR number: $lastORNumber")
-
-            val startingORNumber = lastORNumber + 1
-            val endingORNumber = lastORNumber + sortedTransactions.size
-
-            updateLastUsedORNumber(endingORNumber)
-
-            sortedTransactions.forEachIndexed { index, transaction ->
-                val orNumber = startingORNumber + index
-                val transactionType = when {
-                    transaction.type == 2 -> "RETURN"
-                    transaction.type == 3 -> "AR"
-                    transaction.transactionStatus != 1 -> "VOID/PENDING"
-                    else -> "SALE"
-                }
-
-                storeORAssignment(transaction.transactionId, orNumber)
-                Log.d("ORCalculation", "Assigned OR $orNumber to transaction ${transaction.transactionId} (${transactionType})")
-            }
-
-            val startingOR = startingORNumber.toString()
-            val endingOR = endingORNumber.toString()
-
-            Log.d("ORCalculation", "Generated sequential - Starting OR: $startingOR, Ending OR: $endingOR")
-            return@withContext Pair(startingOR, endingOR)
-
-        } catch (e: Exception) {
-            Log.e("ORCalculation", "Error calculating OR numbers", e)
-            return@withContext Pair("Error", "Error")
-        }
-    }
-}
-    fun formatDateToString(date: Date): String {
-        return try {
-            DATETIME_FORMAT.format(date)
-        } catch (e: Exception) {
-            Log.e("DateFormat", "Error formatting date: $date", e)
-            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
-        }
-    }
-
-    // HELPER FUNCTION FOR REPORTS DATE DEBUGGING
-    private fun logDateInfo(tag: String, label: String, date: Date) {
-        Log.d(tag, "$label: ${DATETIME_FORMAT.format(date)} (timestamp: ${date.time})")
-    }
     private suspend fun getSequenceNumberForTransaction(transactionId: String): Int? {
         return try {
             // Check if you have a separate table for OR numbers
@@ -3229,7 +5196,7 @@ private suspend fun getORNumberRange(transactions: List<TransactionSummary>): Pa
     private fun convertTimestampToDate(timestamp: Long): String {
         return try {
             val date = Date(timestamp)
-            DATETIME_FORMAT.format(date)
+            DATE_FORMAT.format(date)
         } catch (e: Exception) {
             "Invalid timestamp: $timestamp"
         }
@@ -3309,7 +5276,6 @@ private suspend fun getORNumberRange(transactions: List<TransactionSummary>): Pa
                 items.forEach { item ->
                     val key = item.name
 
-                    // Use consistent pricing logic (same as buildReadReport)
                     val effectivePrice = if (item.priceOverride != null && item.priceOverride > 0.0) {
                         item.priceOverride
                     } else {
@@ -3318,11 +5284,9 @@ private suspend fun getORNumberRange(transactions: List<TransactionSummary>): Pa
 
                     val itemTotal = effectivePrice * item.quantity
 
-                    // Add to gross total
                     totalGross += itemTotal
                     totalQuantity += item.quantity
 
-                    // Update item sales summary
                     val currentSummary = itemSales.getOrDefault(key, ItemSalesSummary(
                         name = item.name,
                         quantity = 0,
@@ -3344,7 +5308,6 @@ private suspend fun getORNumberRange(transactions: List<TransactionSummary>): Pa
             )
         }
     }
-
     private fun showItemSalesDialog(dateStr: String) {
         val dialogView = layoutInflater.inflate(R.layout.dialog_item_sales, null)
         val recyclerView = dialogView.findViewById<RecyclerView>(R.id.itemSalesRecyclerView)
@@ -3356,11 +5319,11 @@ private suspend fun getORNumberRange(transactions: List<TransactionSummary>): Pa
         val printButton = dialogView.findViewById<Button>(R.id.printButton)
         val closeButton = dialogView.findViewById<Button>(R.id.closeButton)
 
-        // FIXED: Use the selected date range with proper Philippine timezone formatting
+        // Use the same date formatting as showTransactionListDialog
         val selectedDateRange = if (isSameDay(startDate, endDate)) {
-            DISPLAY_DATE_RANGE_FORMAT.format(endDate)
+            SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(endDate)
         } else {
-            "${SimpleDateFormat("MMM dd", Locale.getDefault()).apply { timeZone = PHILIPPINES_TIMEZONE }.format(startDate)} - ${DISPLAY_DATE_RANGE_FORMAT.format(endDate)}"
+            "${SimpleDateFormat("MMM dd", Locale.getDefault()).format(startDate)} - ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(endDate)}"
         }
 
         dateTextView.text = "Sales for $selectedDateRange"
@@ -3373,12 +5336,11 @@ private suspend fun getORNumberRange(transactions: List<TransactionSummary>): Pa
 
         lifecycleScope.launch {
             try {
-                // FIXED: Use the class-level startDate and endDate with proper logging
-                logDateInfo("ItemSalesDialog", "Query startDate", startDate)
-                logDateInfo("ItemSalesDialog", "Query endDate", endDate)
+                Log.d("ItemSalesDialog", "Query startDate: ${formatDateToString(startDate)}")
+                Log.d("ItemSalesDialog", "Query endDate: ${formatDateToString(endDate)}")
 
                 val transactions = withContext(Dispatchers.IO) {
-                    // FIXED: Convert dates to strings for DAO call
+                    // Use the same date formatting as showTransactionListDialog
                     val result = transactionDao.getTransactionsByDateRange(
                         formatDateToString(startDate),
                         formatDateToString(endDate)
@@ -3389,6 +5351,7 @@ private suspend fun getORNumberRange(transactions: List<TransactionSummary>): Pa
                     }
                     result
                 }
+
 
                 // Get all items from these transactions and group them
                 val itemSales = mutableMapOf<String, ItemSalesSummary>()
@@ -3506,6 +5469,7 @@ private suspend fun getORNumberRange(transactions: List<TransactionSummary>): Pa
 
         dialog.show()
     }
+
 
 
 
@@ -3887,27 +5851,7 @@ private suspend fun getORNumberRange(transactions: List<TransactionSummary>): Pa
 
         return itemView
     }
-    override fun onResume() {
-        super.onResume()
 
-        // Check if permission was granted and reschedule if needed
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (alarmManager.canScheduleExactAlarms()) {
-                // Permission was granted, schedule exact alarm
-                scheduleAutomaticZRead()
-            }
-        }
-    }
-    override fun onDestroy() {
-        super.onDestroy()
-        try {
-            if (::autoZReadReceiver.isInitialized) {
-                unregisterReceiver(autoZReadReceiver)
-            }
-        } catch (e: Exception) {
-            Log.e("AutoZRead", "Error unregistering receiver", e)
-        }
-    }
     // Add this new function to create the total row
     private fun createTotalRow(totalQuantity: Int, totalAmount: Double): LinearLayout {
         val totalView = LinearLayout(this).apply {

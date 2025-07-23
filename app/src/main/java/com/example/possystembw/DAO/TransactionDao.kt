@@ -1,6 +1,7 @@
 package com.example.possystembw.DAO
 
 import androidx.room.Dao
+import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
@@ -127,6 +128,31 @@ interface TransactionDao {
 
     @Query("DELETE FROM transaction_summary")
     suspend fun deleteAllTransactionSummaries()
+
+    @Delete
+    suspend fun deleteTransactionSummary(transactionSummary: TransactionSummary)
+
+    @Delete
+    suspend fun deleteTransactionRecord(transactionRecord: TransactionRecord)
+
+    @Query("DELETE FROM transaction_summary WHERE transaction_id = :id")
+    suspend fun deleteTransactionSummaryById(id: String)
+
+    @Query("DELETE FROM transactions WHERE id = :id")
+    suspend fun deleteTransactionRecordById(id: String)
+
+    @Query("DELETE FROM transaction_summary WHERE DATE(createdDate) < :cutoffDate")
+    suspend fun deleteTransactionSummariesOlderThan(cutoffDate: String)
+
+    @Query("DELETE FROM transactions WHERE DATE(createdDate) < :cutoffDate")
+    suspend fun deleteTransactionRecordsOlderThan(cutoffDate: String)
+
+    @Query("DELETE FROM transaction_summary")
+    suspend fun clearAllTransactionSummaries()
+
+    @Query("DELETE FROM transactions")
+    suspend fun clearAllTransactionRecords()
+
 
     @Query("SELECT * FROM transaction_summary WHERE zReportId IS NULL")
     suspend fun getAllUnprocessedTransactions(): List<TransactionSummary>

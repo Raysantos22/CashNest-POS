@@ -97,6 +97,7 @@ class ReportsActivity : AppCompatActivity() {
         private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
         private val DISPLAY_DATE_FORMAT = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
 
+
         // FIXED: Use the same date formatting as showTransactionListDialog
 //        private fun formatDateToString(date: Date): String {
 //            return try {
@@ -401,21 +402,19 @@ class ReportsActivity : AppCompatActivity() {
     ) {
         lifecycleScope.launch {
             try {
-                // Generate the X-Read report content first
+                // FIXED: Use the same buildReadReport method for both X-Read and Z-Read
                 val xReadContent = bluetoothPrinterHelper.buildReadReport(
                     transactions,
-                    isZRead = false,
+                    isZRead = false, // Only difference is this flag
                     tenderDeclaration = tenderDeclaration
                 )
 
                 withContext(Dispatchers.Main) {
-                    // Create a custom dialog with scrollable content
                     val dialogView = layoutInflater.inflate(R.layout.dialog_report_preview, null)
                     val reportTextView = dialogView.findViewById<TextView>(R.id.reportContentTextView)
                     val printButton = dialogView.findViewById<Button>(R.id.printButton)
                     val cancelButton = dialogView.findViewById<Button>(R.id.cancelButton)
 
-                    // Set monospace font for better alignment
                     reportTextView.typeface = Typeface.MONOSPACE
                     reportTextView.text = xReadContent
 
@@ -463,6 +462,7 @@ class ReportsActivity : AppCompatActivity() {
             }
         }
     }
+
 
     private fun showZReadPreviewDialog(
         transactions: List<TransactionSummary>,
@@ -668,220 +668,304 @@ class ReportsActivity : AppCompatActivity() {
 //        }
 //    }
 
-    private fun performXRead() {
-        lifecycleScope.launch {
-            try {
-                val currentDate = Date()
-                val selectedDate = endDate
+//    private fun performXRead() {
+//        lifecycleScope.launch {
+//            try {
+//                val currentDate = Date()
+//                val selectedDate = endDate
+//
+//                val isToday = isSameDay(currentDate, selectedDate)
+//
+//                if (!isToday) {
+//                    // For past dates, check for existing Z-Read and transaction states
+//                    val selectedDateString = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(selectedDate)
+//                    val existingZRead = withContext(Dispatchers.IO) {
+//                        zReadDao.getZReadByDate(selectedDateString)
+//                    }
+//
+//                    // Get transactions for the selected date
+//                    val transactions = withContext(Dispatchers.IO) {
+//                        transactionDao.getTransactionsByDateRange(
+//                            formatDateToString(startDate),
+//                            formatDateToString(endDate)
+//                        ).filter { it.transactionStatus == 1 }
+//                    }
+//
+//                    withContext(Dispatchers.Main) {
+//                        if (existingZRead != null) {
+//                            // Show Z-Read reprint dialog with consistent styling
+//                            val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
+//                                .setTitle("CHECK ZREAD")
+//                                .setMessage(
+//                                    "X-Read is only available for today's transactions.\n\n" +
+//                                            "However, Z-Read exists for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(selectedDate)}:\n\n" +
+//                                            "Z-Report ID: ${existingZRead.zReportId}\n" +
+//                                            "Date: ${existingZRead.date}\n" +
+//                                            "Time: ${existingZRead.time}\n" +
+//                                            "Transactions: ${existingZRead.totalTransactions}\n" +
+//                                            "Amount: ₱${String.format("%.2f", existingZRead.totalAmount)}\n\n" +
+//                                            "Would you like to view and reprint the Z-Read instead?"
+//                                )
+//                                .setPositiveButton("View Z-Read") { _, _ ->
+//                                    // Show the existing Z-Read
+//                                    lifecycleScope.launch {
+//                                        try {
+//                                            val tenderDeclaration = withContext(Dispatchers.IO) {
+//                                                tenderDeclarationDao.getLatestTenderDeclaration()
+//                                            }
+//                                            showZReadPreviewDialog(transactions, existingZRead.zReportId, tenderDeclaration)
+//                                        } catch (e: Exception) {
+//                                            Toast.makeText(this@ReportsActivity, "Error loading Z-Read: ${e.message}", Toast.LENGTH_SHORT).show()
+//                                        }
+//                                    }
+//                                }
+//                                .setNegativeButton("Cancel", null)
+//                                .create()
+//
+//                            dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+//                            dialog.show()
+//
+//                        } else if (transactions.isNotEmpty()) {
+//                            // Check if transactions have Z-Report IDs (same logic as checkForExistingZRead)
+//                            val transactionsWithZRead = transactions.filter {
+//                                !it.zReportId.isNullOrEmpty()
+//                            }
+//
+//                            if (transactionsWithZRead.isNotEmpty()) {
+//                                val firstZReportId = transactionsWithZRead.first().zReportId
+//                                val allSameZReportId = transactionsWithZRead.all {
+//                                    it.zReportId == firstZReportId
+//                                }
+//
+//                                if (allSameZReportId && transactionsWithZRead.size == transactions.size) {
+//                                    // All transactions have the same Z-Report ID
+//                                    val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
+//                                        .setTitle("CHECK ZREAD")
+//                                        .setMessage(
+//                                            "X-Read is only available for today's transactions.\n\n" +
+//                                                    "However, Z-Read exists for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(selectedDate)}:\n\n" +
+//                                                    "Z-Report ID: $firstZReportId\n" +
+//                                                    "Transactions: ${transactions.size}\n" +
+//                                                    "Total Amount: ₱${String.format("%.2f", transactions.sumOf { it.netAmount })}\n\n" +
+//                                                    "Would you like to view and reprint the Z-Read instead?"
+//                                        )
+//                                        .setPositiveButton("View Z-Read") { _, _ ->
+//                                            lifecycleScope.launch {
+//                                                try {
+//                                                    val tenderDeclaration = withContext(Dispatchers.IO) {
+//                                                        tenderDeclarationDao.getLatestTenderDeclaration()
+//                                                    }
+//                                                    showZReadPreviewDialog(transactions, firstZReportId!!, tenderDeclaration)
+//                                                } catch (e: Exception) {
+//                                                    Toast.makeText(this@ReportsActivity, "Error loading Z-Read: ${e.message}", Toast.LENGTH_SHORT).show()
+//                                                }
+//                                            }
+//                                        }
+//                                        .setNegativeButton("Cancel", null)
+//                                        .create()
+//
+//                                    dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+//                                    dialog.show()
+//
+//                                } else {
+//                                    // Mixed state - some transactions have Z-Report IDs, some don't
+//                                    val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
+//                                        .setTitle("CHECK ZREAD")
+//                                        .setMessage(
+//                                            "X-Read is only available for today's transactions.\n\n" +
+//                                                    "Transactions for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(selectedDate)} have mixed Z-Read states:\n\n" +
+//                                                    "Total Transactions: ${transactions.size}\n" +
+//                                                    "With Z-Read: ${transactionsWithZRead.size}\n" +
+//                                                    "Without Z-Read: ${transactions.size - transactionsWithZRead.size}\n\n" +
+//                                                    "Would you like to view the existing Z-Read data?"
+//                                        )
+//                                        .setPositiveButton("View Z-Read") { _, _ ->
+//                                            showMixedZReadStateDialog(transactions, transactionsWithZRead)
+//                                        }
+//                                        .setNegativeButton("Cancel", null)
+//                                        .create()
+//
+//                                    dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+//                                    dialog.show()
+//                                }
+//                            } else {
+//                                // No Z-Read exists for this date and no transactions have Z-Report IDs
+//                                val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
+//                                    .setTitle("X-Read Not Available")
+//                                    .setMessage(
+//                                        "X-Read is only available for today's transactions.\n\n" +
+//                                                "No Z-Read found for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(selectedDate)}.\n\n" +
+//                                                "Transactions: ${transactions.size}\n" +
+//                                                "Total Amount: ₱${String.format("%.2f", transactions.sumOf { it.netAmount })}"
+//                                    )
+//                                    .setPositiveButton("OK") { dialog, _ ->
+//                                        dialog.dismiss()
+//                                    }
+//                                    .create()
+//
+//                                dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+//                                dialog.show()
+//                            }
+//                        } else {
+//                            // No transactions found for this date
+//                            val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
+//                                .setTitle("X-Read Not Available")
+//                                .setMessage(
+//                                    "X-Read is only available for today's transactions.\n\n" +
+//                                            "No transactions found for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(selectedDate)}."
+//                                )
+//                                .setPositiveButton("OK") { dialog, _ ->
+//                                    dialog.dismiss()
+//                                }
+//                                .create()
+//
+//                            dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+//                            dialog.show()
+//                        }
+//                    }
+//                    return@launch
+//                }
+//
+//                // For today's X-Read, get today's transactions only
+//                val todayStart = Calendar.getInstance().apply {
+//                    set(Calendar.HOUR_OF_DAY, 0)
+//                    set(Calendar.MINUTE, 0)
+//                    set(Calendar.SECOND, 0)
+//                    set(Calendar.MILLISECOND, 0)
+//                }
+//                val todayEnd = Calendar.getInstance().apply {
+//                    time = todayStart.time
+//                    set(Calendar.HOUR_OF_DAY, 23)
+//                    set(Calendar.MINUTE, 59)
+//                    set(Calendar.SECOND, 59)
+//                    set(Calendar.MILLISECOND, 999)
+//                }
+//
+//                val transactions = withContext(Dispatchers.IO) {
+//                    transactionDao.getTransactionsByDateRange(
+//                        formatDateToString(todayStart.time),
+//                        formatDateToString(todayEnd.time)
+//                    ).filter { it.transactionStatus == 1 } // Only completed transactions
+//                }
+//
+//                withContext(Dispatchers.Main) {
+//                    // Check if there are actually transactions before showing preview
+//                    if (transactions.isEmpty()) {
+//                        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
+//                            .setTitle("No Transactions")
+//                            .setMessage("No transactions found for today. X-Read cannot be generated.")
+//                            .setPositiveButton("OK") { dialog, _ ->
+//                                dialog.dismiss()
+//                            }
+//                            .create()
+//
+//                        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+//                        dialog.show()
+//                        return@withContext
+//                    }
+//
+//                    val currentTenderDeclaration = withContext(Dispatchers.IO) {
+//                        tenderDeclarationDao.getLatestTenderDeclaration()
+//                    }
+//                    val hasZRead = hasZReadForCurrentDate()
+//
+//                    showXReadPreviewDialog(transactions, currentTenderDeclaration, hasZRead)
+//                }
+//
+//            } catch (e: Exception) {
+//                Log.e("XRead", "Error performing X-Read", e)
+//                withContext(Dispatchers.Main) {
+//                    Toast.makeText(
+//                        this@ReportsActivity,
+//                        "Error performing X-Read: ${e.message}",
+//                        Toast.LENGTH_LONG
+//                    ).show()
+//                }
+//            }
+//        }
+//    }
+private fun performXRead() {
+    lifecycleScope.launch {
+        try {
+            val currentDate = Date()
+            val selectedDate = endDate
 
-                val isToday = isSameDay(currentDate, selectedDate)
+            val isToday = isSameDay(currentDate, selectedDate)
 
-                if (!isToday) {
-                    // For past dates, check for existing Z-Read and transaction states
-                    val selectedDateString = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(selectedDate)
-                    val existingZRead = withContext(Dispatchers.IO) {
-                        zReadDao.getZReadByDate(selectedDateString)
-                    }
-
-                    // Get transactions for the selected date
-                    val transactions = withContext(Dispatchers.IO) {
-                        transactionDao.getTransactionsByDateRange(
-                            formatDateToString(startDate),
-                            formatDateToString(endDate)
-                        ).filter { it.transactionStatus == 1 }
-                    }
-
-                    withContext(Dispatchers.Main) {
-                        if (existingZRead != null) {
-                            // Show Z-Read reprint dialog with consistent styling
-                            val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-                                .setTitle("CHECK ZREAD")
-                                .setMessage(
-                                    "X-Read is only available for today's transactions.\n\n" +
-                                            "However, Z-Read exists for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(selectedDate)}:\n\n" +
-                                            "Z-Report ID: ${existingZRead.zReportId}\n" +
-                                            "Date: ${existingZRead.date}\n" +
-                                            "Time: ${existingZRead.time}\n" +
-                                            "Transactions: ${existingZRead.totalTransactions}\n" +
-                                            "Amount: ₱${String.format("%.2f", existingZRead.totalAmount)}\n\n" +
-                                            "Would you like to view and reprint the Z-Read instead?"
-                                )
-                                .setPositiveButton("View Z-Read") { _, _ ->
-                                    // Show the existing Z-Read
-                                    lifecycleScope.launch {
-                                        try {
-                                            val tenderDeclaration = withContext(Dispatchers.IO) {
-                                                tenderDeclarationDao.getLatestTenderDeclaration()
-                                            }
-                                            showZReadPreviewDialog(transactions, existingZRead.zReportId, tenderDeclaration)
-                                        } catch (e: Exception) {
-                                            Toast.makeText(this@ReportsActivity, "Error loading Z-Read: ${e.message}", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                }
-                                .setNegativeButton("Cancel", null)
-                                .create()
-
-                            dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-                            dialog.show()
-
-                        } else if (transactions.isNotEmpty()) {
-                            // Check if transactions have Z-Report IDs (same logic as checkForExistingZRead)
-                            val transactionsWithZRead = transactions.filter {
-                                !it.zReportId.isNullOrEmpty()
-                            }
-
-                            if (transactionsWithZRead.isNotEmpty()) {
-                                val firstZReportId = transactionsWithZRead.first().zReportId
-                                val allSameZReportId = transactionsWithZRead.all {
-                                    it.zReportId == firstZReportId
-                                }
-
-                                if (allSameZReportId && transactionsWithZRead.size == transactions.size) {
-                                    // All transactions have the same Z-Report ID
-                                    val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-                                        .setTitle("CHECK ZREAD")
-                                        .setMessage(
-                                            "X-Read is only available for today's transactions.\n\n" +
-                                                    "However, Z-Read exists for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(selectedDate)}:\n\n" +
-                                                    "Z-Report ID: $firstZReportId\n" +
-                                                    "Transactions: ${transactions.size}\n" +
-                                                    "Total Amount: ₱${String.format("%.2f", transactions.sumOf { it.netAmount })}\n\n" +
-                                                    "Would you like to view and reprint the Z-Read instead?"
-                                        )
-                                        .setPositiveButton("View Z-Read") { _, _ ->
-                                            lifecycleScope.launch {
-                                                try {
-                                                    val tenderDeclaration = withContext(Dispatchers.IO) {
-                                                        tenderDeclarationDao.getLatestTenderDeclaration()
-                                                    }
-                                                    showZReadPreviewDialog(transactions, firstZReportId!!, tenderDeclaration)
-                                                } catch (e: Exception) {
-                                                    Toast.makeText(this@ReportsActivity, "Error loading Z-Read: ${e.message}", Toast.LENGTH_SHORT).show()
-                                                }
-                                            }
-                                        }
-                                        .setNegativeButton("Cancel", null)
-                                        .create()
-
-                                    dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-                                    dialog.show()
-
-                                } else {
-                                    // Mixed state - some transactions have Z-Report IDs, some don't
-                                    val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-                                        .setTitle("CHECK ZREAD")
-                                        .setMessage(
-                                            "X-Read is only available for today's transactions.\n\n" +
-                                                    "Transactions for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(selectedDate)} have mixed Z-Read states:\n\n" +
-                                                    "Total Transactions: ${transactions.size}\n" +
-                                                    "With Z-Read: ${transactionsWithZRead.size}\n" +
-                                                    "Without Z-Read: ${transactions.size - transactionsWithZRead.size}\n\n" +
-                                                    "Would you like to view the existing Z-Read data?"
-                                        )
-                                        .setPositiveButton("View Z-Read") { _, _ ->
-                                            showMixedZReadStateDialog(transactions, transactionsWithZRead)
-                                        }
-                                        .setNegativeButton("Cancel", null)
-                                        .create()
-
-                                    dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-                                    dialog.show()
-                                }
-                            } else {
-                                // No Z-Read exists for this date and no transactions have Z-Report IDs
-                                val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-                                    .setTitle("X-Read Not Available")
-                                    .setMessage(
-                                        "X-Read is only available for today's transactions.\n\n" +
-                                                "No Z-Read found for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(selectedDate)}.\n\n" +
-                                                "Transactions: ${transactions.size}\n" +
-                                                "Total Amount: ₱${String.format("%.2f", transactions.sumOf { it.netAmount })}"
-                                    )
-                                    .setPositiveButton("OK") { dialog, _ ->
-                                        dialog.dismiss()
-                                    }
-                                    .create()
-
-                                dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-                                dialog.show()
-                            }
-                        } else {
-                            // No transactions found for this date
-                            val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-                                .setTitle("X-Read Not Available")
-                                .setMessage(
-                                    "X-Read is only available for today's transactions.\n\n" +
-                                            "No transactions found for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(selectedDate)}."
-                                )
-                                .setPositiveButton("OK") { dialog, _ ->
-                                    dialog.dismiss()
-                                }
-                                .create()
-
-                            dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-                            dialog.show()
-                        }
-                    }
-                    return@launch
-                }
-
-                // For today's X-Read, get today's transactions only
-                val todayStart = Calendar.getInstance().apply {
-                    set(Calendar.HOUR_OF_DAY, 0)
-                    set(Calendar.MINUTE, 0)
-                    set(Calendar.SECOND, 0)
-                    set(Calendar.MILLISECOND, 0)
-                }
-                val todayEnd = Calendar.getInstance().apply {
-                    time = todayStart.time
-                    set(Calendar.HOUR_OF_DAY, 23)
-                    set(Calendar.MINUTE, 59)
-                    set(Calendar.SECOND, 59)
-                    set(Calendar.MILLISECOND, 999)
-                }
-
-                val transactions = withContext(Dispatchers.IO) {
-                    transactionDao.getTransactionsByDateRange(
-                        formatDateToString(todayStart.time),
-                        formatDateToString(todayEnd.time)
-                    ).filter { it.transactionStatus == 1 } // Only completed transactions
-                }
-
-                withContext(Dispatchers.Main) {
-                    // Check if there are actually transactions before showing preview
-                    if (transactions.isEmpty()) {
-                        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-                            .setTitle("No Transactions")
-                            .setMessage("No transactions found for today. X-Read cannot be generated.")
-                            .setPositiveButton("OK") { dialog, _ ->
-                                dialog.dismiss()
-                            }
-                            .create()
-
-                        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-                        dialog.show()
-                        return@withContext
-                    }
-
-                    val currentTenderDeclaration = withContext(Dispatchers.IO) {
-                        tenderDeclarationDao.getLatestTenderDeclaration()
-                    }
-                    val hasZRead = hasZReadForCurrentDate()
-
-                    showXReadPreviewDialog(transactions, currentTenderDeclaration, hasZRead)
-                }
-
-            } catch (e: Exception) {
-                Log.e("XRead", "Error performing X-Read", e)
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(
-                        this@ReportsActivity,
-                        "Error performing X-Read: ${e.message}",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
+            if (!isToday) {
+                // For past dates, check for existing Z-Read
+                handlePastDateXRead(selectedDate)
+                return@launch
             }
+
+            // FIXED: For today's X-Read, use consistent date range
+            val (todayTransactions, hasZRead) = getTodaysTransactionData()
+
+            withContext(Dispatchers.Main) {
+                if (todayTransactions.isEmpty()) {
+                    showNoTransactionsDialog("X-Read")
+                    return@withContext
+                }
+
+                val currentTenderDeclaration = withContext(Dispatchers.IO) {
+                    tenderDeclarationDao.getLatestTenderDeclaration()
+                }
+
+                showXReadPreviewDialog(todayTransactions, currentTenderDeclaration, hasZRead)
+            }
+
+        } catch (e: Exception) {
+            Log.e("XRead", "Error performing X-Read", e)
+            withContext(Dispatchers.Main) {
+                Toast.makeText(
+                    this@ReportsActivity,
+                    "Error performing X-Read: ${e.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+}
+
+    private suspend fun getTodaysTransactionData(): Pair<List<TransactionSummary>, Boolean> {
+        return withContext(Dispatchers.IO) {
+            // Always use current date for "today" operations
+            val today = Date()
+            val todayStart = Calendar.getInstance().apply {
+                time = today
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.time
+
+            val todayEnd = Calendar.getInstance().apply {
+                time = today
+                set(Calendar.HOUR_OF_DAY, 23)
+                set(Calendar.MINUTE, 59)
+                set(Calendar.SECOND, 59)
+                set(Calendar.MILLISECOND, 999)
+            }.time
+
+            Log.d("TodayTransactions", "Getting today's transactions:")
+            Log.d("TodayTransactions", "Start: ${formatDateToString(todayStart)}")
+            Log.d("TodayTransactions", "End: ${formatDateToString(todayEnd)}")
+
+            // Get today's transactions using consistent date formatting
+            val transactions = transactionDao.getTransactionsByDateRange(
+                formatDateToString(todayStart),
+                formatDateToString(todayEnd)
+            ).filter { it.transactionStatus == 1 } // Only completed transactions
+
+            Log.d("TodayTransactions", "Found ${transactions.size} completed transactions for today")
+
+            // Check if Z-Read exists for today
+            val todayDateString = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(today)
+            val hasZRead = zReadDao.getZReadByDate(todayDateString) != null
+
+            Log.d("TodayTransactions", "Has Z-Read for today: $hasZRead")
+
+            Pair(transactions, hasZRead)
         }
     }
 
@@ -2687,63 +2771,243 @@ private fun initializeWithTodaysDate() {
 
     // ADD the conversion methods to your ReportsActivity:
 
+    private suspend fun handlePastDateXRead(selectedDate: Date) {
+        val selectedDateString = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(selectedDate)
+        val existingZRead = withContext(Dispatchers.IO) {
+            zReadDao.getZReadByDate(selectedDateString)
+        }
+
+        // Get transactions for the selected date using consistent method
+        val transactions = withContext(Dispatchers.IO) {
+            getTransactionsForDate(selectedDate)
+        }
+
+        withContext(Dispatchers.Main) {
+            if (existingZRead != null) {
+                // Show existing Z-Read reprint option
+                showExistingZReadOption(existingZRead, transactions, selectedDate)
+            } else if (transactions.isNotEmpty()) {
+                // Check if transactions have Z-Report IDs from automatic Z-Read
+                val transactionsWithZRead = transactions.filter { !it.zReportId.isNullOrEmpty() }
+
+                if (transactionsWithZRead.isNotEmpty()) {
+                    showAutomaticZReadOption(transactionsWithZRead, selectedDate)
+                } else {
+                    showNoZReadAvailable(transactions, selectedDate)
+                }
+            } else {
+                showNoTransactionsDialog("X-Read", selectedDate)
+            }
+        }
+    }
+    private fun showAutomaticZReadOption(
+        transactionsWithZRead: List<TransactionSummary>,
+        selectedDate: Date
+    ) {
+        val firstZReportId = transactionsWithZRead.first().zReportId
+
+        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
+            .setTitle("CHECK ZREAD")
+            .setMessage(
+                "X-Read is only available for today's transactions.\n\n" +
+                        "However, automatic Z-Read exists for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(selectedDate)}:\n\n" +
+                        "Z-Report ID: $firstZReportId\n" +
+                        "Transactions: ${transactionsWithZRead.size}\n" +
+                        "Total Amount: ₱${String.format("%.2f", transactionsWithZRead.sumOf { it.netAmount })}\n\n" +
+                        "Would you like to view and reprint the Z-Read instead?"
+            )
+            .setPositiveButton("View Z-Read") { _, _ ->
+                lifecycleScope.launch {
+                    try {
+                        val tenderDeclaration = withContext(Dispatchers.IO) {
+                            tenderDeclarationDao.getLatestTenderDeclaration()
+                        }
+                        showZReadPreviewDialog(transactionsWithZRead, firstZReportId!!, tenderDeclaration)
+                    } catch (e: Exception) {
+                        Toast.makeText(this@ReportsActivity, "Error loading Z-Read: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+        dialog.show()
+    }
+    private fun showNoZReadAvailable(
+        transactions: List<TransactionSummary>,
+        selectedDate: Date
+    ) {
+        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
+            .setTitle("X-Read Not Available")
+            .setMessage(
+                "X-Read is only available for today's transactions.\n\n" +
+                        "No Z-Read found for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(selectedDate)}.\n\n" +
+                        "Transactions: ${transactions.size}\n" +
+                        "Total Amount: ₱${String.format("%.2f", transactions.sumOf { it.netAmount })}"
+            )
+            .setPositiveButton("OK") { dialog, _ ->
+                dialog.dismiss()
+            }
+            .create()
+
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+        dialog.show()
+    }
+    // Add these missing methods to your ReportsActivity class
+
+    // FIXED: Consistent method to get today's transaction data
+
+
+    // FIXED: Consistent method to get transactions for any date
+    private suspend fun getTransactionsForDate(date: Date): List<TransactionSummary> {
+        return withContext(Dispatchers.IO) {
+            val dateStart = Calendar.getInstance().apply {
+                time = date
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.time
+
+            val dateEnd = Calendar.getInstance().apply {
+                time = date
+                set(Calendar.HOUR_OF_DAY, 23)
+                set(Calendar.MINUTE, 59)
+                set(Calendar.SECOND, 59)
+                set(Calendar.MILLISECOND, 999)
+            }.time
+
+            transactionDao.getTransactionsByDateRange(
+                formatDateToString(dateStart),
+                formatDateToString(dateEnd)
+            ).filter { it.transactionStatus == 1 }
+        }
+    }
+
+    // FIXED: Handle past date X-Read requests
+
+
+    // FIXED: Helper methods for consistent dialog handling
+    private fun showNoTransactionsDialog(reportType: String, date: Date? = null) {
+        val dateStr = if (date != null) {
+            SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(date)
+        } else {
+            "today"
+        }
+
+        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
+            .setTitle("No Transactions")
+            .setMessage("No transactions found for $dateStr. $reportType cannot be generated.")
+            .setPositiveButton("OK") { dialog, _ ->
+                dialog.dismiss()
+            }
+            .create()
+
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+        dialog.show()
+    }
+
+    private fun showExistingZReadOption(
+        existingZRead: ZRead,
+        transactions: List<TransactionSummary>,
+        selectedDate: Date
+    ) {
+        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
+            .setTitle("CHECK ZREAD")
+            .setMessage(
+                "X-Read is only available for today's transactions.\n\n" +
+                        "However, Z-Read exists for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(selectedDate)}:\n\n" +
+                        "Z-Report ID: ${existingZRead.zReportId}\n" +
+                        "Date: ${existingZRead.date}\n" +
+                        "Time: ${existingZRead.time}\n" +
+                        "Transactions: ${existingZRead.totalTransactions}\n" +
+                        "Amount: ₱${String.format("%.2f", existingZRead.totalAmount)}\n\n" +
+                        "Would you like to view and reprint the Z-Read instead?"
+            )
+            .setPositiveButton("View Z-Read") { _, _ ->
+                lifecycleScope.launch {
+                    try {
+                        val tenderDeclaration = withContext(Dispatchers.IO) {
+                            tenderDeclarationDao.getLatestTenderDeclaration()
+                        }
+                        showZReadPreviewDialog(transactions, existingZRead.zReportId, tenderDeclaration)
+                    } catch (e: Exception) {
+                        Toast.makeText(this@ReportsActivity, "Error loading Z-Read: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+        dialog.show()
+    }
+
+
+
+    // FIXED: Consistent method to get transactions for any date
+
+    // FIXED: Updated Z-Read check method
     private fun checkForExistingZRead() {
         lifecycleScope.launch {
             try {
+                // FIXED: For Z-Read, always use the selected date (not current date)
                 val selectedDateString = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(endDate)
                 val existingZRead = withContext(Dispatchers.IO) {
                     zReadDao.getZReadByDate(selectedDateString)
                 }
 
                 if (existingZRead != null) {
-                    // Show reprint Z-Read dialog with preview
+                    // Show reprint option for existing Z-Read
                     showReprintZReadDialog(existingZRead)
                     return@launch
                 }
 
+                // Get transactions for the selected date using consistent method
                 val transactions = withContext(Dispatchers.IO) {
-                    transactionDao.getTransactionsByDateRange(
-                        formatDateToString(startDate),
-                        formatDateToString(endDate)
-                    ).filter { it.transactionStatus == 1 }
+                    getTransactionsForDate(endDate)
                 }
 
                 if (transactions.isEmpty()) {
-                    Toast.makeText(
-                        this@ReportsActivity,
-                        "No completed transactions found for Z-Read generation",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            this@ReportsActivity,
+                            "No completed transactions found for Z-Read generation",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                     return@launch
                 }
 
-                val transactionsWithZRead = transactions.filter {
-                    !it.zReportId.isNullOrEmpty()
-                }
+                // Check for existing Z-Report IDs (from automatic Z-Read)
+                val transactionsWithZRead = transactions.filter { !it.zReportId.isNullOrEmpty() }
 
                 if (transactionsWithZRead.isNotEmpty()) {
                     val firstZReportId = transactionsWithZRead.first().zReportId
-
-                    val allSameZReportId = transactionsWithZRead.all {
-                        it.zReportId == firstZReportId
-                    }
+                    val allSameZReportId = transactionsWithZRead.all { it.zReportId == firstZReportId }
 
                     if (allSameZReportId && transactionsWithZRead.size == transactions.size) {
+                        // All transactions already have the same Z-Report ID
                         showExistingZReadDialog(firstZReportId!!, transactions)
                     } else {
+                        // Mixed state - some transactions have Z-Report IDs
                         showMixedZReadStateDialog(transactions, transactionsWithZRead)
                     }
                 } else {
+                    // No Z-Report IDs found - allow new Z-Read generation
                     showZReadConfirmationDialog(transactions.size)
                 }
 
             } catch (e: Exception) {
                 Log.e("ReportsActivity", "Error checking for existing Z-Read", e)
-                Toast.makeText(
-                    this@ReportsActivity,
-                    "Error checking Z-Read status: ${e.message}",
-                    Toast.LENGTH_SHORT
-                ).show()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@ReportsActivity,
+                        "Error checking Z-Read status: ${e.message}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
             }
         }
     }
@@ -3028,18 +3292,19 @@ private fun initializeWithTodaysDate() {
             }
         }
     }
+    // FIXED: Check yesterday's transactions on startup (improved safety)
     private fun checkYesterdayTransactionsOnStartup() {
         lifecycleScope.launch {
             try {
-                Log.d("StartupZRead", "Checking for yesterday's transactions without Z-Read...")
+                Log.d("StartupZRead", "=== CHECKING YESTERDAY'S TRANSACTIONS ===")
 
                 val philippinesTimeZone = TimeZone.getTimeZone("Asia/Manila")
                 val yesterday = Calendar.getInstance(philippinesTimeZone).apply {
                     add(Calendar.DAY_OF_MONTH, -1)
                 }.time
 
-                // FIXED: Use proper date formatting
                 val yesterdayString = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(yesterday)
+                Log.d("StartupZRead", "Yesterday date: $yesterdayString")
 
                 // Check if Z-Read already exists for yesterday
                 val existingZRead = withContext(Dispatchers.IO) {
@@ -3047,34 +3312,16 @@ private fun initializeWithTodaysDate() {
                 }
 
                 if (existingZRead != null) {
-                    Log.d("StartupZRead", "Z-Read already exists for $yesterdayString")
+                    Log.d("StartupZRead", "Z-Read already exists for $yesterdayString: ${existingZRead.zReportId}")
                     return@launch
                 }
 
-                // Get yesterday's date range
-                val yesterdayStart = Calendar.getInstance(philippinesTimeZone).apply {
-                    time = yesterday
-                    set(Calendar.HOUR_OF_DAY, 0)
-                    set(Calendar.MINUTE, 0)
-                    set(Calendar.SECOND, 0)
-                    set(Calendar.MILLISECOND, 0)
-                }.time
-
-                val yesterdayEnd = Calendar.getInstance(philippinesTimeZone).apply {
-                    time = yesterday
-                    set(Calendar.HOUR_OF_DAY, 23)
-                    set(Calendar.MINUTE, 59)
-                    set(Calendar.SECOND, 59)
-                    set(Calendar.MILLISECOND, 999)
-                }.time
-
-                // Get all completed transactions from yesterday
+                // Get yesterday's transactions using consistent method
                 val yesterdayTransactions = withContext(Dispatchers.IO) {
-                    transactionDao.getTransactionsByDateRange(
-                        formatDateToString(yesterdayStart),
-                        formatDateToString(yesterdayEnd)
-                    ).filter { it.transactionStatus == 1 } // Only completed transactions
+                    getTransactionsForDate(yesterday)
                 }
+
+                Log.d("StartupZRead", "Found ${yesterdayTransactions.size} transactions for $yesterdayString")
 
                 if (yesterdayTransactions.isEmpty()) {
                     Log.d("StartupZRead", "No transactions found for $yesterdayString")
@@ -3086,18 +3333,20 @@ private fun initializeWithTodaysDate() {
                     it.zReportId.isNullOrEmpty() || it.zReportId!!.isBlank()
                 }
 
+                Log.d("StartupZRead", "Transactions without Z-Read: ${transactionsWithoutZRead.size}")
+
                 if (transactionsWithoutZRead.isEmpty()) {
                     Log.d("StartupZRead", "All yesterday's transactions already have Z-Read")
                     return@launch
                 }
 
-                Log.i("StartupZRead", "Found ${transactionsWithoutZRead.size} transactions from $yesterdayString without Z-Read. Auto-generating Z-Read...")
+                Log.i("StartupZRead", "Auto-generating Z-Read for ${transactionsWithoutZRead.size} transactions from $yesterdayString")
 
                 // Generate automatic Z-Read for yesterday's transactions
                 generateAutomaticZReadSilent(transactionsWithoutZRead, yesterdayString)
 
             } catch (e: Exception) {
-                Log.e("StartupZRead", "Error checking yesterday's transactions on startup: ${e.message}", e)
+                Log.e("StartupZRead", "Error checking yesterday's transactions: ${e.message}", e)
             }
         }
     }
@@ -3108,14 +3357,48 @@ private fun initializeWithTodaysDate() {
         dateString: String
     ) {
         try {
+            Log.d("AutoZRead", "=== AUTOMATIC Z-READ FOR $dateString ===")
+            Log.d("AutoZRead", "Processing ${transactions.size} transactions")
+
+            // SAFETY CHECK: Ensure we're only processing yesterday's transactions
+            val yesterday = Calendar.getInstance().apply {
+                add(Calendar.DAY_OF_MONTH, -1)
+            }.time
+            val yesterdayString = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(yesterday)
+
+            if (dateString != yesterdayString) {
+                Log.e("AutoZRead", "SAFETY VIOLATION: Attempting to auto Z-Read for $dateString, but only $yesterdayString is allowed")
+                return
+            }
+
+            // SAFETY CHECK: Ensure all transactions are from the correct date
+            val validTransactions = transactions.filter { transaction ->
+                val transactionDate = transaction.createdDate.substring(0, 10)
+                val isCorrectDate = transactionDate == dateString
+
+                if (!isCorrectDate) {
+                    Log.w("AutoZRead", "Filtering out transaction ${transaction.transactionId} with date $transactionDate")
+                }
+
+                isCorrectDate && transaction.transactionStatus == 1
+            }
+
+            if (validTransactions.size != transactions.size) {
+                Log.w("AutoZRead", "Filtered ${transactions.size - validTransactions.size} invalid transactions")
+            }
+
+            if (validTransactions.isEmpty()) {
+                Log.d("AutoZRead", "No valid transactions to process for automatic Z-Read")
+                return
+            }
+
             // Generate Z-Report ID
             val zReportId = generateZReportId()
+            Log.d("AutoZRead", "Generated Z-Report ID: $zReportId for $dateString")
 
-            Log.d("AutoZRead", "Generating Z-Read #$zReportId for $dateString with ${transactions.size} transactions")
-
-            // Update ONLY the specific transactions with Z-Report ID
+            // Update ONLY the specific valid transactions with Z-Report ID
             withContext(Dispatchers.IO) {
-                transactions.forEach { transaction ->
+                validTransactions.forEach { transaction ->
                     try {
                         val updatedTransaction = transaction.copy(zReportId = zReportId)
                         transactionDao.updateTransactionSummary(updatedTransaction)
@@ -3129,43 +3412,30 @@ private fun initializeWithTodaysDate() {
             // Save Z-Read record
             withContext(Dispatchers.IO) {
                 try {
-                    // FIXED: Use proper time formatting
-                    val currentTimeString = getCurrentTime() // Returns string
+                    val currentTimeString = getCurrentTime()
 
                     val zReadRecord = ZRead(
                         zReportId = zReportId,
-                        date = dateString, // Already a string
+                        date = dateString,
                         time = currentTimeString,
-                        totalTransactions = transactions.size,
-                        totalAmount = transactions.sumOf { it.netAmount }
+                        totalTransactions = validTransactions.size,
+                        totalAmount = validTransactions.sumOf { it.netAmount }
                     )
                     zReadDao.insert(zReadRecord)
+                    Log.d("AutoZRead", "Saved Z-Read record for $dateString")
                 } catch (e: Exception) {
                     Log.e("AutoZRead", "Error saving automatic Z-Read record: ${e.message}", e)
                 }
             }
 
-            Log.i("AutoZRead", "Successfully generated automatic Z-Read #$zReportId for $dateString")
-
-            // Optional: Try to sync with server (but don't fail if it doesn't work)
-            val storeId = SessionManager.getCurrentUser()?.storeid
-            if (storeId != null) {
-                try {
-                    val syncResult = transactionRepository.updateTransactionsZReport(storeId, zReportId)
-                    syncResult.onSuccess {
-                        Log.d("AutoZRead", "Successfully synced Z-Read to server")
-                    }.onFailure {
-                        Log.w("AutoZRead", "Server sync failed but local Z-Read completed")
-                    }
-                } catch (e: Exception) {
-                    Log.w("AutoZRead", "Server sync failed: ${e.message}")
-                }
-            }
+            Log.i("AutoZRead", "Successfully completed automatic Z-Read #$zReportId for $dateString")
+            Log.d("AutoZRead", "=== END AUTOMATIC Z-READ ===")
 
         } catch (e: Exception) {
-            Log.e("AutoZRead", "Error generating automatic Z-Read for $dateString", e)
+            Log.e("AutoZRead", "Error in automatic Z-Read for $dateString", e)
         }
     }
+
     private fun manualCheckYesterdayTransactions() {
         lifecycleScope.launch {
             try {
@@ -3433,20 +3703,19 @@ private fun initializeWithTodaysDate() {
                     specificTransactions
                 } else {
                     withContext(Dispatchers.IO) {
-                        // Use the same date formatting as showTransactionListDialog
-                        transactionDao.getTransactionsByDateRange(
-                            formatDateToString(startDate),
-                            formatDateToString(endDate)
-                        ).filter { it.transactionStatus == 1 }
+                        // Use the selected date for Z-Read generation
+                        getTransactionsForDate(endDate)
                     }
                 }
 
                 if (transactions.isEmpty()) {
-                    Toast.makeText(
-                        this@ReportsActivity,
-                        "No completed transactions found for the selected date range",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            this@ReportsActivity,
+                            "No completed transactions found for the selected date",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                     return@launch
                 }
 
@@ -3460,11 +3729,13 @@ private fun initializeWithTodaysDate() {
 
             } catch (e: Exception) {
                 Log.e("ReportsActivity", "Error generating Z-Read", e)
-                Toast.makeText(
-                    this@ReportsActivity,
-                    "Error generating Z-Read: ${e.message}",
-                    Toast.LENGTH_LONG
-                ).show()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@ReportsActivity,
+                        "Error generating Z-Read: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
         }
     }

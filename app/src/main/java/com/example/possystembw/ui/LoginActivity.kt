@@ -45,6 +45,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
@@ -73,6 +74,11 @@ class LoginActivity : AppCompatActivity() {
     private var isTransactionDataLoaded = false
     private var isDateConversionComplete = false
     private lateinit var numberSequenceRemoteRepository: NumberSequenceRemoteRepository
+
+    // ADD: Constants for date filtering
+    companion object {
+        private const val DAYS_TO_FETCH = 7 // Fetch last 7 days of data
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -329,10 +335,64 @@ class LoginActivity : AppCompatActivity() {
         }
     }
 
+    // ADD: Helper method to get date range for filtering
+    private fun getDateRangeForFiltering(): Pair<String, String> {
+        val calendar = Calendar.getInstance()
+        val endDate = calendar.time
+
+        // Go back DAYS_TO_FETCH days
+        calendar.add(Calendar.DAY_OF_MONTH, -DAYS_TO_FETCH)
+        val startDate = calendar.time
+
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        return Pair(dateFormat.format(startDate), dateFormat.format(endDate))
+    }
+
+    // ADD: Helper method to check if a date string is within the last week
+    private fun isDateWithinLastWeek(dateString: String?): Boolean {
+        if (dateString.isNullOrEmpty()) return false
+
+        return try {
+            val date = when {
+                dateString.contains("T") && dateString.contains("Z") -> {
+                    // API format: 2024-01-15T10:30:45Z
+                    val apiFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'", Locale.US)
+                    apiFormat.timeZone = TimeZone.getTimeZone("UTC")
+                    apiFormat.parse(dateString)
+                }
+                dateString.matches(Regex("\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}")) -> {
+                    // Simple format: 2024-01-15 10:30:45
+                    val simpleFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+                    simpleFormat.parse(dateString)
+                }
+                dateString.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) -> {
+                    // Date only format: 2024-01-15
+                    val dateOnlyFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                    dateOnlyFormat.parse(dateString)
+                }
+                else -> null
+            }
+
+            if (date == null) return false
+
+            val calendar = Calendar.getInstance()
+            val currentTime = calendar.timeInMillis
+
+            // Go back DAYS_TO_FETCH days
+            calendar.add(Calendar.DAY_OF_MONTH, -DAYS_TO_FETCH)
+            val weekAgoTime = calendar.timeInMillis
+
+            date.time >= weekAgoTime && date.time <= currentTime
+        } catch (e: Exception) {
+            Log.w("DateFilter", "Could not parse date: $dateString", e)
+            false
+        }
+    }
 
     private fun fetchAndConvertTransactionData(storeId: String) {
         if (storeId.isNotEmpty()) {
-            showLoading("Syncing transactions...")
+            val (startDate, endDate) = getDateRangeForFiltering()
+            showLoading("Syncing transactions (last $DAYS_TO_FETCH days)...")
 
             lifecycleScope.launch {
                 try {
@@ -342,23 +402,34 @@ class LoginActivity : AppCompatActivity() {
                         val transactionDao = database.transactionDao()
 
                         try {
-                            // STEP 1: Check if data already exists to prevent duplication
+                            // STEP 1: Check for existing recent data within the last week
                             val existingSummaries = transactionDao.getTransactionsByStore(storeId)
                             val existingRecords = transactionDao.getAllTransactionRecords()
 
-                            Log.d("LoginSync", "Existing data check:")
-                            Log.d("LoginSync", "  Existing summaries: ${existingSummaries.size}")
-                            Log.d("LoginSync", "  Existing records: ${existingRecords.size}")
+                            // Filter existing data to only show recent entries
+                            val recentExistingSummaries = existingSummaries.filter { summary ->
+                                isDateWithinLastWeek(summary.createdDate)
+                            }
+                            val recentExistingRecords = existingRecords.filter { record ->
+                                isDateWithinLastWeek(record.createdDate)
+                            }
 
-                            // STEP 2: Only sync if no data exists OR if user explicitly wants fresh data
-                            if (existingSummaries.isNotEmpty()) {
-                                Log.d("LoginSync", "Transaction data already exists, skipping API fetch")
+                            Log.d("LoginSync", "Existing data check (last $DAYS_TO_FETCH days):")
+                            Log.d("LoginSync", "  Recent summaries: ${recentExistingSummaries.size} (total: ${existingSummaries.size})")
+                            Log.d("LoginSync", "  Recent records: ${recentExistingRecords.size} (total: ${existingRecords.size})")
+
+                            // STEP 2: Only sync if no recent data exists
+                            if (recentExistingSummaries.isNotEmpty()) {
+                                Log.d("LoginSync", "Recent transaction data already exists, skipping API fetch")
                                 withContext(Dispatchers.Main) {
-                                    showLoading("Using existing transaction data...")
+                                    showLoading("Using existing recent transaction data...")
                                 }
 
-                                // Just ensure dates are in correct format for existing data
-                                convertExistingDataDates(transactionDao)
+                                // Clean up old data (older than DAYS_TO_FETCH days) to save space
+                                cleanupOldTransactionData(transactionDao)
+
+                                // Convert dates for existing recent data
+                                convertExistingDataDates(transactionDao, true) // true = only recent data
 
                                 delay(1000)
                                 isTransactionDataLoaded = true
@@ -367,11 +438,11 @@ class LoginActivity : AppCompatActivity() {
                                 return@withContext
                             }
 
-                            // STEP 3: Fetch fresh data only if no existing data
-                            Log.d("LoginSync", "No existing transaction data, fetching from API...")
+                            // STEP 3: Fetch fresh data from API (only recent data)
+                            Log.d("LoginSync", "No recent transaction data found, fetching from API (last $DAYS_TO_FETCH days)...")
 
                             withContext(Dispatchers.Main) {
-                                showLoading("Fetching transaction data from API...")
+                                showLoading("Fetching recent transaction data from API...")
                             }
 
                             // Get transactions from API
@@ -384,11 +455,17 @@ class LoginActivity : AppCompatActivity() {
                             if (summariesResponse.isSuccessful) {
                                 val apiSummaries = summariesResponse.body() ?: emptyList()
 
-                                // FIXED: Convert dates and handle null values during insert
-                                val convertedSummaries = apiSummaries.map { summary ->
+                                // FILTER: Only keep transactions from the last week
+                                val recentSummaries = apiSummaries.filter { summary ->
+                                    isDateWithinLastWeek(summary.createdDate)
+                                }
+
+                                Log.d("LoginSync", "Filtered summaries: ${recentSummaries.size} recent out of ${apiSummaries.size} total")
+
+                                // Convert dates and handle null values during insert
+                                val convertedSummaries = recentSummaries.map { summary ->
                                     summary.copy(
                                         createdDate = summary.createdDate?.convertApiDateToSimple() ?: getCurrentDateString(),
-                                        // FIXED: Handle null paymentMethod and other fields
                                         paymentMethod = summary.paymentMethod ?: "",
                                         customerAccount = summary.customerAccount ?: "",
                                         staff = summary.staff ?: "",
@@ -405,21 +482,30 @@ class LoginActivity : AppCompatActivity() {
                                     )
                                 }
 
-                                // FIXED: Use insertOrReplace to prevent duplicates
+                                // Clear old data before inserting new data
+                                cleanupOldTransactionData(transactionDao)
+
+                                // Use insertOrReplace to prevent duplicates
                                 transactionDao.insertOrReplaceTransactionSummaries(convertedSummaries)
                                 transactionCount = convertedSummaries.size
 
-                                Log.d("LoginSync", "Inserted ${convertedSummaries.size} NEW transaction summaries")
+                                Log.d("LoginSync", "Inserted ${convertedSummaries.size} NEW recent transaction summaries")
                             }
 
                             if (detailsResponse.isSuccessful) {
                                 val apiDetails = detailsResponse.body() ?: emptyList()
 
-                                // FIXED: Convert dates and handle null values during insert
-                                val convertedDetails = apiDetails.map { record ->
+                                // FILTER: Only keep transaction records from the last week
+                                val recentDetails = apiDetails.filter { record ->
+                                    isDateWithinLastWeek(record.createdDate)
+                                }
+
+                                Log.d("LoginSync", "Filtered records: ${recentDetails.size} recent out of ${apiDetails.size} total")
+
+                                // Convert dates and handle null values during insert
+                                val convertedDetails = recentDetails.map { record ->
                                     record.copy(
                                         createdDate = record.createdDate?.convertApiDateToSimple() ?: getCurrentDateString(),
-                                        // FIXED: Handle other potential null fields in TransactionRecord
                                         name = record.name ?: "",
                                         receiptNumber = record.receiptNumber ?: "",
                                         paymentMethod = record.paymentMethod ?: "",
@@ -446,15 +532,15 @@ class LoginActivity : AppCompatActivity() {
                                     )
                                 }
 
-                                // FIXED: Use insertOrReplace to prevent duplicates
+                                // Use insertOrReplace to prevent duplicates
                                 transactionDao.insertOrReplaceAll(convertedDetails)
                                 recordCount = convertedDetails.size
 
-                                Log.d("LoginSync", "Inserted ${convertedDetails.size} NEW transaction records")
+                                Log.d("LoginSync", "Inserted ${convertedDetails.size} NEW recent transaction records")
                             }
 
                             withContext(Dispatchers.Main) {
-                                showLoading("Loaded $transactionCount transactions, $recordCount records")
+                                showLoading("Loaded $transactionCount recent transactions, $recordCount records")
                             }
 
                         } catch (e: Exception) {
@@ -487,10 +573,87 @@ class LoginActivity : AppCompatActivity() {
         }
     }
 
-    // ADD: Helper method to convert existing data dates without duplicating
-    private suspend fun convertExistingDataDates(transactionDao: TransactionDao) {
+    // ADD: Helper method to clean up old transaction data
+    private suspend fun cleanupOldTransactionData(transactionDao: TransactionDao) {
         try {
-            Log.d("LoginSync", "Converting dates for existing data...")
+            val calendar = Calendar.getInstance()
+            calendar.add(Calendar.DAY_OF_MONTH, -DAYS_TO_FETCH)
+            val cutoffDate = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(calendar.time)
+
+            Log.d("LoginSync", "Cleaning up transaction data older than: $cutoffDate")
+
+            // Option 1: Use existing delete methods if available
+            try {
+                // Try to delete by date range (if your DAO has these methods)
+                transactionDao.deleteTransactionSummariesOlderThan(cutoffDate)
+                transactionDao.deleteTransactionRecordsOlderThan(cutoffDate)
+                Log.d("LoginSync", "Successfully cleaned up old data using date-based deletion")
+            } catch (e: Exception) {
+                Log.w("LoginSync", "Date-based deletion not available, using alternative cleanup")
+
+                // Option 2: Get all data and filter for deletion
+                val allSummaries = transactionDao.getAllTransactionSummaries()
+                val allRecords = transactionDao.getAllTransactionRecords()
+
+                // Find old data to remove
+                val oldSummaries = allSummaries.filter { summary ->
+                    !isDateWithinLastWeek(summary.createdDate)
+                }
+                val oldRecords = allRecords.filter { record ->
+                    !isDateWithinLastWeek(record.createdDate)
+                }
+
+                // Try different deletion approaches
+                try {
+                    // Option 2a: Delete by ID if available
+                    oldSummaries.forEach { summary ->
+                        summary.transactionId?.let { id ->
+                            transactionDao.deleteTransactionSummaryById(id)
+                        }
+                    }
+                    oldRecords.forEach { record ->
+                        record.id?.let { id ->
+                            transactionDao.deleteTransactionRecordById(id.toString())
+                        }
+                    }
+                    Log.d("LoginSync", "Cleaned up ${oldSummaries.size} old summaries and ${oldRecords.size} old records by ID")
+                } catch (e2: Exception) {
+                    // Option 2b: Clear all and re-insert recent data only
+                    Log.w("LoginSync", "Individual deletion not available, using clear and re-insert method")
+
+                    val recentSummaries = allSummaries.filter { summary ->
+                        isDateWithinLastWeek(summary.createdDate)
+                    }
+                    val recentRecords = allRecords.filter { record ->
+                        isDateWithinLastWeek(record.createdDate)
+                    }
+
+                    // Clear all data
+                    transactionDao.clearAllTransactionSummaries()
+                    transactionDao.clearAllTransactionRecords()
+
+                    // Re-insert only recent data
+                    if (recentSummaries.isNotEmpty()) {
+                        transactionDao.insertOrReplaceTransactionSummaries(recentSummaries)
+                    }
+                    if (recentRecords.isNotEmpty()) {
+                        transactionDao.insertOrReplaceAll(recentRecords)
+                    }
+
+                    Log.d("LoginSync", "Cleaned up data by clearing all and re-inserting ${recentSummaries.size} summaries and ${recentRecords.size} records")
+                }
+            }
+
+        } catch (e: Exception) {
+            Log.e("LoginSync", "Error cleaning up old data: ${e.message}", e)
+            // Don't fail the entire process if cleanup fails
+        }
+    }
+
+    // MODIFY: Helper method to convert existing data dates (with option for recent only)
+    private suspend fun convertExistingDataDates(transactionDao: TransactionDao, recentOnly: Boolean = false) {
+        try {
+            Log.d("LoginSync", "Converting dates for existing data (recent only: $recentOnly)...")
 
             // Get all existing data
             val existingSummaries = transactionDao.getAllTransactionSummaries()
@@ -499,14 +662,26 @@ class LoginActivity : AppCompatActivity() {
             var summariesConverted = 0
             var recordsConverted = 0
 
+            // Filter to recent data only if requested
+            val summariesToProcess = if (recentOnly) {
+                existingSummaries.filter { isDateWithinLastWeek(it.createdDate) }
+            } else {
+                existingSummaries
+            }
+
+            val recordsToProcess = if (recentOnly) {
+                existingRecords.filter { isDateWithinLastWeek(it.createdDate) }
+            } else {
+                existingRecords
+            }
+
             // Convert summary dates if needed
-            existingSummaries.forEach { summary ->
+            summariesToProcess.forEach { summary ->
                 if (summary.createdDate.contains("T") && summary.createdDate.contains("Z")) {
                     try {
                         val convertedDate = summary.createdDate.convertApiDateToSimple()
                         val updatedSummary = summary.copy(
                             createdDate = convertedDate,
-                            // Handle nulls during conversion
                             paymentMethod = summary.paymentMethod ?: "",
                             customerAccount = summary.customerAccount ?: "",
                             staff = summary.staff ?: "",
@@ -530,13 +705,12 @@ class LoginActivity : AppCompatActivity() {
             }
 
             // Convert record dates if needed
-            existingRecords.forEach { record ->
+            recordsToProcess.forEach { record ->
                 if (record.createdDate?.contains("T") == true && record.createdDate.contains("Z")) {
                     try {
                         val convertedDate = record.createdDate.convertApiDateToSimple()
                         val updatedRecord = record.copy(
                             createdDate = convertedDate,
-                            // Handle nulls during conversion
                             name = record.name ?: "",
                             receiptNumber = record.receiptNumber ?: "",
                             paymentMethod = record.paymentMethod ?: "",
@@ -569,14 +743,15 @@ class LoginActivity : AppCompatActivity() {
                 }
             }
 
-            Log.d("LoginSync", "Date conversion complete: $summariesConverted summaries, $recordsConverted records")
+            val scope = if (recentOnly) "recent" else "all"
+            Log.d("LoginSync", "Date conversion complete ($scope): $summariesConverted summaries, $recordsConverted records")
 
         } catch (e: Exception) {
             Log.e("LoginSync", "Error in date conversion: ${e.message}", e)
         }
     }
 
-    // ADD: Date conversion utility functions
+    // Date conversion utility functions
     private fun String.convertApiDateToSimple(): String {
         return try {
             val apiFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'", Locale.US)
@@ -608,7 +783,7 @@ class LoginActivity : AppCompatActivity() {
             showLoading("Loading attendance data...")
             viewModel.fetchAttendanceData(storeId)
 
-            // Also fetch and convert transaction data
+            // Also fetch and convert transaction data (last week only)
             fetchAndConvertTransactionData(storeId)
         } else {
             Log.w("LoginActivity", "No store ID available, skipping attendance and transaction fetch")
@@ -647,7 +822,7 @@ class LoginActivity : AppCompatActivity() {
                 isWebLoginComplete = true
             }
 
-            Log.d("LoginActivity", "Login completed successfully with all data synced and dates converted")
+            Log.d("LoginActivity", "Login completed successfully with recent data synced and dates converted")
 
             // Initialize number sequence before starting main activity
             initializeNumberSequenceAfterLogin()
@@ -686,6 +861,7 @@ class LoginActivity : AppCompatActivity() {
             }
         }
     }
+
     private fun setupBackgroundVideo() {
         val videoView = findViewById<VideoView>(R.id.backgroundVideo)
 

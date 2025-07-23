@@ -96,7 +96,9 @@ import androidx.core.view.GravityCompat
 import android.view.MenuItem
 import com.example.possystembw.ui.GridSpacingItemDecoration
 import com.example.possystembw.ui.HorizontalSpacingItemDecoration
+import com.example.possystembw.ui.ViewModel.NumberSequenceAutoChecker
 import com.example.possystembw.ui.ViewModel.WindowVisibilityViewModel
+import com.example.possystembw.ui.ViewModel.setupNumberSequenceChecker
 import com.example.possystembw.ui.WindowWithVisibility
 import kotlinx.coroutines.flow.combine
 
@@ -158,6 +160,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private lateinit var windowVisibilityViewModel: WindowVisibilityViewModel
     private var allWindowsWithVisibility: List<WindowWithVisibility> = emptyList()
 //    private var allWindowTablesWithVisibility: List<WindowTableWithVisibility> = emptyList()
+private lateinit var sequenceChecker: NumberSequenceAutoChecker
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -200,6 +203,10 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         observeCartChanges()
         startStaffRefresh()
         startLoyaltyCardRefresh()
+        initializeNumberSequenceAfterStartup()
+        sequenceChecker = setupNumberSequenceChecker(this)
+        sequenceChecker.checkAndUpdateSequence(showToast = true)
+
 
         // Start transaction sync service
         val repository = TransactionRepository(
@@ -208,6 +215,42 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         )
         transactionSyncService = TransactionSyncService(repository)
         transactionSyncService?.startSyncService(lifecycleScope)
+    }
+    private fun forceUpdateNumberSequence() {
+        lifecycleScope.launch {
+            try {
+                val currentUser = SessionManager.getCurrentUser()
+                val storeId = currentUser?.storeid
+
+                if (!storeId.isNullOrEmpty()) {
+                    Log.d("MainActivity", "Force updating number sequence for store: $storeId")
+
+                    withContext(Dispatchers.Main) {
+                        loadingDialog.show()
+                    }
+
+                    // Force update the sequence based on existing transactions
+                    val result = numberSequenceRemoteRepository.forceInitializeAndUpdate(storeId)
+
+                    result.onSuccess {
+                        Log.d("MainActivity", "✅ Number sequence force updated successfully")
+                        Toast.makeText(this@MainActivity, "Number sequence updated successfully", Toast.LENGTH_SHORT).show()
+                    }.onFailure { error ->
+                        Log.e("MainActivity", "❌ Failed to force update number sequence", error)
+                        Toast.makeText(this@MainActivity, "Failed to update sequence: ${error.message}", Toast.LENGTH_LONG).show()
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        loadingDialog.dismiss()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error during force number sequence update", e)
+                withContext(Dispatchers.Main) {
+                    loadingDialog.dismiss()
+                }
+            }
+        }
     }
 
     private fun detectLayoutTypeFixed() {
@@ -358,8 +401,15 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         try {
             val database = AppDatabase.getDatabase(application)
             numberSequenceRemoteDao = database.numberSequenceRemoteDao()
+            val transactionDao = database.transactionDao()  // Add this line
             val numberSequenceApi = RetrofitClient.numberSequenceApi
-            numberSequenceRemoteRepository = NumberSequenceRemoteRepository(numberSequenceApi, numberSequenceRemoteDao)
+
+            // UPDATED: Include TransactionDao parameter
+            numberSequenceRemoteRepository = NumberSequenceRemoteRepository(
+                numberSequenceApi,
+                numberSequenceRemoteDao,
+                transactionDao  // Add this parameter
+            )
 
             Log.d("MainActivity", "✅ Database initialized")
         } catch (e: Exception) {
@@ -368,6 +418,42 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         }
     }
 
+    private fun initializeNumberSequenceAfterStartup() {
+        lifecycleScope.launch {
+            try {
+                val currentUser = SessionManager.getCurrentUser()
+                val storeId = currentUser?.storeid
+
+                if (!storeId.isNullOrEmpty()) {
+                    Log.d("MainActivity", "Initializing number sequence for store: $storeId")
+
+                    // Show loading while initializing
+                    withContext(Dispatchers.Main) {
+                        loadingDialog.show()
+                    }
+
+                    val result = numberSequenceRemoteRepository.initializeNumberSequence(storeId)
+                    result.onSuccess {
+                        Log.d("MainActivity", "Number sequence initialized successfully")
+                        // Also sync with server
+                        numberSequenceRemoteRepository.syncNumberSequenceWithServer(storeId)
+                    }.onFailure { error ->
+                        Log.e("MainActivity", "Failed to initialize number sequence", error)
+                        Toast.makeText(this@MainActivity, "Warning: Number sequence initialization failed", Toast.LENGTH_LONG).show()
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        loadingDialog.dismiss()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error during number sequence initialization", e)
+                withContext(Dispatchers.Main) {
+                    loadingDialog.dismiss()
+                }
+            }
+        }
+    }
     private fun initializeViewModelsFixed() {
         try {
             Log.d("MainActivity", "Initializing ViewModels...")
@@ -1084,6 +1170,9 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         refreshButton = findViewById(R.id.refreshButton)
         refreshButton.setOnClickListener {
             performManualRefresh()
+            forceUpdateNumberSequence()
+
+
         }
     }
 
@@ -1091,6 +1180,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         refreshLayout = findViewById(R.id.swipeRefreshLayout)
         refreshLayout.setOnRefreshListener {
             performManualRefresh()
+            forceUpdateNumberSequence()
+
         }
     }
 
@@ -1367,6 +1458,7 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     override fun onResume() {
         super.onResume()
         webView.onResume()
+        sequenceChecker.checkAndUpdateSequence(showToast = false)
 
         // Check session validity and refresh
         if (!SessionManager.isSessionValid()) {

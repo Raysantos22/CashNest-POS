@@ -18,6 +18,7 @@ import com.example.possystembw.DAO.TransactionSyncRequest
 import com.example.possystembw.DAO.TransactionSyncResponse
 import com.example.possystembw.DAO.ZReportUpdateResponse
 import com.example.possystembw.RetrofitClient
+import com.example.possystembw.data.AppDatabase
 import com.example.possystembw.data.NumberSequenceRemoteRepository
 import com.example.possystembw.data.NumberSequenceRepository
 import com.example.possystembw.data.TransactionRepository
@@ -46,13 +47,17 @@ class TransactionViewModel(
     init {
         repository.startPeriodicSync(viewModelScope)
     }
+
     private val _transactionItems = MutableLiveData<List<TransactionRecord>>()
     val transactionItems: LiveData<List<TransactionRecord>> = _transactionItems
 
     private val _zReportUpdateStatus = MutableLiveData<Result<ZReportUpdateResponse>>()
     val zReportUpdateStatus: LiveData<Result<ZReportUpdateResponse>> = _zReportUpdateStatus
 
-    suspend fun updateTransactionsZReport(storeId: String, zReportId: String): Result<ZReportUpdateResponse> {
+    suspend fun updateTransactionsZReport(
+        storeId: String,
+        zReportId: String
+    ): Result<ZReportUpdateResponse> {
         return try {
             val result = repository.updateTransactionsZReport(storeId, zReportId)
             _zReportUpdateStatus.postValue(result)
@@ -63,6 +68,7 @@ class TransactionViewModel(
             failure
         }
     }
+
     suspend fun generateTransactionId(storeId: String): String {
         return repository.generateTransactionId(storeId)
     }
@@ -99,7 +105,10 @@ class TransactionViewModel(
                 }
 
                 // Log details for debugging
-                Log.d("SYNC_DEBUG", "Syncing transaction $transactionId with ${records.size} records")
+                Log.d(
+                    "SYNC_DEBUG",
+                    "Syncing transaction $transactionId with ${records.size} records"
+                )
                 Log.d("SYNC_DEBUG", "Summary: ${Gson().toJson(summary)}")
                 Log.d("SYNC_DEBUG", "First record: ${Gson().toJson(records.firstOrNull())}")
 
@@ -109,7 +118,10 @@ class TransactionViewModel(
                 result.onSuccess {
                     Log.d("SYNC_DEBUG", "Successfully synced transaction $transactionId")
                 }.onFailure { error ->
-                    Log.e("SYNC_DEBUG", "Failed to sync transaction $transactionId: ${error.message}")
+                    Log.e(
+                        "SYNC_DEBUG",
+                        "Failed to sync transaction $transactionId: ${error.message}"
+                    )
                 }
             } catch (e: Exception) {
                 Log.e("SYNC_DEBUG", "Exception during single transaction sync: ${e.message}", e)
@@ -117,6 +129,7 @@ class TransactionViewModel(
             }
         }
     }
+
     fun loadTransactions() {
         viewModelScope.launch {
             try {
@@ -130,6 +143,7 @@ class TransactionViewModel(
             }
         }
     }
+
     fun loadTransactionItems(transactionId: String) {
         viewModelScope.launch {
             try {
@@ -151,11 +165,16 @@ class TransactionViewModel(
             repository.getTransactionItems(transactionId)
         }
     }
-    suspend fun getTransactionsByDateRange(startDate: Date, endDate: Date): List<TransactionSummary> {
+
+    suspend fun getTransactionsByDateRange(
+        startDate: Date,
+        endDate: Date
+    ): List<TransactionSummary> {
         return withContext(Dispatchers.IO) {
             repository.getTransactionsByDateRange(startDate, endDate)
         }
     }
+
     fun clearTransactionItems() {
         _transactionItems.value = emptyList()
     }
@@ -191,11 +210,13 @@ class TransactionViewModel(
             repository.insertTransactionSummary(transaction)
         }
     }
+
     suspend fun insertTransactionRecords(records: List<TransactionRecord>) {
         withContext(Dispatchers.IO) {
             repository.insertTransactionRecords(records)
         }
     }
+
     fun updateRefundReceiptId(transactionId: String, refundReceiptId: String) {
         viewModelScope.launch {
             try {
@@ -207,7 +228,7 @@ class TransactionViewModel(
         }
     }
 
-//    fun startAutoSync(context: Context) {
+    //    fun startAutoSync(context: Context) {
 //        viewModelScope.launch {
 //            while (true) {
 //                try {
@@ -330,123 +351,140 @@ class TransactionViewModel(
 //            }
 //        }
 //    }
-fun startAutoSync(context: Context) {
-    viewModelScope.launch {
-        while (true) {
-            try {
-                val currentStore = SessionManager.getCurrentUser()?.storeid ?: continue
-                val allTransactions = repository.getTransactions()
+    fun startAutoSync(context: Context) {
+        viewModelScope.launch {
+            while (true) {
+                try {
+                    val currentStore = SessionManager.getCurrentUser()?.storeid ?: continue
+                    val allTransactions = repository.getTransactions()
 
-                allTransactions.forEach { transaction ->
-                    try {
-                        val records = repository.getTransactionRecords(transaction.transactionId)
+                    allTransactions.forEach { transaction ->
+                        try {
+                            val records =
+                                repository.getTransactionRecords(transaction.transactionId)
 
-                        val syncRequest = TransactionSyncRequest(
-                            transactionSummary = TransactionSummaryRequest(
-                                transactionid = transaction.transactionId,
-                                type = transaction.type,
-                                receiptid = transaction.receiptId,
-                                store = transaction.store,
-                                storeKey = transaction.storeKey,
-                                storeSequence = transaction.storeSequence,
-                                staff = transaction.staff,
-                                custaccount = transaction.customerAccount,
-                                netamount = formatDecimal(transaction.netAmount),
-                                costamount = formatDecimal(transaction.costAmount),
-                                grossamount = formatDecimal(transaction.grossAmount),
-                                partialpayment = formatDecimal(transaction.partialPayment),
-                                transactionstatus = transaction.transactionStatus,
-                                discamount = formatDecimal(transaction.discountAmount),
-                                cashamount = formatDecimal(transaction.totalAmountPaid),
-                                custdiscamount = formatDecimal(transaction.customerDiscountAmount),
-                                totaldiscamount = formatDecimal(transaction.totalDiscountAmount),
-                                numberofitems = transaction.numberOfItems.toString(),
-                                currency = transaction.currency,
-                                // FIXED: Direct string assignment - no conversion needed
-                                createddate = transaction.createdDate,
-                                priceoverride = transaction.priceOverride?.toInt(),
-                                comment = transaction.comment,
-                                taxinclinprice = formatDecimal(transaction.taxIncludedInPrice),
-                                netamountnotincltax = formatDecimal(transaction.vatableSales),
-                                window_number = transaction.windowNumber,
-                                cash = formatDecimal(transaction.cash),
-                                gcash = formatDecimal(transaction.gCash),
-                                paymaya = formatDecimal(transaction.payMaya),
-                                card = formatDecimal(transaction.card),
-                                loyaltycard = formatDecimal(transaction.loyaltyCard),
-                                charge = formatDecimal(transaction.charge),
-                                foodpanda = formatDecimal(transaction.foodpanda),
-                                grabfood = formatDecimal(transaction.grabfood),
-                                representation = formatDecimal(transaction.representation)
-                            ),
-                            transactionRecords = records.map { record ->
-                                TransactionRecordRequest(
-                                    transactionid = record.transactionId,
-                                    linenum = record.lineNum.toString(),
-                                    receiptid = record.receiptId ?: "",
-                                    itemid = record.itemId ?: "",
-                                    storeKey = record.storeKey,
-                                    storeSequence = record.storeSequence,
-                                    itemname = record.name ?: "",
-                                    itemgroup = record.itemGroup ?: "",
-                                    price = formatDecimal(record.price),
-                                    netprice = formatDecimal(record.netPrice),
-                                    qty = record.quantity.toString(),
-                                    discamount = formatDecimal(record.discountAmount),
-                                    costamount = formatDecimal(record.costAmount),
-                                    netamount = formatDecimal(record.netAmount),
-                                    grossamount = formatDecimal(record.grossAmount),
-                                    custaccount = record.customerAccount ?: "WALK-IN",
+                            val syncRequest = TransactionSyncRequest(
+                                transactionSummary = TransactionSummaryRequest(
+                                    transactionid = transaction.transactionId,
+                                    type = transaction.type,
+                                    receiptid = transaction.receiptId,
                                     store = transaction.store,
-                                    priceoverride = record.priceOverride?.toInt() ?: 0,
-                                    paymentmethod = transaction.paymentMethod,
-                                    staff = record.staff ?: "Unknown Staff",
-                                    linedscamount = formatDecimal(record.lineDiscountAmount ?: 0.0),
-                                    linediscpct = formatDecimal(record.lineDiscountPercentage ?: 0.0),
-                                    custdiscamount = formatDecimal(record.customerDiscountAmount ?: 0.0),
-                                    unit = record.unit ?: "PCS",
-                                    unitqty = formatDecimal(record.unitQuantity ?: record.quantity.toDouble()),
-                                    unitprice = formatDecimal(record.unitPrice ?: record.price),
-                                    taxamount = formatDecimal(record.taxAmount),
+                                    storeKey = transaction.storeKey,
+                                    storeSequence = transaction.storeSequence,
+                                    staff = transaction.staff,
+                                    custaccount = transaction.customerAccount,
+                                    netamount = formatDecimal(transaction.netAmount),
+                                    costamount = formatDecimal(transaction.costAmount),
+                                    grossamount = formatDecimal(transaction.grossAmount),
+                                    partialpayment = formatDecimal(transaction.partialPayment),
+                                    transactionstatus = transaction.transactionStatus,
+                                    discamount = formatDecimal(transaction.discountAmount),
+                                    cashamount = formatDecimal(transaction.totalAmountPaid),
+                                    custdiscamount = formatDecimal(transaction.customerDiscountAmount),
+                                    totaldiscamount = formatDecimal(transaction.totalDiscountAmount),
+                                    numberofitems = transaction.numberOfItems.toString(),
+                                    currency = transaction.currency,
                                     // FIXED: Direct string assignment - no conversion needed
-                                    createddate = record.createdDate ?: getCurrentDateString(),
-                                    remarks = record.comment ?: "",
-                                    taxinclinprice = formatDecimal(record.taxIncludedInPrice),
-                                    description = record.description ?: "",
-                                    discofferid = record.discountOfferId?.takeIf { it.isNotBlank() } ?: "",
-                                    inventbatchid = null,
-                                    inventbatchexpdate = null,
-                                    giftcard = null,
-                                    returntransactionid = null,
-                                    returnqty = null,
-                                    creditmemonumber = null,
-                                    returnlineid = null,
-                                    priceunit = null,
-                                    netamountnotincltax = null,
-                                    storetaxgroup = null,
-                                    currency = null,
-                                    taxexempt = null
+                                    createddate = transaction.createdDate,
+                                    priceoverride = transaction.priceOverride?.toInt(),
+                                    comment = transaction.comment,
+                                    taxinclinprice = formatDecimal(transaction.taxIncludedInPrice),
+                                    netamountnotincltax = formatDecimal(transaction.vatableSales),
+                                    window_number = transaction.windowNumber,
+                                    cash = formatDecimal(transaction.cash),
+                                    gcash = formatDecimal(transaction.gCash),
+                                    paymaya = formatDecimal(transaction.payMaya),
+                                    card = formatDecimal(transaction.card),
+                                    loyaltycard = formatDecimal(transaction.loyaltyCard),
+                                    charge = formatDecimal(transaction.charge),
+                                    foodpanda = formatDecimal(transaction.foodpanda),
+                                    grabfood = formatDecimal(transaction.grabfood),
+                                    representation = formatDecimal(transaction.representation)
+                                ),
+                                transactionRecords = records.map { record ->
+                                    TransactionRecordRequest(
+                                        transactionid = record.transactionId,
+                                        linenum = record.lineNum.toString(),
+                                        receiptid = record.receiptId ?: "",
+                                        itemid = record.itemId ?: "",
+                                        storeKey = record.storeKey,
+                                        storeSequence = record.storeSequence,
+                                        itemname = record.name ?: "",
+                                        itemgroup = record.itemGroup ?: "",
+                                        price = formatDecimal(record.price),
+                                        netprice = formatDecimal(record.netPrice),
+                                        qty = record.quantity.toString(),
+                                        discamount = formatDecimal(record.discountAmount),
+                                        costamount = formatDecimal(record.costAmount),
+                                        netamount = formatDecimal(record.netAmount),
+                                        grossamount = formatDecimal(record.grossAmount),
+                                        custaccount = record.customerAccount ?: "WALK-IN",
+                                        store = transaction.store,
+                                        priceoverride = record.priceOverride?.toInt() ?: 0,
+                                        paymentmethod = transaction.paymentMethod,
+                                        staff = record.staff ?: "Unknown Staff",
+                                        linedscamount = formatDecimal(
+                                            record.lineDiscountAmount ?: 0.0
+                                        ),
+                                        linediscpct = formatDecimal(
+                                            record.lineDiscountPercentage ?: 0.0
+                                        ),
+                                        custdiscamount = formatDecimal(
+                                            record.customerDiscountAmount ?: 0.0
+                                        ),
+                                        unit = record.unit ?: "PCS",
+                                        unitqty = formatDecimal(
+                                            record.unitQuantity ?: record.quantity.toDouble()
+                                        ),
+                                        unitprice = formatDecimal(record.unitPrice ?: record.price),
+                                        taxamount = formatDecimal(record.taxAmount),
+                                        // FIXED: Direct string assignment - no conversion needed
+                                        createddate = record.createdDate ?: getCurrentDateString(),
+                                        remarks = record.comment ?: "",
+                                        taxinclinprice = formatDecimal(record.taxIncludedInPrice),
+                                        description = record.description ?: "",
+                                        discofferid = record.discountOfferId?.takeIf { it.isNotBlank() }
+                                            ?: "",
+                                        inventbatchid = null,
+                                        inventbatchexpdate = null,
+                                        giftcard = null,
+                                        returntransactionid = null,
+                                        returnqty = null,
+                                        creditmemonumber = null,
+                                        returnlineid = null,
+                                        priceunit = null,
+                                        netamountnotincltax = null,
+                                        storetaxgroup = null,
+                                        currency = null,
+                                        taxexempt = null
+                                    )
+                                }
+                            )
+
+                            val response = repository.syncTransaction(transaction, records)
+                            response.onSuccess {
+                                repository.transactionDao.updateSyncStatus(
+                                    transaction.transactionId,
+                                    true
                                 )
                             }
-                        )
-
-                        val response = repository.syncTransaction(transaction, records)
-                        response.onSuccess {
-                            repository.transactionDao.updateSyncStatus(transaction.transactionId, true)
+                        } catch (e: Exception) {
+                            Log.e(
+                                "AutoSync",
+                                "Error syncing transaction ${transaction.transactionId}",
+                                e
+                            )
                         }
-                    } catch (e: Exception) {
-                        Log.e("AutoSync", "Error syncing transaction ${transaction.transactionId}", e)
                     }
-                }
 
-                delay(2000)
-            } catch (e: Exception) {
-                Log.e("AutoSync", "Error during sync cycle", e)
-                delay(2000)
+                    delay(2000)
+                } catch (e: Exception) {
+                    Log.e("AutoSync", "Error during sync cycle", e)
+                    delay(2000)
+                }
             }
         }
     }
-}
 
     // REMOVED: formatDateToString function - not needed anymore
     // ADDED: getCurrentDateString function for creating new transactions
@@ -500,8 +538,6 @@ fun startAutoSync(context: Context) {
     }
 
 
-
-
     fun syncTransaction(transactionId: String) {
         viewModelScope.launch {
             try {
@@ -515,7 +551,11 @@ fun startAutoSync(context: Context) {
                 }.onFailure { error ->
                     // If sync fails, mark as unsynced and log the error
                     repository.transactionDao.updateSyncStatus(transactionId, false)
-                    Log.e("TransactionViewModel", "Sync failed for transaction $transactionId", error)
+                    Log.e(
+                        "TransactionViewModel",
+                        "Sync failed for transaction $transactionId",
+                        error
+                    )
                 }
 
                 _syncStatus.value = result
@@ -528,6 +568,7 @@ fun startAutoSync(context: Context) {
             }
         }
     }
+
     fun syncUnsentTransactions() {
         viewModelScope.launch {
             try {
@@ -540,8 +581,33 @@ fun startAutoSync(context: Context) {
 
     class TransactionViewModelFactory(
         private val repository: TransactionRepository,
-        private val numberSequenceRemoteRepository: NumberSequenceRemoteRepository // Changed from NumberSequenceRepository
+        private val numberSequenceRemoteRepository: NumberSequenceRemoteRepository
     ) : ViewModelProvider.Factory {
+
+        companion object {
+            fun create(context: Context): TransactionViewModelFactory {
+                val database = AppDatabase.getDatabase(context)
+                val transactionDao = database.transactionDao()
+                val numberSequenceRemoteDao = database.numberSequenceRemoteDao()
+
+                val numberSequenceRemoteRepository = NumberSequenceRemoteRepository(
+                    numberSequenceApi = RetrofitClient.numberSequenceApi,
+                    numberSequenceRemoteDao = numberSequenceRemoteDao,
+                    transactionDao = transactionDao  // Add this parameter
+                )
+
+                val transactionRepository = TransactionRepository(
+                    transactionDao = transactionDao,
+                    numberSequenceRemoteRepository = numberSequenceRemoteRepository
+                )
+
+                return TransactionViewModelFactory(
+                    transactionRepository,
+                    numberSequenceRemoteRepository
+                )
+            }
+        }
+
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(TransactionViewModel::class.java)) {
                 @Suppress("UNCHECKED_CAST")

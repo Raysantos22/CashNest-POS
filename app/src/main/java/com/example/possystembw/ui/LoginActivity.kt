@@ -35,6 +35,7 @@ import com.example.possystembw.MainActivity
 import com.example.possystembw.R
 import com.example.possystembw.RetrofitClient
 import com.example.possystembw.data.AppDatabase
+import com.example.possystembw.data.NumberSequenceRemoteRepository
 import com.example.possystembw.database.User
 import com.example.possystembw.ui.ViewModel.LoginDataState
 import com.example.possystembw.ui.ViewModel.LoginViewModel
@@ -71,6 +72,7 @@ class LoginActivity : AppCompatActivity() {
     private var usersFetched = false
     private var isTransactionDataLoaded = false
     private var isDateConversionComplete = false
+    private lateinit var numberSequenceRemoteRepository: NumberSequenceRemoteRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -618,6 +620,19 @@ class LoginActivity : AppCompatActivity() {
     }
 
     // UPDATE your checkLoginCompletion method
+    private fun initializeRepositories() {
+        val database = AppDatabase.getDatabase(this)
+        val numberSequenceRemoteDao = database.numberSequenceRemoteDao()
+        val transactionDao = database.transactionDao()
+
+        numberSequenceRemoteRepository = NumberSequenceRemoteRepository(
+            numberSequenceApi = RetrofitClient.numberSequenceApi,
+            numberSequenceRemoteDao = numberSequenceRemoteDao,
+            transactionDao = transactionDao  // Add this parameter
+        )
+    }
+
+    // Update your checkLoginCompletion method
     private fun checkLoginCompletion() {
         val webStatus = if (isWebLoginComplete) "completed" else "pending"
         val attendanceStatus = if (isAttendanceDataLoaded) "loaded" else "loading"
@@ -633,12 +648,44 @@ class LoginActivity : AppCompatActivity() {
             }
 
             Log.d("LoginActivity", "Login completed successfully with all data synced and dates converted")
-            SessionManager.refreshSession()
-            startMainActivity()
+
+            // Initialize number sequence before starting main activity
+            initializeNumberSequenceAfterLogin()
         }
     }
 
+    private fun initializeNumberSequenceAfterLogin() {
+        lifecycleScope.launch {
+            try {
+                val currentUser = SessionManager.getCurrentUser()
+                val storeId = currentUser?.storeid
 
+                if (!storeId.isNullOrEmpty()) {
+                    Log.d("LoginActivity", "Initializing number sequence for store: $storeId")
+                    showLoading("Initializing transaction numbering...")
+
+                    val result = numberSequenceRemoteRepository.initializeNumberSequence(storeId)
+                    result.onSuccess {
+                        Log.d("LoginActivity", "Number sequence initialized successfully")
+                        // Also sync with server
+                        numberSequenceRemoteRepository.syncNumberSequenceWithServer(storeId)
+                    }.onFailure { error ->
+                        Log.e("LoginActivity", "Failed to initialize number sequence", error)
+                    }
+                }
+
+                // Proceed to main activity
+                SessionManager.refreshSession()
+                startMainActivity()
+
+            } catch (e: Exception) {
+                Log.e("LoginActivity", "Error during number sequence initialization", e)
+                // Still proceed to main activity even if sequence initialization fails
+                SessionManager.refreshSession()
+                startMainActivity()
+            }
+        }
+    }
     private fun setupBackgroundVideo() {
         val videoView = findViewById<VideoView>(R.id.backgroundVideo)
 

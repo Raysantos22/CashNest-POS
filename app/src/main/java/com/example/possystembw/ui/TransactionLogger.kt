@@ -47,8 +47,16 @@ class TransactionLogger(private val context: Context) {
         }
     }
 
-    private fun getCurrentDate(): String =
-        SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+    private fun getCurrentDate(): String {
+        return try {
+            val format = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            format.format(Date())
+        } catch (e: Exception) {
+            Log.e("ReportsActivity", "Error getting current date: ${e.message}")
+            SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+        }
+    }
+
 
     private fun getCurrentDateTime(): String =
         SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())

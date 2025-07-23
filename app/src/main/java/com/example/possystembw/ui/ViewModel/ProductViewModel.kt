@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.runBlocking
 
 class ProductViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -201,7 +202,11 @@ class ProductViewModel(application: Application) : AndroidViewModel(application)
     suspend fun getHiddenProductsForPlatform(platform: String): List<ProductVisibility> {
         return repository.getHiddenProductsSync(platform)
     }
-
+    fun getHiddenProductsSync(platform: String = "GENERAL"): List<ProductVisibility> {
+        return runBlocking {
+            repository.getHiddenProductsSync(platform)
+        }
+    }
     // Keep existing methods for backward compatibility
     fun hideProduct(productId: Int) {
         hideProductFromPlatform(productId, "PURCHASE")

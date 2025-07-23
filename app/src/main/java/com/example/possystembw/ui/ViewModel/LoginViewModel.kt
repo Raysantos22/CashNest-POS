@@ -65,10 +65,12 @@ class LoginViewModel(application: Application) : AndroidViewModel(application) {
         val numberSequenceRemoteDao = AppDatabase.getDatabase(application).numberSequenceRemoteDao()
 
         userRepository = UserRepository(userDao, userApi)
-        numberSequenceRemoteRepository =
-            NumberSequenceRemoteRepository(numberSequenceApi, numberSequenceRemoteDao)
-        numberSequenceRemoteViewModel =
-            NumberSequenceRemoteViewModel(numberSequenceRemoteRepository)
+        numberSequenceRemoteRepository = NumberSequenceRemoteRepository(
+            numberSequenceApi,
+            numberSequenceRemoteDao,
+            transactionDao  // ADD THIS PARAMETER
+        )
+        numberSequenceRemoteViewModel = NumberSequenceRemoteViewModel(numberSequenceRemoteRepository)
     }
     private suspend fun fetchStaffData(storeId: String) {
         try {

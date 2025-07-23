@@ -205,6 +205,8 @@ import com.example.possystembw.data.LoyaltyCardRepository
 import com.example.possystembw.database.LoyaltyCard
 import com.example.possystembw.ui.ViewModel.LoyaltyCardViewModel
 import com.example.possystembw.ui.ViewModel.LoyaltyCardViewModelFactory
+import com.example.possystembw.ui.ViewModel.NumberSequenceAutoChecker
+import com.example.possystembw.ui.ViewModel.setupNumberSequenceChecker
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.navigation.NavigationView
 import com.google.common.util.concurrent.ListenableFuture
@@ -342,6 +344,9 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
     private var cartToggleButton: FloatingActionButton? = null
     private var isCartVisible = false
     private var isMobileLayout = false
+    private var isProcessingPayment = false
+
+    private lateinit var sequenceChecker: NumberSequenceAutoChecker
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -378,9 +383,9 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
             val numberSequenceRemoteDao = database.numberSequenceRemoteDao()
             numberSequenceRemoteRepository = NumberSequenceRemoteRepository(
                 numberSequenceApi,
-                numberSequenceRemoteDao
+                numberSequenceRemoteDao,
+                transactionDao  // ADD THIS LINE
             )
-
             // Initialize ViewModels
             printerSettingsViewModel = ViewModelProvider(this)[PrinterSettingsViewModel::class.java]
 
@@ -463,6 +468,10 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
 
             // Safe button setup with error handling
             safeSetupButtons()
+            sequenceChecker = setupNumberSequenceChecker(this)
+
+            // Auto-check silently
+            sequenceChecker.checkAndUpdateSequence(showToast = false)
 
             // Auto-reconnect to last printer
             if (!bluetoothPrinterHelper.isConnected()) {
@@ -1328,13 +1337,13 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
 
                 if (currentStoreId != null) {
                     // Create today's date range - THE KEY DIFFERENCE: UTC TIMEZONE!
-                    val todayStart = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+                    val todayStart = Calendar.getInstance().apply {
                         set(Calendar.HOUR_OF_DAY, 0)
                         set(Calendar.MINUTE, 0)
                         set(Calendar.SECOND, 0)
                         set(Calendar.MILLISECOND, 0)
                     }
-                    val todayEnd = Calendar.getInstance(TimeZone.getTimeZone("UTC")).apply {
+                    val todayEnd = Calendar.getInstance().apply {
                         time = todayStart.time
                         set(Calendar.HOUR_OF_DAY, 23)
                         set(Calendar.MINUTE, 59)
@@ -3410,7 +3419,12 @@ private fun voidPartialPayment() {
         val numberSequenceApi = RetrofitClient.numberSequenceApi
         val numberSequenceRemoteDao = database.numberSequenceRemoteDao()
         if (!::numberSequenceRemoteRepository.isInitialized) {
-            numberSequenceRemoteRepository = NumberSequenceRemoteRepository(numberSequenceApi, numberSequenceRemoteDao)
+            // FIXED: Add transactionDao parameter
+            numberSequenceRemoteRepository = NumberSequenceRemoteRepository(
+                numberSequenceApi,
+                numberSequenceRemoteDao,
+                transactionDao  // ADD THIS LINE
+            )
         }
 
         Log.d(TAG, "✅ All repositories initialized successfully")
@@ -3429,6 +3443,29 @@ private fun voidPartialPayment() {
 
         transactionAdapter = TransactionAdapter { transaction ->
             showTransactionDetailsDialog(transaction)
+        }
+    }
+    private fun initializeNumberSequence() {
+        lifecycleScope.launch {
+            try {
+                val currentUser = SessionManager.getCurrentUser()
+                val storeId = currentUser?.storeid
+
+                if (!storeId.isNullOrEmpty()) {
+                    Log.d(TAG, "Initializing number sequence for store: $storeId")
+
+                    val result = numberSequenceRemoteRepository.initializeNumberSequence(storeId)
+                    result.onSuccess {
+                        Log.d(TAG, "Number sequence initialized successfully")
+                        // Also sync with server
+                        numberSequenceRemoteRepository.syncNumberSequenceWithServer(storeId)
+                    }.onFailure { error ->
+                        Log.e(TAG, "Failed to initialize number sequence", error)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during number sequence initialization", e)
+            }
         }
     }
     private fun initializeViewModels() {
@@ -8012,14 +8049,38 @@ private fun connectToPrinter() {
                     val description = window.description.uppercase()
                     Log.d("Window1", "Loading products for window: $description")
 
+                    // Get visible products instead of all products
                     val allProducts = productViewModel.visibleProducts.value ?: emptyList()
                     Log.d("Window1", "Total visible products: ${allProducts.size}")
+
+                    // Get platform-specific hidden products
+                    val platformName = when {
+                        description.contains("GRABFOOD")  -> "GRABFOOD"
+                        description.contains("FOODPANDA")  -> "FOODPANDA"
+                        description.contains("MANILARATE") -> "MANILARATE"
+                        description.contains("MALLPRICE") -> "MALLPRICE"
+                        description.contains("GRABFOODMALL") -> "GRABFOODMALL"
+                        description.contains("FOODPANDAMALL") -> "FOODPANDAMALL"
+                        description.contains("PURCHASE") -> "PURCHASE"
+                        description.contains("GENERAL") -> "GENERAL"
+                        else -> "GENERAL"
+                    }
+
+                    // Get hidden products for the specific platform
+                    val hiddenProducts = try {
+                        productViewModel.getHiddenProductsForPlatform(platformName).map { it.productId }.toSet()
+                    } catch (e: Exception) {
+                        Log.e("Window1", "Error getting platform-specific hidden products, using general", e)
+                        productViewModel.getHiddenProducts().value?.map { it.productId }?.toSet() ?: emptySet()
+                    }
+
+                    Log.d("Window1", "Hidden products for $platformName: ${hiddenProducts.size}")
 
                     // Debug: Log products with zero prices
                     val productsWithZeroPrices = allProducts.filter { product ->
                         when {
-                            description.contains("GRABFOOD") -> product.grabfood == 0.0
-                            description.contains("FOODPANDA") -> product.foodpanda == 0.0
+                            description.contains("GRABFOOD")  -> product.grabfood == 0.0
+                            description.contains("FOODPANDA")  -> product.foodpanda == 0.0
                             description.contains("MANILARATE") -> product.manilaprice == 0.0
                             description.contains("MALLPRICE") -> product.mallprice == 0.0
                             description.contains("GRABFOODMALL") -> product.grabfoodmall == 0.0
@@ -8029,50 +8090,47 @@ private fun connectToPrinter() {
                         }
                     }
                     Log.d("Window1", "Products with zero prices for $description: ${productsWithZeroPrices.size}")
-                    productsWithZeroPrices.forEach { product ->
-                        Log.d("Window1", "Zero price product: ${product.itemName} - price: ${product.price}, grabfood: ${product.grabfood}, foodpanda: ${product.foodpanda}, manilaprice: ${product.manilaprice}")
-                    }
 
-                    // Filter products based on window description
+                    // Filter products based on window description AND visibility
                     val windowFilteredProducts = when {
                         description.contains("GRABFOOD") -> {
                             allProducts.filter { product ->
-                                product.grabfood > 0.0
+                                product.grabfood > 0.0 && product.id !in hiddenProducts
                             }.map { product ->
                                 product.copy(price = product.grabfood)
                             }
                         }
-                        description.contains("FOODPANDA") -> {
+                        description.contains("FOODPANDA")  -> {
                             allProducts.filter { product ->
-                                product.foodpanda > 0.0
+                                product.foodpanda > 0.0 && product.id !in hiddenProducts
                             }.map { product ->
                                 product.copy(price = product.foodpanda)
                             }
                         }
                         description.contains("MANILARATE") -> {
                             allProducts.filter { product ->
-                                product.manilaprice > 0.0
+                                product.manilaprice > 0.0 && product.id !in hiddenProducts
                             }.map { product ->
                                 product.copy(price = product.manilaprice)
                             }
                         }
                         description.contains("MALLPRICE") -> {
                             allProducts.filter { product ->
-                                product.mallprice > 0.0
+                                product.mallprice > 0.0 && product.id !in hiddenProducts
                             }.map { product ->
                                 product.copy(price = product.mallprice)
                             }
                         }
                         description.contains("GRABFOODMALL") -> {
                             allProducts.filter { product ->
-                                product.grabfoodmall > 0.0
+                                product.grabfoodmall > 0.0 && product.id !in hiddenProducts
                             }.map { product ->
                                 product.copy(price = product.grabfoodmall)
                             }
                         }
                         description.contains("FOODPANDAMALL") -> {
                             allProducts.filter { product ->
-                                product.foodpandamall > 0.0
+                                product.foodpandamall > 0.0 && product.id !in hiddenProducts
                             }.map { product ->
                                 product.copy(price = product.foodpandamall)
                             }
@@ -8080,22 +8138,34 @@ private fun connectToPrinter() {
                         description.contains("PARTYCAKES") -> {
                             allProducts.filter { product ->
                                 product.itemGroup.equals("PARTY CAKES", ignoreCase = true) &&
-                                        product.price > 0.0
+                                        product.price > 0.0 && product.id !in hiddenProducts
                             }
                         }
                         description.contains("PURCHASE") -> {
-                            // Show ALL products in PURCHASE window, regardless of price
-                            val result = allProducts
-                            Log.d("WindowFilter", "PURCHASE filter: ${result.size} products (showing all)")
+                            // For PURCHASE window, filter out hidden products
+                            val result = allProducts.filter { product ->
+                                product.id !in hiddenProducts
+                            }
+                            Log.d("WindowFilter", "PURCHASE filter: ${result.size} products (filtered by visibility)")
+                            result
+                        }
+                        description.contains("GENERAL") -> {
+                            // For GENERAL window, filter out hidden products
+                            val result = allProducts.filter { product ->
+                                product.id !in hiddenProducts
+                            }
+                            Log.d("WindowFilter", "GENERAL filter: ${result.size} products (filtered by visibility)")
                             result
                         }
                         else -> {
-                            // Default case: only show products with valid price
-                            allProducts.filter { product -> product.price > 0.0 }
+                            // Default case: only show products with valid price and not hidden
+                            allProducts.filter { product ->
+                                product.price > 0.0 && product.id !in hiddenProducts
+                            }
                         }
                     }
 
-                    Log.d("Window1", "Window filtered products: ${windowFilteredProducts.size}")
+                    Log.d("Window1", "Window filtered products (after visibility check): ${windowFilteredProducts.size}")
 
                     // Apply current search if exists
                     val searchQuery = productViewModel.persistentSearchQuery.value
@@ -8159,7 +8229,6 @@ private fun connectToPrinter() {
             }
         }
     }
-
 
 
 //    private fun showProductLoadingState(isLoading: Boolean) {
@@ -8679,6 +8748,9 @@ private fun showPointsRedemptionDialog(
         val paymentMethodSpinner = dialogView.findViewById<Spinner>(R.id.paymentMethodSpinner1)
         val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
 
+        // Add this variable for payment processing state
+        var isProcessingPayment = false
+
         // Purchase History Setup
         val purchaseHistoryContainer = dialogView.findViewById<LinearLayout>(R.id.purchaseHistoryContainer)
         val purchaseHistoryRecyclerView = dialogView.findViewById<RecyclerView>(R.id.purchaseHistoryRecyclerView)
@@ -8696,12 +8768,8 @@ private fun showPointsRedemptionDialog(
 
         // Promo Setup
         val promoSuggestionsContainer = dialogView.findViewById<LinearLayout>(R.id.promoSuggestionsContainer)
-
         val promoSuggestionsRecyclerView = dialogView.findViewById<RecyclerView>(R.id.promoSuggestionsRecyclerView)
-
         val promoHeader = dialogView.findViewById<TextView>(R.id.promoHeader)
-
-
 
         val promoAdapter = PromoSuggestionAdapter { mixMatch ->
             showMixMatchProductSelection(mixMatch)
@@ -8772,8 +8840,9 @@ private fun showPointsRedemptionDialog(
                 marginStart = 8
             }
         }
+
         val scanLoyaltyCardButton = ImageButton(this).apply {
-            setImageResource(R.drawable.ic_barcode_scan) // Add this icon to your drawable resources
+            setImageResource(R.drawable.ic_barcode_scan)
             background = ContextCompat.getDrawable(context, R.drawable.rounded_button_background)
             layoutParams = LinearLayout.LayoutParams(
                 dpToPx(40),
@@ -8784,7 +8853,6 @@ private fun showPointsRedemptionDialog(
             }
             contentDescription = "Scan loyalty card"
 
-            // Set on click listener to open the loyalty card scanner
             setOnClickListener {
                 showLoyaltyCardScanner(customerAutoComplete)
             }
@@ -8792,7 +8860,6 @@ private fun showPointsRedemptionDialog(
 
         // Find the parent container of the AutoCompleteTextView
         val customerContainer = customerAutoComplete.parent as ViewGroup
-        // Find the index of the AutoCompleteTextView in its parent
         val index = customerContainer.indexOfChild(customerAutoComplete)
 
         // Create a horizontal LinearLayout to hold both views
@@ -8814,7 +8881,7 @@ private fun showPointsRedemptionDialog(
 
         // Add the horizontal layout to the original parent at the same position
         customerContainer.addView(horizontalLayout, index)
-        // Find the container after customerAutoComplete and add the button
+
         // Payment variables setup
         val defaultPaymentMethods = listOf("Cash")
         val paymentMethods = mutableListOf<String>()
@@ -8863,7 +8930,7 @@ private fun showPointsRedemptionDialog(
         amountPaidEditText.setOnFocusChangeListener { _, hasFocus ->
             if (hasFocus) {
                 currentFocusedEditText = amountPaidEditText
-                amountPaidEditText.setText("") // Clear the text when focused
+                amountPaidEditText.setText("")
             }
         }
         amountPaidEditText2.setOnFocusChangeListener { _, hasFocus ->
@@ -8900,19 +8967,17 @@ private fun showPointsRedemptionDialog(
         })
 
         // Payment method spinner listener
-        // Inside showPaymentDialog, update the payment method spinner listener
         paymentMethodSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val selectedMethod = paymentMethodSpinner.selectedItem.toString().uppercase()
                 if (selectedMethod == "LOYALTYCARD") {
-                    // Check if a loyalty card is already selected
                     if (!selectedCustomer.accountNum.startsWith("LC-")) {
                         Toast.makeText(
                             this@Window1,
                             "Please enter a loyalty card number first",
                             Toast.LENGTH_SHORT
                         ).show()
-                        paymentMethodSpinner.setSelection(0) // Reset to Cash
+                        paymentMethodSpinner.setSelection(0)
                         return
                     }
 
@@ -8920,14 +8985,12 @@ private fun showPointsRedemptionDialog(
                     lifecycleScope.launch {
                         val loyaltyCard = loyaltyCardViewModel.getLoyaltyCardByNumber(cardNumber)
                         if (loyaltyCard != null) {
-                            // Show loyalty card points dialog
                             val dialogView = layoutInflater.inflate(R.layout.dialog_loyalty_points, null)
                             val pointsAvailableText = dialogView.findViewById<TextView>(R.id.pointsAvailableText)
                             val usePointsCheckbox = dialogView.findViewById<CheckBox>(R.id.usePointsCheckbox)
                             val pointsToUseInput = dialogView.findViewById<EditText>(R.id.pointsToUseInput)
                             val equivalentAmountText = dialogView.findViewById<TextView>(R.id.equivalentAmountText)
 
-                            // Set initial values
                             pointsAvailableText.text = "Available Points: ${loyaltyCard.points}"
                             pointsToUseInput.isEnabled = false
                             usePointsCheckbox.isChecked = false
@@ -8948,7 +9011,7 @@ private fun showPointsRedemptionDialog(
                                         pointsToUseInput.error = "Insufficient points"
                                         return
                                     }
-                                    val equivalent = points.toDouble() // 1 point = 1 peso
+                                    val equivalent = points.toDouble()
                                     equivalentAmountText.text = "Amount to Pay: ₱%.2f".format(equivalent)
                                 }
                             })
@@ -8991,16 +9054,6 @@ private fun showPointsRedemptionDialog(
         splitPaymentSwitch.setOnCheckedChangeListener { buttonView, isChecked ->
             val currentPaymentMethod = paymentMethodSpinner.selectedItem?.toString() ?: ""
 
-//            if (isChecked && isChargePayment(currentPaymentMethod)) {
-//                buttonView.isChecked = false
-//                Toast.makeText(
-//                    this@Window1,
-//                    "Split payment not allowed with charge payment",
-//                    Toast.LENGTH_SHORT
-//                ).show()
-//                return@setOnCheckedChangeListener
-//            }
-
             if (isChecked) {
                 if (totalAmount <= 0) {
                     smartPayButton.isEnabled = false
@@ -9013,13 +9066,12 @@ private fun showPointsRedemptionDialog(
                 quickPaymentScrollView.visibility = View.GONE
                 quickPaymentButtons.forEach { it.isEnabled = false }
 
-                // Handle loyalty card specific logic
                 if (currentPaymentMethod == "LOYALTYCARD") {
                     val firstAmount = amountPaidEditText.text.toString().toDoubleOrNull() ?: 0.0
                     val remainingAmount = totalAmount - firstAmount
 
                     amountPaidEditText2.setText(String.format("%.2f", remainingAmount))
-                    amountPaidEditText2.isEnabled = false  // Lock second amount for loyalty card payments
+                    amountPaidEditText2.isEnabled = false
                 }
 
                 val firstPaymentMethod = paymentMethodSpinner.selectedItem?.toString()
@@ -9169,7 +9221,6 @@ private fun showPointsRedemptionDialog(
 
         customerAutoComplete.setOnFocusChangeListener { _, hasFocus ->
             if (hasFocus) {
-                // Clear the text only if it's "Walk-in Customer"
                 if (customerAutoComplete.text.toString() == "Walk-in Customer") {
                     customerAutoComplete.setText("")
                 }
@@ -9192,20 +9243,15 @@ private fun showPointsRedemptionDialog(
         val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle)
             .setTitle("Payment")
             .setView(dialogView)
-            .setPositiveButton("Pay", null)  // Set to null to handle click in setOnShowListener
-            .setNegativeButton("Cancel", null) // Set to null to handle click in setOnShowListener
+            .setPositiveButton("Pay", null)
+            .setNegativeButton("Cancel", null)
             .create()
 
-        // Set custom background
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-
-// Prevent dialog from being canceled when clicking outside
         dialog.setCanceledOnTouchOutside(false)
 
-// Create shake animation
         val shakeAnimation = AnimationUtils.loadAnimation(this, R.anim.shake_animation)
 
-// Override the dialog's window callback to handle outside touches
         dialog.window?.decorView?.setOnTouchListener { v, event ->
             if (event.action == MotionEvent.ACTION_DOWN) {
                 val x = event.rawX.toInt()
@@ -9214,19 +9260,23 @@ private fun showPointsRedemptionDialog(
                 dialog.window?.findViewById<ViewGroup>(android.R.id.content)?.getGlobalVisibleRect(dialogBounds)
 
                 if (!dialogBounds.contains(x, y)) {
-                    // Vibrate
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
                     } else {
                         @Suppress("DEPRECATION")
                         vibrator.vibrate(300)
                     }
-
-                    // Shake only the dialogView (dialog_payment layout)
                     dialogView.startAnimation(shakeAnimation)
                 }
             }
             false
+        }
+
+        // Helper function to restore pay button
+        fun restorePayButton(payButton: Button, originalText: CharSequence) {
+            isProcessingPayment = false
+            payButton.text = originalText
+            payButton.isEnabled = true
         }
 
         // Handle dialog show and payment processing
@@ -9235,7 +9285,7 @@ private fun showPointsRedemptionDialog(
             val smartPayCard = dialogView.findViewById<CardView>(R.id.cardSmartPay)
             val initialElevation = smartPayCard.elevation
 
-            // Create multiple animations
+            // Create animations for smart pay card
             val elevationAnimator = ValueAnimator.ofFloat(initialElevation, initialElevation + 8f).apply {
                 duration = 8500
                 repeatMode = ValueAnimator.REVERSE
@@ -9250,7 +9300,6 @@ private fun showPointsRedemptionDialog(
                 interpolator = AccelerateDecelerateInterpolator()
             }
 
-            // Combine animations
             elevationAnimator.addUpdateListener { animation ->
                 smartPayCard.elevation = animation.animatedValue as Float
             }
@@ -9271,7 +9320,6 @@ private fun showPointsRedemptionDialog(
                     val amount = quickPaymentAmounts[index]
                     val paymentMethod = paymentMethodSpinner.selectedItem.toString()
 
-                    // Check if it's a charge payment and validate customer
                     if (isChargePayment(paymentMethod)) {
                         if (!isValidCustomerForCharge(selectedCustomer)) {
                             Toast.makeText(
@@ -9307,7 +9355,7 @@ private fun showPointsRedemptionDialog(
                     processPayment(
                         amount,
                         paymentMethod,
-                        1.12, // VAT rate
+                        1.12,
                         discountType,
                         discountValue,
                         selectedCustomer,
@@ -9323,7 +9371,6 @@ private fun showPointsRedemptionDialog(
                 val smartPayAmount = calculateSmartPayAmount(totalAmount)
                 val paymentMethod = paymentMethodSpinner.selectedItem.toString()
 
-                // Check if it's a charge payment and validate customer
                 if (isChargePayment(paymentMethod)) {
                     if (!isValidCustomerForCharge(selectedCustomer)) {
                         Toast.makeText(
@@ -9350,7 +9397,7 @@ private fun showPointsRedemptionDialog(
                 processPayment(
                     smartPayAmount,
                     paymentMethod,
-                    1.12, // VAT rate
+                    1.12,
                     discountType,
                     discountValue,
                     selectedCustomer,
@@ -9371,7 +9418,7 @@ private fun showPointsRedemptionDialog(
                 paymentMethodSpinner,
                 paymentMethodSpinner2,
                 payButton,
-                dialogView  // Pass the dialog view
+                dialogView
             ) { customer ->
                 selectedCustomer = customer
 
@@ -9394,98 +9441,152 @@ private fun showPointsRedemptionDialog(
                 }
             }
 
-            // Pay button click listener
+            // Pay button click listener with loading state
             payButton.setOnClickListener {
-                val isSplitPayment = splitPaymentSwitch.isChecked
-
-                // Collect payment methods and amounts
-                val paymentMethods = mutableListOf<String>()
-                val paymentAmounts = mutableListOf<Double>()
-
-                // First payment method
-                val paymentMethod1 = paymentMethodSpinner?.selectedItem?.toString() ?: run {
-                    Toast.makeText(this, "Payment method not selected", Toast.LENGTH_SHORT).show()
+                // Prevent multiple clicks during processing
+                if (isProcessingPayment) {
                     return@setOnClickListener
                 }
 
-                // Check if any payment method is CHARGE and validate customer
-                val isFirstCharge = isChargePayment(paymentMethod1)
-                var isSecondCharge = false
+                // Start loading state
+                isProcessingPayment = true
+                val originalText = payButton.text
+                payButton.text = "Processing..."
+                payButton.isEnabled = false
 
-                if (isSplitPayment) {
-                    val paymentMethod2 = paymentMethodSpinner2?.selectedItem?.toString() ?: ""
-                    isSecondCharge = isChargePayment(paymentMethod2)
-                }
+                // Process payment in background
+                lifecycleScope.launch {
+                    try {
+                        val isSplitPayment = splitPaymentSwitch.isChecked
 
-                val hasChargePayment = isFirstCharge || isSecondCharge
+                        // Collect payment methods and amounts
+                        val paymentMethods = mutableListOf<String>()
+                        val paymentAmounts = mutableListOf<Double>()
 
-                // Validate customer for any charge payment
-                if (hasChargePayment && !isValidCustomerForCharge(selectedCustomer)) {
-                    Toast.makeText(
-                        this,
-                        "Please select a valid customer for charge payment",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    customerAutoComplete.error = "Customer required for charge"
-                    return@setOnClickListener
-                }
+                        // First payment method
+                        val paymentMethod1 = paymentMethodSpinner?.selectedItem?.toString() ?: run {
+                            withContext(Dispatchers.Main) {
+                                restorePayButton(payButton, originalText)
+                                Toast.makeText(this@Window1, "Payment method not selected", Toast.LENGTH_SHORT).show()
+                            }
+                            return@launch
+                        }
 
-                val amountPaid1 = amountPaidEditText?.text.toString().toDoubleOrNull() ?: run {
-                    Toast.makeText(this, "Invalid payment amount", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-                paymentMethods.add(paymentMethod1)
-                paymentAmounts.add(amountPaid1)
+                        // Check if any payment method is CHARGE and validate customer
+                        val isFirstCharge = isChargePayment(paymentMethod1)
+                        var isSecondCharge = false
 
-                // Second payment method if split payment
-                if (isSplitPayment) {
-                    val paymentMethod2 = paymentMethodSpinner2.selectedItem.toString()
-                    val amountPaid2 = amountPaidEditText2.text.toString().toDoubleOrNull() ?: 0.0
+                        if (isSplitPayment) {
+                            val paymentMethod2 = paymentMethodSpinner2?.selectedItem?.toString() ?: ""
+                            isSecondCharge = isChargePayment(paymentMethod2)
+                        }
 
-                    if (amountPaid2 > 0) {
-                        paymentMethods.add(paymentMethod2)
-                        paymentAmounts.add(amountPaid2)
+                        val hasChargePayment = isFirstCharge || isSecondCharge
+
+                        // Validate customer for any charge payment
+                        if (hasChargePayment && !isValidCustomerForCharge(selectedCustomer)) {
+                            withContext(Dispatchers.Main) {
+                                restorePayButton(payButton, originalText)
+                                Toast.makeText(
+                                    this@Window1,
+                                    "Please select a valid customer for charge payment",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                customerAutoComplete.error = "Customer required for charge"
+                            }
+                            return@launch
+                        }
+
+                        val amountPaid1 = amountPaidEditText?.text.toString().toDoubleOrNull() ?: run {
+                            withContext(Dispatchers.Main) {
+                                restorePayButton(payButton, originalText)
+                                Toast.makeText(this@Window1, "Invalid payment amount", Toast.LENGTH_SHORT).show()
+                            }
+                            return@launch
+                        }
+                        paymentMethods.add(paymentMethod1)
+                        paymentAmounts.add(amountPaid1)
+
+                        // Second payment method if split payment
+                        if (isSplitPayment) {
+                            val paymentMethod2 = paymentMethodSpinner2.selectedItem.toString()
+                            val amountPaid2 = amountPaidEditText2.text.toString().toDoubleOrNull() ?: 0.0
+
+                            if (amountPaid2 > 0) {
+                                paymentMethods.add(paymentMethod2)
+                                paymentAmounts.add(amountPaid2)
+                            }
+                        }
+
+                        // Validate total payment
+                        val totalPaid = paymentAmounts.sum()
+
+                        // Check if total paid is sufficient
+                        if (totalPaid < totalAmount) {
+                            withContext(Dispatchers.Main) {
+                                restorePayButton(payButton, originalText)
+                                Toast.makeText(this@Window1, "Insufficient payment amount", Toast.LENGTH_SHORT).show()
+                            }
+                            return@launch
+                        }
+
+                        val change = if (totalPaid > totalAmount) totalPaid - totalAmount else 0.0
+
+                        // Add a small delay to simulate processing (optional)
+                        delay(500) // 500ms delay - adjust as needed
+
+                        // Process the payment (this is your existing processPayment call)
+                        withContext(Dispatchers.IO) {
+                            processPayment(
+                                paymentAmounts[0],
+                                paymentMethods[0],
+                                1.12, // VAT rate
+                                discountType,
+                                discountValue,
+                                selectedCustomer,
+                                totalAmount,
+                                // Pass other payment methods and amounts if split
+                                otherPaymentMethods = if (paymentMethods.size > 1) paymentMethods.slice(1 until paymentMethods.size) else emptyList(),
+                                otherPaymentAmounts = if (paymentAmounts.size > 1) paymentAmounts.slice(1 until paymentAmounts.size) else emptyList()
+                            )
+                        }
+
+                        // Switch back to main thread for UI updates
+                        withContext(Dispatchers.Main) {
+                            // Restore button state
+                            restorePayButton(payButton, originalText)
+
+                            // Show change if applicable (only for non-charge payments)
+                            if (change > 0 && !hasChargePayment) {
+                                Toast.makeText(this@Window1, "Change: ₱${String.format("%.2f", change)}", Toast.LENGTH_SHORT).show()
+                            } else if (hasChargePayment) {
+                                Toast.makeText(this@Window1, "Payment processed successfully", Toast.LENGTH_SHORT).show()
+                            }
+
+                            dialog.dismiss()
+
+                            // Show your change and receipt dialog here if needed
+                            // showChangeAndReceiptDialog(...)
+                        }
+
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error processing payment", e)
+                        withContext(Dispatchers.Main) {
+                            restorePayButton(payButton, originalText)
+                            Toast.makeText(
+                                this@Window1,
+                                "Payment processing failed: ${e.message}",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
                     }
                 }
-
-                // Validate total payment
-                val totalPaid = paymentAmounts.sum()
-
-                // Check if total paid is sufficient
-                if (totalPaid < totalAmount) {
-                    Toast.makeText(this, "Insufficient payment amount", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-
-                val change = if (totalPaid > totalAmount) totalPaid - totalAmount else 0.0
-
-                // Process the payment
-                processPayment(
-                    paymentAmounts[0],
-                    paymentMethods[0],
-                    1.12, // VAT rate
-                    discountType,
-                    discountValue,
-                    selectedCustomer,
-                    totalAmount,
-                    // Pass other payment methods and amounts if split
-                    otherPaymentMethods = if (paymentMethods.size > 1) paymentMethods.slice(1 until paymentMethods.size) else emptyList(),
-                    otherPaymentAmounts = if (paymentAmounts.size > 1) paymentAmounts.slice(1 until paymentAmounts.size) else emptyList()
-                )
-
-                // Show change if applicable (only for non-charge payments)
-                if (change > 0 && !hasChargePayment) {
-                    Toast.makeText(this, "Change: ₱${String.format("%.2f", change)}", Toast.LENGTH_SHORT).show()
-                } else if (hasChargePayment) {
-                    Toast.makeText(this, "Payment processed successfully", Toast.LENGTH_SHORT).show()
-                }
-
-                dialog.dismiss()
             }
         }
 
         dialog.show()
     }
+
     private fun showLoyaltyCardScanner(customerAutoComplete: AutoCompleteTextView) {
         val scannerOverlay = findViewById<FrameLayout>(R.id.barcodeScannerOverlay)
         val previewView = findViewById<PreviewView>(R.id.previewView)
@@ -12507,13 +12608,14 @@ private fun initializeSequences() {
 
     private fun formatDateToString(date: Date): String {
         return try {
-            val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'", Locale.US)
-            format.timeZone = TimeZone.getTimeZone("UTC")
-            format.format(date)
+            // FIXED: Use your exact format 2025-07-17 09:03:35
+            val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+            val result = format.format(date)
+            Log.d("ReportsActivity", "Reports formatDateToString: $date -> '$result'")
+            result
         } catch (e: Exception) {
-            Log.e(TAG, "Error formatting date to string: ${e.message}")
-            val fallbackFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'", Locale.US)
-            fallbackFormat.timeZone = TimeZone.getTimeZone("UTC")
+            Log.e("ReportsActivity", "Error formatting date to string: ${e.message}")
+            val fallbackFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
             fallbackFormat.format(Date())
         }
     }

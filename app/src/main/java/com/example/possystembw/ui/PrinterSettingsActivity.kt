@@ -79,6 +79,8 @@ import com.example.possystembw.data.NumberSequenceRemoteRepository
 import com.example.possystembw.data.TransactionRepository
 import com.example.possystembw.database.TransactionRecord
 import com.example.possystembw.database.TransactionSummary
+import com.example.possystembw.ui.ViewModel.NumberSequenceAutoChecker
+import com.example.possystembw.ui.ViewModel.setupNumberSequenceChecker
 import java.time.LocalDate
 
 
@@ -109,6 +111,7 @@ class PrinterSettingsActivity : AppCompatActivity() {
 
     private lateinit var localDataManager: LocalDataManager
     private var serverUrl: String? = null
+    private lateinit var sequenceChecker: NumberSequenceAutoChecker
 
 
     companion object {
@@ -149,6 +152,7 @@ class PrinterSettingsActivity : AppCompatActivity() {
         updateConnectionStatus()
         startConnectionStatusCheck()
         // Remove duplicate setupExpenseList() call
+        sequenceChecker = setupNumberSequenceChecker(this)
 
         setupEmergencyResync()
 
@@ -237,10 +241,15 @@ data class TransactionData(
 
     private fun setupEmergencyResync() {
         // Initialize repository with proper dependencies
+        val database = AppDatabase.getDatabase(application)
+        val transactionDao = database.transactionDao()  // ADD THIS LINE
+
         val numberSequenceRemoteRepository = NumberSequenceRemoteRepository(
             RetrofitClient.numberSequenceApi,
-            AppDatabase.getDatabase(application).numberSequenceRemoteDao()
+            database.numberSequenceRemoteDao(),
+            transactionDao  // ADD THIS PARAMETER
         )
+
 
         repository = TransactionRepository(
             AppDatabase.getDatabase(application).transactionDao(),

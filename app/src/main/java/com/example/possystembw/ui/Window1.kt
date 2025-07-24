@@ -2149,6 +2149,7 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
         var returnNetAmount = 0.0
         var returnVatAmount = 0.0
 
+        // Calculate amounts ONLY for selected items
         selectedItems.forEach { item ->
             // Calculate effective price
             val effectivePrice = if (item.priceOverride != null && item.priceOverride > 0.0) {
@@ -2188,7 +2189,7 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
             returnVatAmount += itemVatAmount
         }
 
-        // Calculate payment method proportions
+        // FIXED: Calculate payment method proportions based on SELECTED ITEMS' net amount
         val paymentProportion = if (originalTransaction.netAmount > 0) {
             returnNetAmount / originalTransaction.netAmount
         } else {
@@ -2211,7 +2212,6 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
             refundRepresentation = if (originalTransaction.representation > 0) originalTransaction.representation * paymentProportion else 0.0
         )
     }
-
     private fun generateReturnReceiptPreview(
         originalTransaction: TransactionSummary,
         selectedItems: List<TransactionRecord>,
@@ -2456,8 +2456,6 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
         selectedItems: List<TransactionRecord>,
         remarks: String
     ) {
-        // Your existing processReturnTransaction logic here
-        // (I'll keep the original logic you had, just moved to this separate method)
         lifecycleScope.launch {
             try {
                 val currentStore = SessionManager.getCurrentUser()?.storeid
@@ -2469,18 +2467,20 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
 
                 val originalTransactionItems = transactionViewModel.getTransactionItems(originalTransaction.transactionId)
 
+                // FIXED: Calculate return amounts ONLY for selected items (not entire transaction)
                 var returnGrossAmount = 0.0
                 var returnTotalDiscountAmount = 0.0
                 var returnNetAmount = 0.0
                 var returnVatAmount = 0.0
 
                 val returnedItems = selectedItems.map { item ->
-                    val effectivePrice = if (item.priceOverride != null && item.priceOverride > 0.0) {
-                        item.priceOverride
+                    val effectivePrice = if (item.priceOverride != null && item.priceOverride!! > 0.0) {
+                        item.priceOverride!!
                     } else {
                         item.price
                     }
 
+                    // Calculate amounts for THIS SPECIFIC ITEM ONLY
                     val itemTotal = effectivePrice * item.quantity
 
                     val itemDiscountAmount = when (item.discountType?.uppercase()) {
@@ -2500,22 +2500,23 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                     val itemNetAmount = itemTotal - itemDiscountAmount
                     val itemVatAmount = itemNetAmount * 0.12 / 1.12
 
-                    returnGrossAmount += -itemTotal
-                    returnTotalDiscountAmount += -itemDiscountAmount
-                    returnNetAmount += -itemNetAmount
-                    returnVatAmount += -itemVatAmount
+                    // FIXED: Add to return totals (as NEGATIVE values for returns)
+                    returnGrossAmount += -itemTotal // Negative for returns
+                    returnTotalDiscountAmount += -itemDiscountAmount // Negative for returns
+                    returnNetAmount += -itemNetAmount // Negative for returns
+                    returnVatAmount += -itemVatAmount // Negative for returns
 
                     TransactionRecord(
                         transactionId = returnTransactionId,
                         name = item.name,
                         price = item.price,
-                        quantity = -item.quantity,
-                        subtotal = -itemTotal,
+                        quantity = -item.quantity, // Negative quantity
+                        subtotal = -itemTotal, // Negative subtotal
                         vatRate = item.vatRate,
-                        vatAmount = -itemVatAmount,
+                        vatAmount = -itemVatAmount, // Negative VAT amount
                         discountRate = item.discountRate,
-                        discountAmount = -itemDiscountAmount,
-                        total = -itemNetAmount,
+                        discountAmount = -itemDiscountAmount, // Negative discount amount
+                        total = -itemNetAmount, // Negative net total
                         receiptNumber = returnTransactionId,
                         paymentMethod = originalTransaction.paymentMethod,
                         ar = 0.0,
@@ -2524,18 +2525,18 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                         itemId = item.itemId,
                         itemGroup = item.itemGroup,
                         netPrice = item.netPrice,
-                        costAmount = item.costAmount?.let { -it },
-                        netAmount = -itemNetAmount,
-                        grossAmount = -itemTotal,
+                        costAmount = item.costAmount?.let { -it }, // Negative cost amount
+                        netAmount = -itemNetAmount, // Negative net amount
+                        grossAmount = -itemTotal, // Negative gross amount
                         customerAccount = item.customerAccount,
                         store = item.store,
                         priceOverride = item.priceOverride,
                         staff = getCurrentStaff(),
                         discountOfferId = item.discountOfferId,
-                        lineDiscountAmount = -itemDiscountAmount,
+                        lineDiscountAmount = -itemDiscountAmount, // Negative line discount
                         lineDiscountPercentage = item.lineDiscountPercentage,
                         customerDiscountAmount = item.customerDiscountAmount?.let { -it },
-                        taxAmount = item.taxAmount?.let { -it },
+                        taxAmount = item.taxAmount?.let { -it }, // Negative tax amount
                         isReturned = true,
                         returnTransactionId = originalTransaction.transactionId,
                         returnQuantity = item.quantity.toDouble(),
@@ -2554,6 +2555,7 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                     )
                 }
 
+                // Update original transaction items to mark them as returned
                 val updatedOriginalItems = originalTransactionItems.map { originalItem ->
                     val matchingReturnItem = selectedItems.find {
                         it.itemId == originalItem.itemId &&
@@ -2574,34 +2576,40 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                 val vatRate = 0.12
                 val returnVatableSales = returnNetAmount / (1 + vatRate)
 
+                // FIXED: Calculate cost amount ONLY for selected items
                 val returnCostAmount = selectedItems.sumOf { item ->
                     (item.costAmount ?: 0.0) * item.quantity
                 }
 
+                // FIXED: Calculate payment method proportions based on SELECTED ITEMS' net amount
+                val selectedItemsNetAmount = kotlin.math.abs(returnNetAmount) // Get absolute value for proportion calculation
                 val paymentProportion = if (originalTransaction.netAmount > 0) {
-                    kotlin.math.abs(returnNetAmount) / originalTransaction.netAmount
+                    selectedItemsNetAmount / originalTransaction.netAmount
                 } else {
                     0.0
                 }
 
+                // FIXED: Create return transaction summary with calculated amounts for SELECTED ITEMS ONLY
                 val returnTransactionSummary = TransactionSummary(
                     transactionId = returnTransactionId,
-                    type = 2,
+                    type = 2, // Return transaction type
                     receiptId = returnTransactionId,
                     store = originalTransaction.store,
                     staff = getCurrentStaff(),
                     storeKey = storeKey,
                     storeSequence = storeSequence,
                     customerAccount = originalTransaction.customerAccount,
-                    netAmount = returnNetAmount,
-                    costAmount = -kotlin.math.abs(returnCostAmount),
-                    grossAmount = returnGrossAmount,
+
+                    // FIXED: Use calculated amounts for SELECTED ITEMS ONLY (all negative for returns)
+                    netAmount = returnNetAmount, // Already negative, represents only selected items
+                    costAmount = -kotlin.math.abs(returnCostAmount), // Only selected items' cost
+                    grossAmount = returnGrossAmount, // Already negative, represents only selected items
                     partialPayment = 0.0,
                     transactionStatus = 1,
-                    discountAmount = returnTotalDiscountAmount,
+                    discountAmount = returnTotalDiscountAmount, // Already negative, only selected items
                     customerDiscountAmount = -selectedItems.sumOf { kotlin.math.abs(it.customerDiscountAmount ?: 0.0) },
-                    totalDiscountAmount = returnTotalDiscountAmount,
-                    numberOfItems = -selectedItems.sumOf { it.quantity.toDouble() },
+                    totalDiscountAmount = returnTotalDiscountAmount, // Already negative, only selected items
+                    numberOfItems = -selectedItems.sumOf { it.quantity.toDouble() }, // Only selected items count
                     refundReceiptId = originalTransaction.transactionId,
                     currency = originalTransaction.currency,
                     zReportId = null,
@@ -2611,16 +2619,18 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                     receiptEmail = null,
                     markupAmount = 0.0,
                     markupDescription = null,
-                    taxIncludedInPrice = returnVatAmount,
+                    taxIncludedInPrice = returnVatAmount, // Already negative, only selected items
                     windowNumber = originalTransaction.windowNumber,
                     paymentMethod = originalTransaction.paymentMethod,
                     customerName = originalTransaction.customerName,
-                    vatAmount = returnVatAmount,
+                    vatAmount = returnVatAmount, // Already negative, only selected items
                     vatExemptAmount = 0.0,
-                    vatableSales = returnVatableSales,
+                    vatableSales = returnVatableSales, // Already negative, only selected items
                     discountType = originalTransaction.discountType,
-                    totalAmountPaid = returnNetAmount,
-                    changeGiven = 0.0,
+                    totalAmountPaid = returnNetAmount, // Already negative, amount to be refunded for selected items
+                    changeGiven = 0.0, // No change for returns
+
+                    // FIXED: Calculate NEGATIVE payment method amounts proportionally based on SELECTED ITEMS
                     gCash = if (originalTransaction.gCash > 0) -(originalTransaction.gCash * paymentProportion) else 0.0,
                     payMaya = if (originalTransaction.payMaya > 0) -(originalTransaction.payMaya * paymentProportion) else 0.0,
                     cash = if (originalTransaction.cash > 0) -(originalTransaction.cash * paymentProportion) else 0.0,
@@ -2633,13 +2643,22 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                     syncStatus = false
                 )
 
+                // Perform database operations
                 transactionDao.apply {
+                    // Update original transaction items to mark returned items
                     updateTransactionRecords(updatedOriginalItems)
+
+                    // Insert return transaction summary
                     insertTransactionSummary(returnTransactionSummary)
+
+                    // Insert return transaction records
                     insertAll(returnedItems)
+
+                    // Update original transaction's refund receipt ID
                     updateRefundReceiptId(originalTransaction.transactionId, returnTransactionId)
                 }
 
+                // Sync the return transaction
                 transactionViewModel.syncTransaction(returnTransactionId)
 
                 val transactionLogger = TransactionLogger(this@Window1)
@@ -2650,6 +2669,7 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                     remarks = remarks
                 )
 
+                // Update inventory
                 updateInventory(returnedItems)
 
                 withContext(Dispatchers.Main) {
@@ -2668,7 +2688,6 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
             }
         }
     }
-
     private fun processReturnTransaction(
         transaction: TransactionSummary,
         items: List<TransactionRecord>,

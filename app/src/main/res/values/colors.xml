@@ -21,6 +21,7 @@
     <color name="text_primary">#333333</color>
     <color name="text_secondary">#666666</color>
     <color name="gray">#666666</color>
+    <color name="header_background">#F8F9FA</color>
 
     <color name="window_with_cart_items">#782121</color> <!-- Light blue background -->
     <color name="window_default">#002DFF</color>

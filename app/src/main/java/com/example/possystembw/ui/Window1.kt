@@ -1900,14 +1900,12 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
             }
         }
     }
+    // FIXED: Enhanced filtering to properly exclude returned items
     private fun showReturnTransactionDialog(transaction: TransactionSummary) {
         lifecycleScope.launch {
             if (!checkSupervisorAccess()) return@launch
 
-            Log.d(
-                TAG,
-                "Showing return transaction dialog for transaction ID: ${transaction.transactionId}"
-            )
+            Log.d(TAG, "Showing return transaction dialog for transaction ID: ${transaction.transactionId}")
 
             // Dismiss any existing dialog
             returnDialog?.dismiss()
@@ -1928,28 +1926,58 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
 
                 loadingDialog.dismiss()
 
-                // Filter out already returned items and items with quantity <= 0
+                // FIXED: Enhanced filtering to exclude returned items properly
                 val returnable = items.filter { item ->
-                    item.quantity > 0 && !item.isReturned
+                    val isValidQuantity = item.quantity > 0
+                    val isNotReturned = !item.isReturned
+                    val hasNoReturnTransaction = item.returnTransactionId.isNullOrEmpty()
+                    val hasNoReturnQuantity = (item.returnQuantity ?: 0.0) == 0.0
+
+                    // Log for debugging
+                    Log.d(TAG, "Item: ${item.name}")
+                    Log.d(TAG, "  - Quantity: ${item.quantity}")
+                    Log.d(TAG, "  - isReturned: ${item.isReturned}")
+                    Log.d(TAG, "  - returnTransactionId: ${item.returnTransactionId}")
+                    Log.d(TAG, "  - returnQuantity: ${item.returnQuantity}")
+                    Log.d(TAG, "  - Can return: ${isValidQuantity && isNotReturned && hasNoReturnTransaction}")
+
+                    isValidQuantity && isNotReturned && hasNoReturnTransaction && hasNoReturnQuantity
                 }
+
+                Log.d(TAG, "Total items: ${items.size}, Returnable items: ${returnable.size}")
+
+                // ADD THIS VERIFICATION LOG:
+                Log.d(TAG, "=== ITEMS BEING PASSED TO ADAPTER ===")
+                returnable.forEachIndexed { index, item ->
+                    Log.d(TAG, "Adapter Item $index: ${item.name} - isReturned: ${item.isReturned}")
+                }
+                Log.d(TAG, "=== END ADAPTER VERIFICATION ===")
+
+                Log.d(TAG, "Total items: ${items.size}, Returnable items: ${returnable.size}")
+
                 if (returnable.isEmpty()) {
-                    Toast.makeText(
-                        this@Window1,
-                        "No items available for return in this transaction",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    val returnedCount = items.count { it.isReturned || !it.returnTransactionId.isNullOrEmpty() }
+                    val message = if (returnedCount > 0) {
+                        "All items in this transaction have already been returned ($returnedCount items returned)"
+                    } else {
+                        "No items available for return in this transaction"
+                    }
+
+                    Toast.makeText(this@Window1, message, Toast.LENGTH_LONG).show()
                     return@launch
                 }
 
                 val dialogView = layoutInflater.inflate(R.layout.dialog_return_transaction, null)
-                val recyclerView =
-                    dialogView.findViewById<RecyclerView>(R.id.returnItemsRecyclerView)
-                val remarksEditText =
-                    dialogView.findViewById<TextInputEditText>(R.id.remarksEditText)
+                val recyclerView = dialogView.findViewById<RecyclerView>(R.id.returnItemsRecyclerView)
+                val remarksEditText = dialogView.findViewById<TextInputEditText>(R.id.remarksEditText)
                 val returnButton = dialogView.findViewById<Button>(R.id.returnButton)
                 val cancelButton = dialogView.findViewById<Button>(R.id.cancelButton)
                 val warningTextView = dialogView.findViewById<TextView>(R.id.warningTextView)
 
+                // Find UI elements
+                val selectAllButton = dialogView.findViewById<Button>(R.id.selectAllButton)
+                val deselectAllButton = dialogView.findViewById<Button>(R.id.deselectAllButton)
+                val selectionCountTextView = dialogView.findViewById<TextView>(R.id.selectionCountTextView)
 
                 // Check for partial payment
                 val hasPartialPayment = returnable.any { it.partialPaymentAmount > 0 }
@@ -1958,36 +1986,76 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                 if (hasPartialPayment) {
                     warningTextView.visibility = View.VISIBLE
                     val partialAmount = returnable.sumOf { it.partialPaymentAmount }
-                    warningTextView.text = "This transaction has a partial payment of ₱${
-                        String.format(
-                            "%.2f",
-                            partialAmount
-                        )
-                    }. All items must be returned together."
+                    warningTextView.text = "⚠️ This transaction has a partial payment of ₱${String.format("%.2f", partialAmount)}. All items must be returned together."
+                } else {
+                    warningTextView.visibility = View.GONE
                 }
 
-                val adapter = TransactionItemsAdapter(
-                    items = returnable,
+                // Show summary of available vs returned items
+                val totalItems = items.size
+                val returnedItems = items.size - returnable.size
+                if (returnedItems > 0) {
+                    val summaryText = "Items available for return: ${returnable.size} of $totalItems (${returnedItems} already returned)"
+                    warningTextView.text = if (hasPartialPayment) {
+                        "${warningTextView.text}\n\n$summaryText"
+                    } else {
+                        summaryText
+                    }
+                    warningTextView.visibility = View.VISIBLE
+                }
+
+                // Declare adapter variable first with lateinit
+                lateinit var returnItemsAdapter: TransactionItemsAdapter
+
+                // Create adapter
+                returnItemsAdapter = TransactionItemsAdapter(
+                    items = returnable.toMutableList(), // ← Make sure this is 'returnable', not 'items'
                     onItemSelected = { item, isSelected ->
-                        updateReturnButtonState(
-                            returnButton,
-                            getSelectedItems(returnable)
-                        )
+                        updateReturnButtonState(returnButton, returnItemsAdapter, remarksEditText)
+                        selectionCountTextView?.let { updateSelectionCount(it, returnItemsAdapter) }
+                    },
+                    onSelectionChanged = { count ->
+                        selectionCountTextView?.let { updateSelectionCount(it, returnItemsAdapter) }
+                        updateReturnButtonState(returnButton, returnItemsAdapter, remarksEditText)
+
+                        if (selectAllButton != null && deselectAllButton != null) {
+                            updateSelectButtons(selectAllButton, deselectAllButton, returnItemsAdapter)
+                        }
                     }
                 )
 
-                recyclerView.layoutManager = LinearLayoutManager(this@Window1)
-                recyclerView.adapter = adapter
 
-                // If there's a partial payment, update the return button state immediately
-                if (hasPartialPayment) {
-                    updateReturnButtonState(returnButton, returnable)
-                } else {
-                    updateReturnButtonState(returnButton, emptyList())
+                recyclerView.layoutManager = LinearLayoutManager(this@Window1)
+                recyclerView.adapter = returnItemsAdapter
+
+                // Set up selection control button listeners
+                selectAllButton?.setOnClickListener {
+                    returnItemsAdapter.selectAllItems(true)
                 }
+
+                deselectAllButton?.setOnClickListener {
+                    returnItemsAdapter.selectAllItems(false)
+                }
+
+                // Add remarks text watcher for validation
+                remarksEditText.addTextChangedListener(object : TextWatcher {
+                    override fun afterTextChanged(s: Editable?) {
+                        updateReturnButtonState(returnButton, returnItemsAdapter, remarksEditText)
+                    }
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                })
+
+                // Initialize UI state
+                selectionCountTextView?.let { updateSelectionCount(it, returnItemsAdapter) }
+                if (selectAllButton != null && deselectAllButton != null) {
+                    updateSelectButtons(selectAllButton, deselectAllButton, returnItemsAdapter)
+                }
+                updateReturnButtonState(returnButton, returnItemsAdapter, remarksEditText)
 
                 returnDialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle1)
                     .setView(dialogView)
+                    .setCancelable(false)
                     .create()
 
                 returnDialog?.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
@@ -1996,7 +2064,7 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                     processReturn(
                         returnDialog!!,
                         transaction,
-                        returnable,
+                        returnItemsAdapter,
                         remarksEditText,
                         returnButton
                     )
@@ -2020,8 +2088,82 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
         }
     }
 
-    private fun updateReturnButtonState(button: Button, selectedItems: List<TransactionRecord>) {
-        button.isEnabled = selectedItems.isNotEmpty()
+// ADDITIONAL FIX: Make sure the return processing properly marks items as returned
+// Add this to your processActualReturn function after database operations:
+
+    private fun markItemsAsReturned(originalItems: List<TransactionRecord>, returnedItemIds: List<String>) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                // Update the original transaction items to mark them as returned
+                val updatedItems = originalItems.map { item ->
+                    val itemKey = "${item.itemId}_${item.lineNum}"
+                    if (returnedItemIds.contains(itemKey)) {
+                        item.copy(
+                            isReturned = true,
+                            returnTransactionId = "RETURNED", // Or actual return transaction ID
+                            returnQuantity = item.quantity.toDouble()
+                        )
+                    } else {
+                        item
+                    }
+                }
+
+                // Update in database
+                transactionDao.updateTransactionRecords(updatedItems)
+
+                Log.d(TAG, "Successfully marked ${returnedItemIds.size} items as returned")
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error marking items as returned", e)
+            }
+        }
+    }
+
+// ENHANCED: Better TransactionItemsAdapter validation
+// Add this method to your TransactionItemsAdapter class:
+
+
+
+
+    // ENHANCED: Helper functions for UI state management
+    private fun updateSelectionCount(textView: TextView, returnItemsAdapter: TransactionItemsAdapter) {
+        val selectedCount = returnItemsAdapter.getSelectedItemCount()
+        val totalCount = returnItemsAdapter.itemCount
+        val selectedValue = returnItemsAdapter.getSelectedItemsValue()
+
+        textView.text = "$selectedCount of $totalCount selected (₱${String.format("%.2f", selectedValue)})"
+    }
+
+    private fun updateSelectButtons(selectAllButton: Button, deselectAllButton: Button, returnItemsAdapter: TransactionItemsAdapter) {
+        val hasSelected = returnItemsAdapter.hasSelectedItems()
+        val allSelected = returnItemsAdapter.areAllSelectableItemsSelected()
+
+        selectAllButton.isEnabled = !allSelected
+        deselectAllButton.isEnabled = hasSelected
+    }
+
+    private fun updateReturnButtonState(
+        button: Button,
+        returnItemsAdapter: TransactionItemsAdapter,
+        remarksEditText: TextInputEditText
+    ) {
+        val selectedItems = returnItemsAdapter.getSelectedItems()
+        val remarks = remarksEditText.text.toString().trim()
+        val validationError = returnItemsAdapter.validateSelection()
+
+        val isValid = selectedItems.isNotEmpty() &&
+                remarks.isNotEmpty() &&
+                validationError == null
+
+        button.isEnabled = isValid
+
+        // Update button text based on state
+        button.text = when {
+            selectedItems.isEmpty() -> "SELECT ITEMS TO RETURN"
+            remarks.isEmpty() -> "ENTER RETURN REASON"
+            validationError != null -> "INVALID SELECTION"
+            else -> "PROCESS RETURN (${selectedItems.size} items)"
+        }
     }
 
     private fun getSelectedItems(items: List<TransactionRecord>): List<TransactionRecord> {
@@ -2428,24 +2570,29 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
     private fun processReturn(
         returnDialog: AlertDialog,
         transaction: TransactionSummary,
-        returnable: List<TransactionRecord>,
+        returnItemsAdapter: TransactionItemsAdapter,
         remarksEditText: TextInputEditText,
         returnButton: Button
     ) {
-        val selectedItems = getSelectedItems(returnable)
+        val selectedItems = returnItemsAdapter.getSelectedItems()
         val remarks = remarksEditText.text.toString().trim()
+        val validationError = returnItemsAdapter.validateSelection()
 
         when {
+            validationError != null -> {
+                Toast.makeText(this, validationError, Toast.LENGTH_SHORT).show()
+            }
             selectedItems.isEmpty() -> {
                 Toast.makeText(this, "Please select items to return", Toast.LENGTH_SHORT).show()
             }
             remarks.isEmpty() -> {
-                remarksEditText.error = "Remarks are required"
+                remarksEditText.error = "Return reason is required"
+                remarksEditText.requestFocus()
             }
             else -> {
-                returnDialog.dismiss()
-                // Show preview instead of directly processing
+                // Show confirmation dialog before processing
                 showReturnPreviewDialog(transaction, selectedItems, remarks)
+//                    .show()
             }
         }
     }

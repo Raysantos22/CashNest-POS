@@ -11,13 +11,18 @@
         <item name="android:windowMinWidthMinor">70%</item>
     </style>
 
+
     <style name="CustomDialogStyle3" parent="Theme.MaterialComponents.Light.Dialog">
         <item name="android:windowBackground">@drawable/dialog_background</item>
         <item name="android:windowMinWidthMajor">50%</item>
         <item name="android:windowMinWidthMinor">50%</item>
     </style>
 
-
+    <style name="CustomDialogStyle4" parent="Theme.MaterialComponents.Light.Dialog">
+        <item name="android:windowBackground">@drawable/dialog_background</item>
+        <item name="android:windowMinWidthMajor">90%</item>
+        <item name="android:windowMinWidthMinor">90%</item>
+    </style>
 
 
 

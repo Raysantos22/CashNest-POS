@@ -2570,13 +2570,13 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
     private fun processReturn(
         returnDialog: AlertDialog,
         transaction: TransactionSummary,
-        returnItemsAdapter: TransactionItemsAdapter,
+        adapter: TransactionItemsAdapter,
         remarksEditText: TextInputEditText,
         returnButton: Button
     ) {
-        val selectedItems = returnItemsAdapter.getSelectedItems()
+        val selectedItems = adapter.getSelectedItems()
         val remarks = remarksEditText.text.toString().trim()
-        val validationError = returnItemsAdapter.validateSelection()
+        val validationError = adapter.validateSelection()
 
         when {
             validationError != null -> {
@@ -2591,8 +2591,26 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
             }
             else -> {
                 // Show confirmation dialog before processing
-                showReturnPreviewDialog(transaction, selectedItems, remarks)
-//                    .show()
+                val selectedValue = adapter.getSelectedItemsValue()
+                val confirmationMessage = """
+                Are you sure you want to return ${selectedItems.size} item(s)?
+                
+                Total return value: ₱${String.format("%.2f", selectedValue)}
+                Reason: $remarks
+                .
+            """.trimIndent()
+
+                val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle1)
+                    .setTitle("Confirm Return")
+                    .setMessage(confirmationMessage)
+                    .setPositiveButton("CONFIRM TO SEE PRINT PREVIEW") { _, _ ->
+                        returnDialog.dismiss()
+                        showReturnPreviewDialog(transaction, selectedItems, remarks)
+                    }
+                    .setNegativeButton("CANCEL", null)
+                    .create()
+                    dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+                    dialog.show()
             }
         }
     }

@@ -2626,6 +2626,7 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                 val currentStore = SessionManager.getCurrentUser()?.storeid
                     ?: throw IllegalStateException("No store ID found in current session")
 
+
                 val returnTransactionId = numberSequenceRemoteRepository.getNextTransactionNumber(currentStore)
                 val storeKey = numberSequenceRemoteRepository.getCurrentStoreKey(currentStore)
                 val storeSequence = "$currentStore-${returnTransactionId.split("-").last()}"

@@ -30,6 +30,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.recyclerview.widget.DividerItemDecoration
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.possystembw.DeviceUtils
 import com.example.possystembw.MainActivity
 import com.example.possystembw.R
 import com.example.possystembw.adapter.StockCountingAdapter
@@ -75,6 +76,8 @@ class StockCountingActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_stock_counting)
+        DeviceUtils.setOrientationBasedOnDevice(this)
+
         loadingProgressBar = findViewById(R.id.loadingStockCounting)
 
         // Initialize ViewModel

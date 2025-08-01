@@ -1,0 +1,296 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- item_line_detail.xml -->
+<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginHorizontal="16dp"
+    android:layout_marginVertical="6dp"
+    app:cardElevation="4dp"
+    app:cardCornerRadius="12dp"
+    app:cardBackgroundColor="@android:color/white">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- Header Row with Item Info and Sync Status -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="12dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvItemId"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/navy"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    tools:text="ITEM001"/>
+
+                <TextView
+                    android:id="@+id/tvItemName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@android:color/black"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:layout_marginTop="2dp"
+                    tools:text="Sample Item Name"/>
+
+                <TextView
+                    android:id="@+id/tvCategory"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/gray"
+                    android:textSize="12sp"
+                    android:layout_marginTop="2dp"
+                    tools:text="Category"/>
+
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvSyncStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="●"
+                android:textSize="20sp"
+                android:layout_gravity="center_vertical"
+                tools:text="●" />
+
+        </LinearLayout>
+
+        <!-- Input Fields Grid -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- Row 1: Order and Actual Received -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="12dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Order"
+                        android:textColor="@color/gray"
+                        android:textSize="12sp"
+                        android:layout_marginBottom="4dp"/>
+
+                    <EditText
+                        android:id="@+id/etOrder"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:inputType="number"
+                        android:textSize="16sp"
+                        android:gravity="center"
+                        android:textColor="@color/gray"
+                        android:background="@drawable/edit_text_background"
+                        android:enabled="false"/>
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Actual Received"
+                        android:textColor="@color/gray"
+                        android:textSize="12sp"
+                        android:layout_marginBottom="4dp"/>
+
+                    <EditText
+                        android:id="@+id/etActualReceived"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:inputType="number"
+                        android:textSize="16sp"
+                        android:gravity="center"
+                        android:textColor="@color/black"
+                        android:background="@drawable/rounded_search_view"
+                        android:hint="0"/>
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- Variance Display -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:gravity="center">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Variance: "
+                    android:textColor="@color/gray"
+                    android:textSize="14sp"/>
+
+                <TextView
+                    android:id="@+id/tvVariance"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="@color/navy"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:background="@drawable/card_background_mobile"
+                    android:padding="8dp"
+                    android:minWidth="60dp"
+                    android:gravity="center"
+                    tools:text="0"/>
+
+            </LinearLayout>
+
+            <!-- Row 2: Transfer and Waste Count -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="12dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="8dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Transfer"
+                        android:textColor="@color/gray"
+                        android:textSize="12sp"
+                        android:layout_marginBottom="4dp"/>
+
+                    <EditText
+                        android:id="@+id/etTransfer"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:inputType="number"
+                        android:textSize="16sp"
+                        android:gravity="center"
+                        android:textColor="@color/gray"
+                        android:background="@drawable/edit_text_background"
+                        android:visibility="gone"
+                        android:hint="0"/>
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Waste Count"
+                        android:textColor="@color/gray"
+                        android:textSize="12sp"
+                        android:layout_marginBottom="4dp"/>
+
+                    <EditText
+                        android:id="@+id/etWasteCount"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:inputType="number"
+                        android:textSize="16sp"
+                        android:gravity="center"
+                        android:textColor="@color/black"
+                        android:background="@drawable/rounded_search_view"
+                        android:hint="0"/>
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- Row 3: Waste Type -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginBottom="12dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Waste Type"
+                    android:textColor="@color/gray"
+                    android:textSize="12sp"
+                    android:layout_marginBottom="4dp"/>
+
+                <Spinner
+                    android:id="@+id/spinnerWasteType"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:gravity="center"
+                    android:textColor="@color/black"
+                    android:background="@drawable/spinner_background"/>
+
+            </LinearLayout>
+
+            <!-- Row 4: Actual Count -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Actual Count"
+                    android:textColor="@color/gray"
+                    android:textSize="12sp"
+                    android:layout_marginBottom="4dp"/>
+
+                <EditText
+                    android:id="@+id/etActualCount"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:inputType="number"
+                    android:textSize="16sp"
+                    android:gravity="center"
+                    android:textColor="@color/black"
+                    android:background="@drawable/rounded_search_view"
+                    android:hint="0"/>
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</androidx.cardview.widget.CardView>

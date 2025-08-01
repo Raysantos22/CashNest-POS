@@ -17,6 +17,7 @@ import androidx.lifecycle.asFlow
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.possystembw.DeviceUtils
 import com.example.possystembw.R
 import com.example.possystembw.adapter.ProductVisibilityAdapter
 import com.example.possystembw.database.Category
@@ -43,6 +44,7 @@ class ProductVisibilityActivity : AppCompatActivity() {
     private var selectedVisibilityType: String = "PURCHASE"
     private var allProductsWithVisibility: List<ProductWithVisibility> = emptyList()
     private var categories: List<Category> = emptyList()
+    private var isMobileLayout = false
 
     companion object {
         const val VISIBILITY_GENERAL = "PURCHASE"
@@ -57,6 +59,7 @@ class ProductVisibilityActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_product_visibility)
+        DeviceUtils.setOrientationBasedOnDevice(this)
 
         setupToolbar()
         initializeViews()
@@ -71,7 +74,7 @@ class ProductVisibilityActivity : AppCompatActivity() {
         val toolbar = findViewById<Toolbar>(R.id.toolbar)
         setSupportActionBar(toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.title = "Product Visibility Management"
+        supportActionBar?.title = "Product Visibility"
         toolbar.setNavigationOnClickListener {
             onBackPressed()
         }

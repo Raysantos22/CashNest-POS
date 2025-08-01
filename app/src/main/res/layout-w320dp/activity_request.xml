@@ -1,0 +1,343 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- res/layout-w320dp/activity_request.xml -->
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#eff6ff"
+    tools:context=".ui.RequestActivity">
+
+    <!-- DrawerLayout for mobile navigation -->
+    <androidx.drawerlayout.widget.DrawerLayout
+        android:id="@+id/drawer_layout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <!-- Main Content -->
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <!-- Mobile Top Bar -->
+            <LinearLayout
+                android:id="@+id/mobileTopBar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@color/white"
+                android:elevation="4dp"
+                android:padding="12dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="16dp"
+                app:layout_constraintTop_toTopOf="parent">
+
+                <!-- Hamburger Menu Button -->
+                <ImageButton
+                    android:id="@+id/hamburgerButton"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Menu"
+                    android:padding="12dp"
+                    android:src="@drawable/ic_hamburger_menu" />
+
+                <!-- Title -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="12dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Create Request"
+                        android:textColor="@color/blue"
+                        android:textSize="18sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/storeNameTextView"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Request Management"
+                        android:textColor="@color/black"
+                        android:textSize="12sp" />
+
+                </LinearLayout>
+
+                <!-- Options Button -->
+
+
+            </LinearLayout>
+
+            <!-- Main Content Area -->
+            <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+                android:id="@+id/swipeRefreshLayout"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_margin="8dp"
+                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/mobileTopBar">
+
+                <androidx.constraintlayout.widget.ConstraintLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent">
+
+                    <!-- Welcome Card -->
+                    <androidx.cardview.widget.CardView
+                        android:id="@+id/welcomeCard"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_margin="8dp"
+                        app:cardCornerRadius="12dp"
+                        app:cardElevation="4dp"
+                        android:visibility="gone"
+                        app:cardBackgroundColor="@color/white"
+                        app:layout_constraintTop_toTopOf="parent">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:padding="16dp">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Request Management"
+                                android:textSize="18sp"
+                                android:textStyle="bold"
+                                android:textColor="@color/navy"
+                                android:layout_marginBottom="4dp" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="Submit requests for item management, promotions, and visibility settings. Tap the menu button above to access all options."
+                                android:textSize="14sp"
+                                android:textColor="@color/gray"
+                                android:lineSpacingExtra="2dp" />
+
+                        </LinearLayout>
+
+                    </androidx.cardview.widget.CardView>
+
+                    <!-- Quick Actions Card -->
+                    <androidx.cardview.widget.CardView
+                        android:id="@+id/quickActionsCard"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_margin="8dp"
+                        android:layout_marginTop="8dp"
+                        app:cardCornerRadius="12dp"
+                        app:cardElevation="4dp"
+                        app:cardBackgroundColor="@color/white"
+                        app:layout_constraintTop_toBottomOf="@id/welcomeCard">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:padding="16dp">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Controls"
+                                android:textSize="16sp"
+                                android:textStyle="bold"
+                                android:textColor="@color/navy"
+                                android:layout_marginBottom="12dp" />
+
+                            <!-- Quick Action Buttons Row -->
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="horizontal"
+                                android:gravity="center">
+
+                                <androidx.cardview.widget.CardView
+                                    android:id="@+id/quickAddItemCard"
+                                    android:layout_width="0dp"
+                                    android:layout_height="80dp"
+                                    android:layout_weight="1"
+                                    android:layout_marginEnd="8dp"
+                                    app:cardCornerRadius="8dp"
+                                    app:cardElevation="2dp"
+                                    android:foreground="?android:attr/selectableItemBackground"
+                                    app:cardBackgroundColor="@color/navy">
+
+                                    <LinearLayout
+                                        android:layout_width="match_parent"
+                                        android:layout_height="match_parent"
+                                        android:orientation="vertical"
+                                        android:gravity="center"
+                                        android:padding="8dp">
+
+                                        <ImageButton
+                                            android:id="@+id/optionsButton"
+                                            android:layout_width="48dp"
+                                            android:layout_height="48dp"
+                                            android:background="@drawable/check"
+                                            android:contentDescription="Options"
+                                            android:padding="12dp"
+                                             />
+
+                                        <TextView
+                                            android:layout_width="wrap_content"
+                                            android:layout_height="wrap_content"
+                                            android:text="REQUEST"
+                                            android:textSize="12sp"
+                                            android:textColor="@color/white"
+                                            android:textStyle="bold"
+                                            android:gravity="center" />
+
+                                    </LinearLayout>
+                                </androidx.cardview.widget.CardView>
+
+                                <androidx.cardview.widget.CardView
+                                    android:id="@+id/quickEditItemCard"
+                                    android:layout_width="0dp"
+                                    android:layout_height="80dp"
+                                    android:layout_weight="1"
+                                    android:layout_marginStart="8dp"
+                                    app:cardCornerRadius="8dp"
+                                    app:cardElevation="2dp"
+                                    android:foreground="?android:attr/selectableItemBackground"
+                                    app:cardBackgroundColor="@color/orange">
+
+                                    <LinearLayout
+                                        android:layout_width="match_parent"
+                                        android:layout_height="match_parent"
+                                        android:orientation="vertical"
+                                        android:gravity="center"
+                                        android:padding="8dp">
+
+                                        <ImageView
+                                            android:layout_width="24dp"
+                                            android:layout_height="24dp"
+                                            android:src="@drawable/check"
+                                            android:visibility="gone"
+                                            android:tint="@color/white"
+                                            android:layout_marginBottom="4dp" />
+
+                                        <TextView
+                                            android:layout_width="wrap_content"
+                                            android:layout_height="wrap_content"
+                                            android:text="Soon Controls....."
+                                            android:textSize="12sp"
+                                            android:textColor="@color/white"
+                                            android:textStyle="bold"
+                                            android:gravity="center" />
+
+                                    </LinearLayout>
+                                </androidx.cardview.widget.CardView>
+
+                            </LinearLayout>
+
+                        </LinearLayout>
+
+                    </androidx.cardview.widget.CardView>
+
+                    <!-- Status Card -->
+                    <androidx.cardview.widget.CardView
+                        android:id="@+id/statusCard"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_margin="8dp"
+                        android:layout_marginTop="8dp"
+                        app:cardCornerRadius="12dp"
+                        app:cardElevation="4dp"
+                        app:cardBackgroundColor="@color/white"
+                        android:visibility="gone"
+                        app:layout_constraintTop_toBottomOf="@id/quickActionsCard">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:padding="16dp">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Request Status"
+                                android:textSize="16sp"
+                                android:textStyle="bold"
+                                android:textColor="@color/navy"
+                                android:layout_marginBottom="8dp" />
+
+                            <LinearLayout
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:orientation="horizontal"
+                                android:gravity="center_vertical">
+
+                                <View
+                                    android:layout_width="8dp"
+                                    android:layout_height="8dp"
+                                    android:background="@drawable/gradient_green"
+                                    android:layout_marginEnd="8dp" />
+
+                                <TextView
+                                    android:layout_width="0dp"
+                                    android:layout_height="wrap_content"
+                                    android:layout_weight="1"
+                                    android:text="System Ready"
+                                    android:textSize="14sp"
+                                    android:textColor="@color/black" />
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="Connected"
+                                    android:textSize="12sp"
+                                    android:textColor="@color/green"
+                                    android:textStyle="bold" />
+
+                            </LinearLayout>
+
+                            <View
+                                android:layout_width="match_parent"
+                                android:layout_height="1dp"
+                                android:background="#f1f5f9"
+                                android:layout_marginVertical="8dp" />
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="All requests will be sent to admin for approval. You'll receive notifications for status updates."
+                                android:textSize="12sp"
+                                android:textColor="@color/gray"
+                                android:textStyle="italic" />
+
+                        </LinearLayout>
+
+                    </androidx.cardview.widget.CardView>
+
+                </androidx.constraintlayout.widget.ConstraintLayout>
+
+            </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
+        <!-- Navigation Drawer -->
+        <com.google.android.material.navigation.NavigationView
+            android:id="@+id/nav_view"
+            android:layout_width="280dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="start"
+            android:background="@color/black"
+            app:headerLayout="@layout/nav_header_mobile"
+            app:menu="@menu/mobile_nav_menu" />
+
+    </androidx.drawerlayout.widget.DrawerLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

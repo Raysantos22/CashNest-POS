@@ -51,7 +51,7 @@
         <activity
             android:name=".ui.RequestActivity"
             android:exported="false"
-            android:screenOrientation="landscape"/>
+           />
         <activity
             android:name=".ui.SplashActivity"
             android:exported="true"
@@ -80,11 +80,11 @@
         <activity
             android:name=".ui.LineActivity"
             android:exported="false"
-            android:screenOrientation="landscape" />
+             />
         <activity
             android:name=".ui.StockCountingActivity"
             android:exported="false"
-            android:screenOrientation="landscape" />
+             />
         <activity
             android:name=".ui.PrinterSettingsActivity"
             android:exported="false"

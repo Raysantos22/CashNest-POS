@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Base.Theme.PosSystemBW" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/white</item>
+        <item name="colorPrimaryDark">@color/navy</item>
+        <item name="colorAccent">@color/navy</item>
+
+        <!-- Define the missing attribute with a fallback -->
+        <item name="selectableItemBackgroundBorderless">?android:attr/selectableItemBackground</item>
+    </style>
+
+    <style name="Theme.PosSystemBW" parent="Base.Theme.PosSystemBW" />
+</resources>

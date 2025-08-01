@@ -52,6 +52,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.lifecycle.lifecycleScope
+import com.example.possystembw.DeviceUtils
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 
@@ -93,6 +94,7 @@ class LineActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_line)
+        DeviceUtils.setOrientationBasedOnDevice(this)
 
         // Initialize views first
         setupViews()

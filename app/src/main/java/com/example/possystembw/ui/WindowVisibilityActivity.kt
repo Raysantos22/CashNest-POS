@@ -14,6 +14,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.possystembw.DeviceUtils
 import com.example.possystembw.R
 import com.example.possystembw.adapter.WindowVisibilityAdapter
 import com.example.possystembw.data.AppDatabase
@@ -50,6 +51,7 @@ class WindowVisibilityActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_window_visibility)
+        DeviceUtils.setOrientationBasedOnDevice(this)
 
         setupToolbar()
         initializeViews()

@@ -22,8 +22,10 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class TransactionAdapter(private val onItemClick: (TransactionSummary) -> Unit) :
-    RecyclerView.Adapter<TransactionAdapter.TransactionViewHolder>() {
+class TransactionAdapter(
+    private val isMobileLayout: Boolean = false,
+    private val onItemClick: (TransactionSummary) -> Unit
+) : RecyclerView.Adapter<TransactionAdapter.TransactionViewHolder>() {
 
     private var transactions: List<TransactionSummary> = emptyList()
     private var filteredTransactions: List<TransactionSummary> = emptyList()
@@ -64,6 +66,30 @@ class TransactionAdapter(private val onItemClick: (TransactionSummary) -> Unit) 
         private val transactionIdTextView: TextView = itemView.findViewById(R.id.transactionIdTextView)
         private val totalAmountTextView: TextView = itemView.findViewById(R.id.totalAmountTextView)
 
+        init {
+            // Apply mobile-specific styling to transaction items
+            if (isMobileLayout) {
+                dateTextView.textSize = 10f
+                staffTextView.textSize = 11f
+                storeTextView.textSize = 10f
+                transactionIdTextView.textSize = 9f
+                totalAmountTextView.textSize = 11f
+
+                // Adjust padding for mobile
+                val paddingDp = (8 * itemView.context.resources.displayMetrics.density).toInt()
+                itemView.setPadding(paddingDp, paddingDp/2, paddingDp, paddingDp/2)
+
+                // Adjust image size for mobile
+                val imageParams = staffImageView.layoutParams
+                if (imageParams != null) {
+                    val imageSizeDp = (32 * itemView.context.resources.displayMetrics.density).toInt()
+                    imageParams.width = imageSizeDp
+                    imageParams.height = imageSizeDp
+                    staffImageView.layoutParams = imageParams
+                }
+            }
+        }
+
         fun bind(transaction: TransactionSummary) {
             // FIXED: Better date formatting with debug info
             val formattedDate = formatDateForDisplay(transaction.createdDate)
@@ -71,12 +97,19 @@ class TransactionAdapter(private val onItemClick: (TransactionSummary) -> Unit) 
 
             staffTextView.text = transaction.staff
             storeTextView.text = transaction.store
-            transactionIdTextView.text = transaction.transactionId
+            transactionIdTextView.text = if (isMobileLayout) {
+                // Truncate transaction ID for mobile to save space
+                val id = transaction.transactionId
+                if (id.length > 12) "${id.substring(0, 12)}..." else id
+            } else {
+                transaction.transactionId
+            }
             totalAmountTextView.text = "₱${String.format("%.2f", transaction.netAmount)}"
 
             loadStaffImage(transaction.staff)
             itemView.setOnClickListener { onItemClick(transaction) }
         }
+
         // FIXED: Helper function to format string date for display
         private fun formatDateForDisplay(dateString: String): String {
             return try {
@@ -92,7 +125,12 @@ class TransactionAdapter(private val onItemClick: (TransactionSummary) -> Unit) 
                         "yyyy-MM-dd'T'HH:mm:ss"                  // ISO without Z
                     )
 
-                    val outputFormat = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
+                    // Use different output format for mobile
+                    val outputFormat = if (isMobileLayout) {
+                        SimpleDateFormat("MMM dd\nHH:mm", Locale.getDefault()) // Two lines for mobile
+                    } else {
+                        SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
+                    }
 
                     for (format in inputFormats) {
                         try {
@@ -114,7 +152,6 @@ class TransactionAdapter(private val onItemClick: (TransactionSummary) -> Unit) 
                 dateString.ifEmpty { "Unknown Date" }
             }
         }
-
 
         private fun loadStaffImage(staffName: String) {
             // Set placeholder image first
@@ -208,11 +245,15 @@ class TransactionAdapter(private val onItemClick: (TransactionSummary) -> Unit) 
 // Add these helper functions to any class that needs to display dates:
 
 // Extension function for easy date formatting
-fun String.toDisplayDate(): String {
+fun String.toDisplayDate(isMobile: Boolean = false): String {
     return try {
         if (this.isEmpty()) return "Unknown Date"
         val inputFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
-        val outputFormat = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
+        val outputFormat = if (isMobile) {
+            SimpleDateFormat("MMM dd\nHH:mm", Locale.getDefault())
+        } else {
+            SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
+        }
         val date = inputFormat.parse(this)
         if (date != null) {
             outputFormat.format(date)
@@ -260,7 +301,7 @@ class TransactionSorting {
 // EXAMPLE USAGE: How to apply the fixed sorting in your dialog
 /*
 // In your showTransactionListDialog function:
-val transactionAdapter = TransactionAdapter { transaction ->
+val transactionAdapter = TransactionAdapter(isMobileLayout) { transaction ->
     showTransactionDetailsDialog(transaction)
 }.apply {
     setSortComparator(TransactionSorting.byDateDescending)

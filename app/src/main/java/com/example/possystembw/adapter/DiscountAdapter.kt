@@ -85,6 +85,11 @@ class DiscountAdapter(
                 windowType.contains("GRABFOOD") -> discount.GRABFOOD_PARAMETER != null
                 windowType.contains("FOODPANDA") -> discount.FOODPANDA_PARAMETER != null
                 windowType.contains("MANILARATE") -> discount.MANILAPRICE_PARAMETER != null
+                windowType.contains("MALLPRICE") -> discount.MALLPRICE_PARAMETER != null
+                windowType.contains("GRABFOODMALL") -> discount.GRABFOODMALL_PARAMETER != null
+                windowType.contains("FOODPANDAMALL") -> discount.FOODPANDAMALL_PARAMETER != null
+
+
                 else -> false
             }
 

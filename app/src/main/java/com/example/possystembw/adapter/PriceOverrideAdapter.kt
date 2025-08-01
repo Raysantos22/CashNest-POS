@@ -15,10 +15,10 @@ import com.example.possystembw.R
 import com.example.possystembw.database.CartItem
 
 class PriceOverrideAdapter(
+    private val isMobileLayout: Boolean = false,  // Add mobile layout flag
     private val onPriceOverride: (CartItem, Double) -> Unit,
     private val onPriceReset: (CartItem) -> Unit,
     private val onEditTextClicked: (EditText) -> Unit,
-
 ) : ListAdapter<CartItem, PriceOverrideAdapter.ViewHolder>(CartDiffCallback()) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -41,6 +41,23 @@ class PriceOverrideAdapter(
         private val resetPriceButton: Button = itemView.findViewById(R.id.resetPriceButton)
 
         fun bind(cartItem: CartItem) {
+            // Apply mobile-specific styling to TextViews
+            if (isMobileLayout) {
+                productNameTextView.textSize = 14f
+                originalPriceTextView.textSize = 11f
+                currentPriceTextView.textSize = 11f
+                effectivePriceTextView.textSize = 12f
+                overridePriceEditText.textSize = 12f
+
+                // Adjust button text sizes
+                applyOverrideButton.textSize = 10f
+                resetPriceButton.textSize = 10f
+
+                // Adjust padding for mobile
+                val paddingDp = (8 * itemView.context.resources.displayMetrics.density).toInt()
+                itemView.setPadding(paddingDp, paddingDp/2, paddingDp, paddingDp/2)
+            }
+
             productNameTextView.text = cartItem.productName
             originalPriceTextView.text = "Original: P${String.format("%.2f", cartItem.price)}"
 
@@ -106,7 +123,6 @@ class PriceOverrideAdapter(
                 resetPriceButton.isEnabled = false
                 hideKeyboard(overridePriceEditText)
             }
-
 
             resetPriceButton.isEnabled = cartItem.overriddenPrice != null
         }

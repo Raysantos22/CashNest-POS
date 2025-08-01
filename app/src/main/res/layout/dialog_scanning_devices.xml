@@ -11,12 +11,14 @@
         android:layout_height="wrap_content"
         android:gravity="center"
         android:padding="8dp"
+        android:textColor="@color/black"
         android:text="Scanning for devices..." />
 
     <ProgressBar
         android:id="@+id/scanningProgress"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+
         android:layout_gravity="center" />
 
     <TextView
@@ -25,6 +27,8 @@
         android:layout_height="wrap_content"
         android:gravity="center"
         android:padding="16dp"
+        android:textColor="@color/black"
+
         android:text="No devices found"
         android:visibility="gone" />
 
@@ -32,6 +36,7 @@
         android:id="@+id/deviceList"
         android:layout_width="match_parent"
         android:layout_height="0dp"
+        android:textColor="@color/black"
         android:layout_weight="1" />
 
     <Button
@@ -40,6 +45,8 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:text="Rescan"
+        android:textColor="@color/black"
+
         android:visibility="gone" />
 
 </LinearLayout>

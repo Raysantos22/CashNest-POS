@@ -445,6 +445,7 @@
                                 android:layout_height="wrap_content"
                                 android:text="💰"
                                 android:textSize="20sp"
+                                android:gravity="center"
                                 android:layout_marginBottom="4dp" />
 
                             <TextView
@@ -454,6 +455,7 @@
                                 android:textColor="#64748B"
                                 android:textSize="10sp"
                                 android:textStyle="bold"
+                                android:gravity="center"
                                 android:layout_marginBottom="4dp" />
 
                             <TextView
@@ -463,6 +465,7 @@
                                 android:text="₱0.00"
                                 android:textColor="#3B82F6"
                                 android:textSize="20sp"
+                                android:gravity="center"
                                 android:textStyle="bold" />
 
                         </LinearLayout>
@@ -492,6 +495,7 @@
                                 android:layout_height="wrap_content"
                                 android:text="💵"
                                 android:textSize="20sp"
+                                android:gravity="center"
                                 android:layout_marginBottom="4dp" />
 
                             <TextView
@@ -501,6 +505,7 @@
                                 android:textColor="#64748B"
                                 android:textSize="10sp"
                                 android:textStyle="bold"
+                                android:gravity="center"
                                 android:layout_marginBottom="4dp" />
 
                             <TextView
@@ -510,6 +515,7 @@
                                 android:text="₱0.00"
                                 android:textColor="#10B981"
                                 android:textSize="20sp"
+                                android:gravity="center"
                                 android:textStyle="bold" />
 
                         </LinearLayout>
@@ -538,6 +544,7 @@
                                 android:layout_height="wrap_content"
                                 android:text="🏷️"
                                 android:textSize="20sp"
+                                android:gravity="center"
                                 android:layout_marginBottom="4dp" />
 
                             <TextView
@@ -547,6 +554,7 @@
                                 android:textColor="#64748B"
                                 android:textSize="10sp"
                                 android:textStyle="bold"
+                                android:gravity="center"
                                 android:layout_marginBottom="4dp" />
 
                             <TextView
@@ -556,6 +564,7 @@
                                 android:text="₱0.00"
                                 android:textColor="#F59E0B"
                                 android:textSize="20sp"
+                                android:gravity="center"
                                 android:textStyle="bold" />
 
                         </LinearLayout>
@@ -593,6 +602,7 @@
                                 android:layout_height="wrap_content"
                                 android:layout_marginBottom="4dp"
                                 android:text="📦"
+                                android:gravity="center"
                                 android:textSize="20sp" />
 
                             <TextView
@@ -602,6 +612,7 @@
                                 android:text="TOTAL QTY"
                                 android:textColor="#64748B"
                                 android:textSize="10sp"
+                                android:gravity="center"
                                 android:textStyle="bold" />
 
                             <TextView
@@ -611,6 +622,7 @@
                                 android:text="0"
                                 android:textColor="#8B5CF6"
                                 android:textSize="20sp"
+                                android:gravity="center"
                                 android:textStyle="bold" />
 
                         </LinearLayout>
@@ -640,6 +652,7 @@
                                 android:layout_height="wrap_content"
                                 android:text="🧾"
                                 android:textSize="20sp"
+                                android:gravity="center"
                                 android:layout_marginBottom="4dp" />
 
                             <TextView
@@ -648,6 +661,7 @@
                                 android:text="TRANSACTIONS"
                                 android:textColor="#64748B"
                                 android:textSize="10sp"
+                                android:gravity="center"
                                 android:textStyle="bold"
                                 android:layout_marginBottom="4dp" />
 
@@ -658,6 +672,7 @@
                                 android:text="0"
                                 android:textColor="#EF4444"
                                 android:textSize="20sp"
+                                android:gravity="center"
                                 android:textStyle="bold" />
 
                         </LinearLayout>
@@ -686,6 +701,7 @@
                                 android:layout_height="wrap_content"
                                 android:layout_marginBottom="4dp"
                                 android:text="📊"
+                                android:gravity="center"
                                 android:textSize="20sp" />
 
                             <TextView
@@ -705,12 +721,14 @@
                                 android:text="0"
                                 android:textColor="#6366F1"
                                 android:textSize="20sp"
+                                android:gravity="center"
                                 android:textStyle="bold" />
                             <TextView
                                 android:id="@+id/endingORNumber"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="0"
+                                android:gravity="center"
                                 android:textColor="#6366F1"
                                 android:textSize="20sp"
                                 android:textStyle="bold" />
@@ -752,6 +770,7 @@
                                 android:layout_height="wrap_content"
                                 android:layout_marginBottom="4dp"
                                 android:text="📋"
+                                android:gravity="center"
                                 android:textSize="20sp" />
 
                             <TextView
@@ -761,6 +780,7 @@
                                 android:text="TOTAL RETURN AMOUNT"
                                 android:textColor="#64748B"
                                 android:textSize="10sp"
+                                android:gravity="center"
                                 android:textStyle="bold" />
 
                             <TextView
@@ -768,6 +788,7 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="0"
+                                android:gravity="center"
                                 android:textColor="#8B5CF6"
                                 android:textSize="20sp"
                                 android:textStyle="bold" />
@@ -799,6 +820,7 @@
                                 android:layout_height="wrap_content"
                                 android:text="💳"
                                 android:textSize="20sp"
+                                android:gravity="center"
                                 android:layout_marginBottom="4dp" />
 
                             <TextView
@@ -808,6 +830,7 @@
                                 android:textColor="#64748B"
                                 android:textSize="10sp"
                                 android:textStyle="bold"
+                                android:gravity="center"
                                 android:layout_marginBottom="4dp" />
 
                             <TextView
@@ -817,6 +840,7 @@
                                 android:text="0"
                                 android:textColor="#EF4444"
                                 android:textSize="20sp"
+                                android:gravity="center"
                                 android:textStyle="bold" />
 
                         </LinearLayout>
@@ -845,6 +869,7 @@
                                 android:layout_height="wrap_content"
                                 android:layout_marginBottom="4dp"
                                 android:text="📤"
+                                android:gravity="center"
                                 android:textSize="20sp" />
 
                             <TextView
@@ -852,6 +877,7 @@
                                 android:layout_height="wrap_content"
                                 android:layout_marginBottom="4dp"
                                 android:text="RETURNS"
+                                android:gravity="center"
                                 android:textColor="#64748B"
                                 android:textSize="10sp"
                                 android:textStyle="bold" />
@@ -866,6 +892,7 @@
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
                                     android:text="0"
+                                    android:gravity="center"
                                     android:textColor="#6366F1"
                                     android:textSize="20sp"
                                     android:textStyle="bold" />

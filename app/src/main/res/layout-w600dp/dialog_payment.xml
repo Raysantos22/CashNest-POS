@@ -1,0 +1,674 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:orientation="vertical"
+    android:background="#F5F5F5"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
+
+        <TextView
+            android:id="@+id/totalAmountTextView"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Total: P0.00"
+            android:textColor="#000000"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            android:paddingStart="8dp"/>
+
+        <Switch
+            android:id="@+id/splitPaymentSwitch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Split Payment"
+            android:textColor="#000000"
+            android:textSize="14sp"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
+
+        <Spinner
+            android:id="@+id/paymentMethodSpinner1"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@android:drawable/btn_dropdown"
+            android:hint="Payment Method"
+            android:layout_marginEnd="8dp"/>
+
+        <EditText
+            android:id="@+id/amountPaidEditText1"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="Amount"
+            android:inputType="numberDecimal"
+            android:textColor="#000000"
+            android:textColorHint="#888888"
+            android:backgroundTint="#CCCCCC"
+            android:padding="8dp"
+            android:gravity="center"
+            android:maxLength="10"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/secondPaymentLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp"
+        android:visibility="gone"
+        tools:visibility="visible">
+
+        <Spinner
+            android:id="@+id/paymentMethodSpinner2"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@android:drawable/btn_dropdown"
+            android:hint="Payment Method"
+            android:layout_marginEnd="8dp"/>
+
+        <EditText
+            android:id="@+id/amountPaidEditText2"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="Amount"
+            android:inputType="numberDecimal"
+            android:textColor="#000000"
+            android:textColorHint="#888888"
+            android:backgroundTint="#CCCCCC"
+            android:padding="8dp"
+            android:gravity="center"
+            android:maxLength="10"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
+
+        <AutoCompleteTextView
+            android:id="@+id/customerAutoComplete"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="Customer Name"
+            android:inputType="text"
+            android:padding="8dp"
+            android:textColor="#000000"
+            android:textColorHint="#888888"
+            android:backgroundTint="#CCCCCC"
+            android:layout_marginEnd="8dp"/>
+
+        <androidx.cardview.widget.CardView
+            android:id="@+id/cardViewPoints"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="4dp"
+            android:visibility="gone"
+            app:cardBackgroundColor="#673AB7">
+
+            <Button
+                android:id="@+id/btnViewPoints"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="90dp"
+                android:text="Points"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:background="?android:attr/selectableItemBackground"
+                style="?android:attr/buttonBarButtonStyle"/>
+
+        </androidx.cardview.widget.CardView>
+    </LinearLayout>
+    <Button
+        android:id="@+id/viewPointsButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="View Points"
+        android:visibility="gone"
+        android:layout_marginStart="8dp"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="8dp">
+
+        <!-- Left Column - Promotions -->
+        <LinearLayout
+            android:id="@+id/promoSuggestionsContainer"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:visibility="gone"
+            android:layout_marginEnd="4dp"
+            android:background="#FFF8E1">
+
+            <TextView
+                android:id="@+id/promoHeader"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Available Promotions"
+                android:textStyle="bold"
+                android:textColor="#E65100"
+                android:textSize="14sp"
+                android:padding="4dp"/>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/promoSuggestionsRecyclerView"
+                android:layout_width="match_parent"
+                android:layout_height="100dp"
+                android:padding="2dp"/>
+        </LinearLayout>
+
+        <!-- Right Column - Customer History -->
+        <LinearLayout
+            android:id="@+id/purchaseHistoryContainer"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:layout_marginStart="4dp"
+            android:visibility="gone"
+            android:background="#F5F5F5">
+
+            <TextView
+                android:id="@+id/frequentlyBoughtHeader"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Frequently Bought Items"
+                android:textStyle="bold"
+                android:textColor="#2E7D32"
+                android:textSize="14sp"
+                android:padding="4dp"/>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/purchaseHistoryRecyclerView"
+                android:layout_width="match_parent"
+                android:layout_height="100dp"
+                android:padding="2dp"/>
+        </LinearLayout>
+    </LinearLayout>
+    <!--    <View-->
+    <!--        android:layout_width="match_parent"-->
+    <!--        android:layout_height="1dp"-->
+    <!--        android:background="#CCCCCC"-->
+    <!--        android:layout_marginBottom="8dp"/>-->
+    <HorizontalScrollView
+        android:id="@+id/quickPaymentScrollView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp">
+
+            <!-- Smart Pay Button -->
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardSmartPay"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="16dp"
+                android:layout_marginStart="4dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="#3D5AFE">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="4dp">
+
+                    <!-- Label at top -->
+
+                    <!-- Main button -->
+                    <Button
+                        android:id="@+id/btnSmartPay"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minWidth="90dp"
+                        android:text="₱110"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
+                        android:textColor="#FFFFFF"
+                        android:background="?android:attr/selectableItemBackground"
+                        style="?android:attr/buttonBarButtonStyle"/>
+
+                    <!-- Bottom indicator -->
+
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:id="@+id/card1000"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="#4CAF50">
+
+                <Button
+                    android:id="@+id/btn1000"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:text="₱1000"
+                    android:textColor="@android:color/white"
+                    android:textStyle="bold"
+                    android:background="?android:attr/selectableItemBackground"
+                    style="?android:attr/buttonBarButtonStyle"/>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:id="@+id/card500"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="#2196F3">
+
+                <Button
+                    android:id="@+id/btn500"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:text="₱500"
+                    android:textColor="@android:color/white"
+                    android:textStyle="bold"
+                    android:background="?android:attr/selectableItemBackground"
+                    style="?android:attr/buttonBarButtonStyle"/>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:id="@+id/card200"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="#FF9800">
+
+                <Button
+                    android:id="@+id/btn200"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:text="₱200"
+                    android:textColor="@android:color/white"
+                    android:textStyle="bold"
+                    android:background="?android:attr/selectableItemBackground"
+                    style="?android:attr/buttonBarButtonStyle"/>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:id="@+id/card100"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="#9C27B0">
+
+                <Button
+                    android:id="@+id/btn100"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:text="₱100"
+                    android:textColor="@android:color/white"
+                    android:textStyle="bold"
+                    android:background="?android:attr/selectableItemBackground"
+                    style="?android:attr/buttonBarButtonStyle"/>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:id="@+id/card50"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="#FF5722">
+
+                <Button
+                    android:id="@+id/btn50"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:text="₱50"
+                    android:textColor="@android:color/white"
+                    android:textStyle="bold"
+                    android:background="?android:attr/selectableItemBackground"
+                    style="?android:attr/buttonBarButtonStyle"/>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:id="@+id/card20"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="#795548">
+
+                <Button
+                    android:id="@+id/btn20"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:text="₱20"
+                    android:textColor="@android:color/white"
+                    android:textStyle="bold"
+                    android:background="?android:attr/selectableItemBackground"
+                    style="?android:attr/buttonBarButtonStyle"/>
+            </androidx.cardview.widget.CardView>
+        </LinearLayout>
+    </HorizontalScrollView>
+    <LinearLayout
+        android:id="@+id/numpadContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <GridLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:columnCount="3"
+            android:useDefaultMargins="true">
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:layout_margin="4dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="#FFFFFF">
+
+                <Button
+                    android:id="@+id/button7"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:text="7"
+                    android:textSize="18sp"
+                    android:textColor="#333333"
+                    android:background="?android:attr/selectableItemBackground"
+                    style="?android:attr/buttonBarButtonStyle"/>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:layout_margin="4dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="#FFFFFF">
+
+                <Button
+                    android:id="@+id/button8"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:text="8"
+                    android:textSize="18sp"
+                    android:textColor="#333333"
+                    android:background="?android:attr/selectableItemBackground"
+                    style="?android:attr/buttonBarButtonStyle"/>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:layout_margin="4dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="#FFFFFF">
+
+                <Button
+                    android:id="@+id/button9"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:text="9"
+                    android:textSize="18sp"
+                    android:textColor="#333333"
+                    android:background="?android:attr/selectableItemBackground"
+                    style="?android:attr/buttonBarButtonStyle"/>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:layout_margin="4dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="#FFFFFF">
+
+                <Button
+                    android:id="@+id/button4"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:text="4"
+                    android:textSize="18sp"
+                    android:textColor="#333333"
+                    android:background="?android:attr/selectableItemBackground"
+                    style="?android:attr/buttonBarButtonStyle"/>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:layout_margin="4dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="#FFFFFF">
+
+                <Button
+                    android:id="@+id/button5"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:text="5"
+                    android:textSize="18sp"
+                    android:textColor="#333333"
+                    android:background="?android:attr/selectableItemBackground"
+                    style="?android:attr/buttonBarButtonStyle"/>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:layout_margin="4dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="#FFFFFF">
+
+                <Button
+                    android:id="@+id/button6"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:text="6"
+                    android:textSize="18sp"
+                    android:textColor="#333333"
+                    android:background="?android:attr/selectableItemBackground"
+                    style="?android:attr/buttonBarButtonStyle"/>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:layout_margin="4dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="#FFFFFF">
+
+                <Button
+                    android:id="@+id/button1"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:text="1"
+                    android:textSize="18sp"
+                    android:textColor="#333333"
+                    android:background="?android:attr/selectableItemBackground"
+                    style="?android:attr/buttonBarButtonStyle"/>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:layout_margin="4dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="#FFFFFF">
+
+                <Button
+                    android:id="@+id/button2"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:text="2"
+                    android:textSize="18sp"
+                    android:textColor="#333333"
+                    android:background="?android:attr/selectableItemBackground"
+                    style="?android:attr/buttonBarButtonStyle"/>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:layout_margin="4dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="#FFFFFF">
+
+                <Button
+                    android:id="@+id/button3"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:text="3"
+                    android:textSize="18sp"
+                    android:textColor="#333333"
+                    android:background="?android:attr/selectableItemBackground"
+                    style="?android:attr/buttonBarButtonStyle"/>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:layout_margin="4dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="#FFFFFF">
+
+                <Button
+                    android:id="@+id/buttonDot"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:text="."
+                    android:textSize="18sp"
+                    android:textColor="#333333"
+                    android:background="?android:attr/selectableItemBackground"
+                    style="?android:attr/buttonBarButtonStyle"/>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:layout_margin="4dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="#FFFFFF">
+
+                <Button
+                    android:id="@+id/button0"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:text="0"
+                    android:textSize="18sp"
+                    android:textColor="#333333"
+                    android:background="?android:attr/selectableItemBackground"
+                    style="?android:attr/buttonBarButtonStyle"/>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_columnWeight="1"
+                android:layout_margin="4dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp"
+                app:cardBackgroundColor="#FFEBEE">
+
+                <Button
+                    android:id="@+id/buttonBackspace"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:text="⌫"
+                    android:textSize="18sp"
+                    android:textColor="#D32F2F"
+                    android:background="?android:attr/selectableItemBackground"
+                    style="?android:attr/buttonBarButtonStyle"/>
+            </androidx.cardview.widget.CardView>
+        </GridLayout>
+    </LinearLayout>
+</LinearLayout>
+
+    <!--    <LinearLayout-->
+    <!--        android:layout_width="match_parent"-->
+    <!--        android:layout_height="wrap_content"-->
+    <!--        android:orientation="horizontal"-->
+    <!--        android:layout_marginTop="8dp">-->
+
+    <!--        <Button-->
+    <!--            android:id="@+id/cancelButton"-->
+    <!--            android:layout_width="0dp"-->
+    <!--            android:layout_height="wrap_content"-->
+    <!--            android:layout_weight="1"-->
+    <!--            android:text="CANCEL"-->
+    <!--            android:textColor="#FFFFFF"-->
+    <!--            android:backgroundTint="#FF0000"-->
+    <!--            android:layout_marginEnd="8dp"/>-->
+
+    <!--        <Button-->
+    <!--            android:id="@+id/payButton"-->
+    <!--            android:layout_width="0dp"-->
+    <!--            android:layout_height="wrap_content"-->
+    <!--            android:layout_weight="1"-->
+    <!--            android:text="PAY"-->
+    <!--            android:textColor="#FFFFFF"-->
+    <!--            android:backgroundTint="#4CAF50"/>-->
+    <!--    </LinearLayout>-->
+
+    <!-- You'll need to add this style to your styles.xml -->

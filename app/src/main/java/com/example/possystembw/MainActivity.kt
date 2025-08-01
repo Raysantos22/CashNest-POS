@@ -1205,7 +1205,7 @@ private lateinit var sequenceChecker: NumberSequenceAutoChecker
                 }
             } catch (e: Exception) {
                 Log.e("MainActivity", "Error during manual refresh", e)
-                showToast("Error refreshing data: ${e.message}")
+//                showToast("Error refreshing data: ${e.message}")
             } finally {
                 refreshButton.isEnabled = true
                 refreshLayout.isRefreshing = false

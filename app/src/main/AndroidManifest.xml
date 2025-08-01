@@ -46,7 +46,7 @@
         <activity
             android:name=".ui.ReportsActivity"
             android:exported="false"
-            android:screenOrientation="landscape"/>
+            />
 
         <activity
             android:name=".ui.RequestActivity"
@@ -88,7 +88,7 @@
         <activity
             android:name=".ui.PrinterSettingsActivity"
             android:exported="false"
-            android:screenOrientation="landscape" />
+             />
         <activity
             android:name=".ui.ViewModel.OrderWebViewActivity"
             android:exported="false" />
@@ -103,7 +103,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="false"
-            android:screenOrientation="landscape" /> <!-- <intent-filter> -->
+             /> <!-- <intent-filter> -->
         <!-- <action android:name="android.intent.action.MAIN" /> -->
         <!-- <category android:name="android.intent.category.LAUNCHER" /> -->
         <!-- </intent-filter> -->
@@ -124,8 +124,7 @@
         <activity
             android:name=".ui.AttendanceActivity"
             android:exported="false"
-            android:launchMode="singleTask"
-            android:screenOrientation="landscape" />
+            />
         <activity
             android:name=".ui.AttendanceHistoryActivity"
             android:exported="false"

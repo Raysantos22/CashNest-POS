@@ -13,6 +13,7 @@ import android.util.Log
 
 class TransactionItemsAdapter(
     private var items: MutableList<TransactionRecord>,
+    private val isMobileLayout: Boolean = false,
     private val onItemSelected: (TransactionRecord, Boolean) -> Unit,
     private val onSelectionChanged: (Int) -> Unit = {} // Callback for selection count changes
 ) : RecyclerView.Adapter<TransactionItemsAdapter.ItemViewHolder>() {
@@ -24,6 +25,7 @@ class TransactionItemsAdapter(
         // ADD THIS LOG to verify adapter receives correct data:
         Log.d("TransactionItemsAdapter", "=== ADAPTER INITIALIZED ===")
         Log.d("TransactionItemsAdapter", "Received ${items.size} items")
+        Log.d("TransactionItemsAdapter", "Mobile layout: $isMobileLayout")
         items.forEachIndexed { index, item ->
             Log.d("TransactionItemsAdapter", "Item $index: ${item.name} - isReturned: ${item.isReturned}")
         }
@@ -41,6 +43,28 @@ class TransactionItemsAdapter(
         private val nameTextView: TextView = itemView.findViewById(R.id.itemNameTextView)
         private val quantityTextView: TextView = itemView.findViewById(R.id.quantityTextView)
         private val priceTextView: TextView = itemView.findViewById(R.id.priceTextView)
+
+        init {
+            // Apply mobile-specific styling to item views
+            if (isMobileLayout) {
+                nameTextView.textSize = 11f
+                quantityTextView.textSize = 10f
+                priceTextView.textSize = 10f
+
+                // Adjust padding for mobile
+                val paddingDp = (6 * itemView.context.resources.displayMetrics.density).toInt()
+                itemView.setPadding(paddingDp, paddingDp/2, paddingDp, paddingDp/2)
+
+                // Adjust checkbox size for mobile
+                val checkboxParams = checkBox.layoutParams
+                if (checkboxParams != null) {
+                    val sizeDp = (24 * itemView.context.resources.displayMetrics.density).toInt()
+                    checkboxParams.width = sizeDp
+                    checkboxParams.height = sizeDp
+                    checkBox.layoutParams = checkboxParams
+                }
+            }
+        }
 
         fun bind(transaction: TransactionRecord) {
             // FIXED: Prevent recursive updates
@@ -73,7 +97,7 @@ class TransactionItemsAdapter(
 
                 // Visual indication for locked items
                 itemView.alpha = 0.7f
-                nameTextView.text = "${transaction.name} (Partial Payment - Required)"
+                nameTextView.text = "${transaction.name} ${if (isMobileLayout) "(PP)" else "(Partial Payment - Required)"}"
             } else {
                 checkBox.isEnabled = true
                 itemView.alpha = 1.0f
@@ -196,6 +220,7 @@ class TransactionItemsAdapter(
     fun getPartialPaymentItems(): List<TransactionRecord> {
         return items.filter { it.partialPaymentAmount > 0 }
     }
+
     fun hasReturnedItems(): Boolean {
         return items.any { it.isReturned || !it.returnTransactionId.isNullOrEmpty() }
     }
@@ -216,6 +241,7 @@ class TransactionItemsAdapter(
         }
         Log.d(TAG, "=== END DEBUG ===")
     }
+
     // ADDED: Validate selection (for business rules)
     fun validateSelection(): String? {
         val selectedItems = getSelectedItems()

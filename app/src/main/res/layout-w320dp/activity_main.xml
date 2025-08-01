@@ -32,9 +32,10 @@
                 <LinearLayout
                     android:id="@+id/mobileTopBar"
                     android:layout_width="match_parent"
-                    android:layout_height="56dp"
+                    android:layout_height="wrap_content"
                     android:background="@color/white"
                     android:elevation="4dp"
+                    android:padding="12dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingHorizontal="16dp"

@@ -16,8 +16,8 @@ import com.example.possystembw.databinding.ItemTransactionResyncBinding
 import com.example.possystembw.ui.PrinterSettingsActivity
 import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
-
 
 class TransactionResyncAdapter :
     ListAdapter<PrinterSettingsActivity.TransactionData, TransactionResyncAdapter.ViewHolder>(DIFF_CALLBACK) {
@@ -74,10 +74,34 @@ class TransactionResyncAdapter :
         // Update checkbox state
         holder.checkbox.isChecked = data.isSelected
 
+        // Format date safely - handle different date types
+        val formattedDate = try {
+            when (val createdDate = summary.createdDate) {
+                is String -> SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(createdDate)
+                is String -> {
+                    // Try to parse the string date
+                    try {
+                        val inputFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+                        val date = inputFormat.parse(createdDate)
+                        SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(date)
+                    } catch (e: Exception) {
+                        createdDate // Return as-is if parsing fails
+                    }
+                }
+                is String -> {
+                    // Handle timestamp
+                    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(createdDate))
+                }
+                else -> createdDate.toString()
+            }
+        } catch (e: Exception) {
+            "Invalid Date"
+        }
+
         // Format summary information
         holder.transactionInfo.text = """
             Transaction ID: ${summary.transactionId}
-            Date: ${SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(summary.createdDate)}
+            Date: $formattedDate
             Gross Amount: ₱${String.format("%.2f", summary.grossAmount)}
             Sync Status: ${if (summary.syncStatus) "Synced" else "Not Synced"}
         """.trimIndent()
@@ -116,8 +140,8 @@ class TransactionResyncAdapter :
         )
     }
 }
+
 // Extension function to format Calendar as string
 fun Calendar.toFormattedString(): String {
     return SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(this.time)
 }
-

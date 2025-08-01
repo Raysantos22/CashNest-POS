@@ -23,71 +23,72 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent">
 
-            <!-- Header Section -->
-            <androidx.constraintlayout.widget.ConstraintLayout
-                android:id="@+id/headerLayout"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:background="@color/white"
-                android:elevation="4dp"
-                android:padding="8dp"
-                app:layout_constraintEnd_toEndOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent">
+            <!-- Enhanced Header Section with CardView -->
 
-                <!-- Hamburger Menu Button -->
-                <ImageButton
-                    android:id="@+id/hamburgerButton"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:src="@drawable/baseline_menu_24"
-                    app:layout_constraintBottom_toBottomOf="parent"
-                    app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toTopOf="parent"
-                    app:tint="@color/navy" />
-
-                <!-- Search Bar -->
-                <androidx.cardview.widget.CardView
-                    android:id="@+id/searchCardView"
-                    android:layout_width="0dp"
+                <androidx.constraintlayout.widget.ConstraintLayout
+                    android:id="@+id/headerLayout"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:layout_marginEnd="8dp"
-                    app:cardCornerRadius="8dp"
-                    app:cardElevation="2dp"
-                    app:layout_constraintBottom_toBottomOf="parent"
-                    app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintStart_toEndOf="@+id/hamburgerButton"
-                    app:layout_constraintTop_toTopOf="parent">
+                    android:background="@color/white"
+                    android:padding="12dp">
 
-                    <androidx.appcompat.widget.SearchView
-                        android:id="@+id/searchView"
-                        android:layout_width="match_parent"
-                        android:layout_height="40dp"
-                        android:background="@color/white"
-                        app:closeIcon="@drawable/baseline_close_24"
-                        app:iconifiedByDefault="false"
-                        app:queryHint="Search products..."
-                        app:searchIcon="@drawable/baseline_search_24" />
+                    <!-- Hamburger Menu Button -->
+                    <ImageButton
+                        android:id="@+id/hamburgerButton"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Menu"
+                        android:padding="12dp"
+                        android:src="@drawable/ic_hamburger_menu"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toTopOf="parent"
+                         />
 
-                </androidx.cardview.widget.CardView>
+                    <!-- Enhanced Search Bar -->
+                    <androidx.cardview.widget.CardView
+                        android:id="@+id/searchCardView"
+                        android:layout_width="0dp"
+                        android:layout_height="44dp"
+                        android:layout_marginStart="12dp"
+                        app:cardBackgroundColor="#f8fafc"
+                        app:cardCornerRadius="8dp"
+                        app:cardElevation="2dp"
+                        app:layout_constraintBottom_toBottomOf="@+id/hamburgerButton"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintStart_toEndOf="@+id/hamburgerButton"
+                        app:layout_constraintTop_toTopOf="@+id/hamburgerButton">
 
-                <!-- Store Name TextView (Hidden for mobile) -->
-                <TextView
-                    android:id="@+id/storeNameTextView"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Store: "
-                    android:textColor="@color/black"
-                    android:textSize="12sp"
-                    android:textStyle="bold"
-                    android:visibility="gone"
-                    app:layout_constraintBottom_toBottomOf="parent"
-                    app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintTop_toTopOf="parent" />
+                        <androidx.appcompat.widget.SearchView
+                            android:id="@+id/searchView"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:layout_marginRight="2dp"
+                            android:layout_marginBottom="2dp"
+                            android:background="@android:color/transparent"
+                            app:closeIcon="@drawable/baseline_close_24"
+                            app:searchIcon="@drawable/baseline_search_24" />
 
-            </androidx.constraintlayout.widget.ConstraintLayout>
+                    </androidx.cardview.widget.CardView>
+
+
+
+                    <!-- Store Name TextView (Hidden for mobile) -->
+                    <TextView
+                        android:id="@+id/storeNameTextView"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Store: "
+                        android:textColor="@color/black"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:visibility="gone"
+                        app:layout_constraintBottom_toBottomOf="parent"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintTop_toTopOf="parent" />
+
+                </androidx.constraintlayout.widget.ConstraintLayout>
+
 
             <!-- Search and Categories Section -->
             <LinearLayout
@@ -118,8 +119,8 @@
                     android:text="Products"
                     android:textColor="@color/black"
                     android:textSize="16sp"
-                    android:visibility="gone"
-                    android:textStyle="bold" />
+                    android:textStyle="bold"
+                    android:visibility="gone" />
 
             </LinearLayout>
 
@@ -164,7 +165,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginEnd="16dp"
                     android:layout_marginBottom="16dp"
-                    android:src="@drawable/baseline_shopping_cart_24"
+                    android:src="@drawable/baseline_shopping_bag_24"
                     app:backgroundTint="@color/navy"
                     app:layout_constraintBottom_toBottomOf="parent"
                     app:layout_constraintEnd_toEndOf="parent"
@@ -259,7 +260,6 @@
         android:layout_height="match_parent"
         android:layout_gravity="bottom"
         android:background="@drawable/bottom_sheet_background"
-        android:elevation="8dp"
         android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
@@ -271,8 +271,12 @@
             android:id="@+id/cartHeaderLayout"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:background="@color/navy"
-            android:padding="16dp"
+            android:background="@color/white"
+            android:elevation="4dp"
+            android:padding="18dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="16dp"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent">
@@ -296,133 +300,164 @@
                 android:id="@+id/cartControlsLayout"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toBottomOf="@+id/cartTitle">
 
-                <!-- Staff Selector -->
-                <androidx.cardview.widget.CardView
-                    android:id="@+id/staffSelectorContainer"
-                    android:layout_width="0dp"
+                <!-- Action Buttons Layout -->
+                <LinearLayout
+                    android:id="@+id/actionButtonsLayout"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginEnd="8dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    app:cardBackgroundColor="#ffffff"
-                    app:cardCornerRadius="12dp"
-                    app:cardElevation="4dp"
+                    android:gravity="center"
+                    android:orientation="horizontal"
                     app:layout_constraintBottom_toBottomOf="parent"
-                    app:layout_constraintEnd_toStartOf="@+id/printerIndicator"
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toTopOf="parent">
 
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:background="?attr/selectableItemBackground"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:padding="12dp">
-
-                        <ImageView
-                            android:id="@+id/staffIcon"
-                            android:layout_width="20dp"
-                            android:layout_height="20dp"
-                            android:src="@drawable/baseline_people_24"
-                            app:tint="@color/navy" />
-
-                        <TextView
-                            android:id="@+id/staffNameTextView"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:layout_weight="1"
-                            android:ellipsize="end"
-                            android:maxLines="1"
-                            android:text="Select Staff"
-                            android:textColor="@color/navy"
-                            android:textSize="14sp"
-                            android:textStyle="bold" />
-
-                        <ImageView
-                            android:id="@+id/dropdownIcon"
-                            android:layout_width="16dp"
-                            android:layout_height="16dp"
-                            android:layout_marginStart="4dp"
-                            android:src="@drawable/baseline_arrow_drop_down_24"
-                            app:tint="@color/navy" />
-
-                    </LinearLayout>
-                </androidx.cardview.widget.CardView>
-
-                <!-- Printer Indicator -->
-                <ImageView
-                    android:id="@+id/printerIndicator"
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:layout_marginEnd="8dp"
-                    android:src="@drawable/baseline_print_24"
-                    app:layout_constraintBottom_toBottomOf="parent"
-                    app:layout_constraintEnd_toStartOf="@+id/insertButton"
-                    app:layout_constraintTop_toTopOf="parent"
-                    app:tint="@android:color/white" />
-
-                <!-- Update Button -->
-                <Button
-                    android:id="@+id/insertButton"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:background="@drawable/update_button_background"
-                    android:drawableStart="@drawable/baseline_system_update_alt_24"
-                    android:gravity="center"
-                    android:padding="4dp"
-                    app:layout_constraintBottom_toBottomOf="parent"
-                    app:layout_constraintEnd_toStartOf="@+id/cartActionsLayout"
-                    app:layout_constraintTop_toTopOf="parent" />
-
-                <!-- Cart Action Buttons -->
-                <LinearLayout
-                    android:id="@+id/cartActionsLayout"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="8dp"
-                    android:orientation="horizontal"
-                    app:layout_constraintBottom_toBottomOf="parent"
-                    app:layout_constraintEnd_toStartOf="@+id/closeCartButton"
-                    app:layout_constraintTop_toTopOf="parent">
-
-                    <!-- Barcode Scan Button -->
                     <ImageButton
-                        android:id="@+id/barcodeScanButton"
+                        android:id="@+id/closeCartButton"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:src="@drawable/ic_back"
+                        android:contentDescription="Back"
+                        app:tint="#64748b"/>
+
+                    <!-- Staff Selector -->
+                    <androidx.cardview.widget.CardView
+                        android:id="@+id/staffSelectorContainer"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="4dp"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:layout_marginTop="4dp"
+                        android:layout_marginBottom="4dp"
+                        android:layout_marginStart="4dp"
+                        app:cardBackgroundColor="@color/white"
+                        app:cardCornerRadius="8dp"
+                        app:cardElevation="4dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:background="?attr/selectableItemBackground"
+                            android:gravity="center"
+                            android:orientation="horizontal"
+                            android:padding="6dp">
+
+                            <ImageView
+                                android:id="@+id/staffIcon"
+                                android:layout_width="20dp"
+                                android:layout_height="20dp"
+                                android:src="@drawable/baseline_people_24"
+                                app:tint="@color/white" />
+
+                            <TextView
+                                android:id="@+id/staffNameTextView"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="4dp"
+                                android:layout_weight="1"
+                                android:ellipsize="end"
+                                android:maxLength="15"
+                                android:maxLines="1"
+                                android:textColor="@color/button_blue"
+                                android:textSize="12sp"
+                                android:textStyle="bold" />
+
+                            <ImageView
+                                android:id="@+id/dropdownIcon"
+                                android:layout_width="20dp"
+                                android:layout_height="20dp"
+                                android:src="@drawable/baseline_arrow_drop_down_24"
+                                app:tint="@color/button_blue" />
+
+                        </LinearLayout>
+                    </androidx.cardview.widget.CardView>
+
+                    <!-- Printer Indicator -->
+                    <androidx.cardview.widget.CardView
                         android:layout_width="36dp"
                         android:layout_height="36dp"
                         android:layout_marginEnd="8dp"
-                        android:src="@drawable/baseline_qr_code_scanner_24"
-                        />
+                        android:layout_marginStart="10dp"
+                        app:cardBackgroundColor="@color/white"
+                        app:cardCornerRadius="8dp"
+                        app:cardElevation="4dp">
 
-                    <!-- Clear Cart Button -->
-                    <ImageButton
-                        android:id="@+id/clearCartButton"
+                        <ImageView
+                            android:id="@+id/printerIndicator"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:layout_gravity="center"
+                            android:src="@drawable/baseline_print_24"
+                            app:tint="@android:color/white" />
+
+                    </androidx.cardview.widget.CardView>
+
+                    <!-- Update Button -->
+                    <androidx.cardview.widget.CardView
                         android:layout_width="36dp"
                         android:layout_height="36dp"
-                        android:background="@drawable/circular_button_background"
-                        android:src="@drawable/restart"
-                        app:tint="@android:color/white" />
+                        android:layout_marginEnd="8dp"
+                        app:cardBackgroundColor="@color/button_blue"
+                        app:cardCornerRadius="8dp"
+                        app:cardElevation="4dp">
+
+                        <ImageButton
+                            android:id="@+id/insertButton"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:background="@android:color/transparent"
+                            android:src="@drawable/baseline_system_update_alt_24"
+                            app:tint="@android:color/white" />
+
+                    </androidx.cardview.widget.CardView>
+
+                    <!-- Barcode Scanner Button -->
+                    <androidx.cardview.widget.CardView
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="8dp"
+                        app:cardBackgroundColor="@color/button_blue"
+                        app:cardCornerRadius="8dp"
+                        android:visibility="gone"
+                        app:cardElevation="4dp">
+
+                        <ImageButton
+                            android:id="@+id/barcodeScanButton"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:background="@android:color/transparent"
+                            android:src="@drawable/baseline_qr_code_scanner_24"
+                            app:tint="@android:color/white" />
+
+                    </androidx.cardview.widget.CardView>
+
+                    <!-- Clear Cart Button -->
+                    <androidx.cardview.widget.CardView
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:layout_marginEnd="8dp"
+                        app:cardBackgroundColor="@color/button_blue"
+                        app:cardCornerRadius="8dp"
+                        app:cardElevation="4dp">
+
+                        <ImageButton
+                            android:id="@+id/clearCartButton"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:background="@android:color/transparent"
+                            android:src="@drawable/baseline_update_24"
+                            app:tint="@android:color/white" />
+
+                    </androidx.cardview.widget.CardView>
+
 
                 </LinearLayout>
 
-                <!-- Close Cart Button -->
-                <ImageButton
-                    android:id="@+id/closeCartButton"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:background="@drawable/circular_button_background"
-                    android:src="@drawable/baseline_close_24"
-                    app:layout_constraintBottom_toBottomOf="parent"
-                    app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintTop_toTopOf="parent"
-                    app:tint="@android:color/white" />
 
             </androidx.constraintlayout.widget.ConstraintLayout>
 
@@ -576,12 +611,14 @@
                 android:textStyle="bold"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintTop_toTopOf="@id/totalTextView" />
+
             <ProgressBar
                 android:id="@+id/cartLoadingIndicator"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:visibility="gone" />
-            <!-- Action Buttons -->
+
+            <!-- Enhanced Action Buttons -->
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
@@ -591,16 +628,18 @@
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toBottomOf="@id/totalTextView">
 
-                <!-- Options Button -->
-                <Button
+                <!-- Options Button with Icon -->
+                <ImageButton
                     android:id="@+id/optionsButton"
                     android:layout_width="0dp"
                     android:layout_height="48dp"
-                    android:layout_marginEnd="8dp"
+                    android:background="@drawable/card_background_mobile_option"
+                    android:src="@drawable/baseline_settings_24"
+                    android:scaleType="centerInside"
                     android:layout_weight="1"
-                    android:text="Options"
-                    android:textColor="@color/navy"
-                    android:textSize="14sp" />
+                    android:layout_marginEnd="8dp"
+                    />
+
 
                 <!-- Pay Button -->
                 <Button
@@ -608,6 +647,9 @@
                     android:layout_width="0dp"
                     android:layout_height="48dp"
                     android:layout_weight="2"
+                    android:background="@drawable/card_background_mobilepaynow"
+                    android:drawablePadding="8dp"
+                    android:gravity="center"
                     android:text="Pay Now"
                     android:textColor="@android:color/white"
                     android:textSize="16sp"

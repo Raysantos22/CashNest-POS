@@ -22,7 +22,6 @@ import com.example.possystembw.DAO.*
 import com.example.possystembw.R
 import com.example.possystembw.RetrofitClient
 import com.example.possystembw.adapter.ItemSalesAdapter
-
 import com.example.possystembw.data.ARRepository
 import com.example.possystembw.data.AppDatabase
 import com.example.possystembw.data.CashFundRepository
@@ -33,6 +32,18 @@ import com.example.possystembw.databinding.ActivityReportsBinding
 import com.example.possystembw.ui.ViewModel.ARViewModel
 import com.example.possystembw.ui.ViewModel.ARViewModelFactory
 import com.example.possystembw.ui.ViewModel.BluetoothPrinterHelper
+import com.example.possystembw.ui.ViewModel.NumberSequenceAutoChecker
+import com.example.possystembw.ui.ViewModel.setupNumberSequenceChecker
+import com.example.possystembw.DeviceUtils
+import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.google.android.material.navigation.NavigationView
+import androidx.drawerlayout.widget.DrawerLayout
+import androidx.core.view.GravityCompat
+import android.view.MenuItem
+import android.content.Intent
+import android.graphics.Typeface
+import android.view.animation.AccelerateDecelerateInterpolator
+import androidx.cardview.widget.CardView
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
@@ -44,25 +55,20 @@ import java.util.*
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
-import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.Typeface
 import android.os.Build
 import android.provider.Settings
+import com.example.possystembw.MainActivity
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.forEach
-import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.collectLatest
-import androidx.lifecycle.lifecycleScope
-import com.example.possystembw.ui.ViewModel.NumberSequenceAutoChecker
-import com.example.possystembw.ui.ViewModel.setupNumberSequenceChecker
+import java.nio.charset.Charset
+import java.util.TimeZone
+import kotlin.math.abs
+import kotlin.math.absoluteValue
 
-
-class ReportsActivity : AppCompatActivity() {
+class ReportsActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
     private lateinit var binding: ActivityReportsBinding
     private lateinit var transactionDao: TransactionDao
     private lateinit var zReadDao: ZReadDao
@@ -87,35 +93,23 @@ class ReportsActivity : AppCompatActivity() {
     private var lastSyncTimestamp: Long = 0L
     private var isAutoSyncEnabled: Boolean = true
     private val autoSyncIntervalMs: Long = 30000L
-    private var lastKnownTransactionCount: Int = 0  // <- This fixes your error
+    private var lastKnownTransactionCount: Int = 0
 
     private lateinit var sequenceChecker: NumberSequenceAutoChecker
 
+    // Mobile layout properties
+    private var drawerLayout: DrawerLayout? = null
+    private var navigationView: NavigationView? = null
+    private var hamburgerButton: ImageButton? = null
+    private var fabMenu: FloatingActionButton? = null
+    private var isMobileLayout = false
 
     companion object {
-        // FIXED: Use simple formatters like in showTransactionListDialog
         private val DATE_FORMAT = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
         private val DISPLAY_DATE_FORMAT = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
 
-
-        // FIXED: Use the same date formatting as showTransactionListDialog
-//        private fun formatDateToString(date: Date): String {
-//            return try {
-//                val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'", Locale.US)
-//                format.timeZone = TimeZone.getTimeZone("UTC")
-//                val result = format.format(date)
-//                Log.d("ReportsActivity", "Reports formatDateToString: $date -> '$result'")
-//                result
-//            } catch (e: Exception) {
-//                Log.e("ReportsActivity", "Error formatting date to string: ${e.message}")
-//                val fallbackFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'", Locale.US)
-//                fallbackFormat.timeZone = TimeZone.getTimeZone("UTC")
-//                fallbackFormat.format(Date())
-//            }
-//        }
         private fun formatDateToString(date: Date): String {
             return try {
-                // FIXED: Use your exact format 2025-07-17 09:03:35
                 val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
                 val result = format.format(date)
                 Log.d("ReportsActivity", "Reports formatDateToString: $date -> '$result'")
@@ -126,6 +120,7 @@ class ReportsActivity : AppCompatActivity() {
                 fallbackFormat.format(Date())
             }
         }
+
         fun formatDateForDisplay(date: Date): String {
             return DISPLAY_DATE_FORMAT.format(date)
         }
@@ -216,30 +211,340 @@ class ReportsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Set orientation based on device
+        DeviceUtils.setOrientationBasedOnDevice(this)
+
         binding = ActivityReportsBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        simpleTest()
 
-        initializeComponents()
-        setupDatePickers()
-        setupButtons()
-        loadTodaysReport()
-        checkForExistingCashFund()
-        setupAutomaticZRead()
-        testShowTransactionListDialogMethod()
-        testDateFormats()
-        debugWhatDialogWouldShow()
+        try {
+            DeviceUtils.setOrientationBasedOnDevice(this)
 
-        // Test the date format fix
-        testDateFormats()
-        checkYesterdayTransactionsOnStartup()
+            // Detect layout type
+            detectLayoutType()
 
-        setupSimpleAutoSync()
-        initializeWithTodaysDate()
-        sequenceChecker = setupNumberSequenceChecker(this)
-        sequenceChecker.checkAndUpdateSequence()
+            // Initialize views based on layout
+            initializeLayoutSpecificViews()
 
+            simpleTest()
+            initializeComponents()
+            setupDatePickers()
+            setupButtons()
+            loadTodaysReport()
+            checkForExistingCashFund()
+            setupAutomaticZRead()
+            testShowTransactionListDialogMethod()
+            testDateFormats()
+            debugWhatDialogWouldShow()
+            runPriceDebugging()
+            testDateFormats()
+            checkYesterdayTransactionsOnStartup()
+
+            setupSimpleAutoSync()
+            initializeWithTodaysDate()
+            sequenceChecker = setupNumberSequenceChecker(this)
+            sequenceChecker.checkAndUpdateSequence()
+
+            Log.d("ReportsActivity", "✅ onCreate completed successfully for ${if (isMobileLayout) "mobile" else "tablet"} mode")
+
+        } catch (e: Exception) {
+            Log.e("ReportsActivity", "❌ Error during onCreate", e)
+            Toast.makeText(this, "Initialization Error: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
+
+    private fun detectLayoutType() {
+        // Check what views actually exist in the loaded layout
+        val drawerLayoutView = findViewById<DrawerLayout>(R.id.drawer_layout)
+        val isTabletDevice = DeviceUtils.isTablet(this)
+        val hasDrawer = drawerLayoutView != null
+
+        Log.d("ReportsActivity", "=== LAYOUT DETECTION ===")
+        Log.d("ReportsActivity", "Device type: ${if (isTabletDevice) "Tablet" else "Phone"}")
+        Log.d("ReportsActivity", "Has DrawerLayout: $hasDrawer")
+
+        // Determine layout type based on actual layout loaded
+        isMobileLayout = hasDrawer && !isTabletDevice
+
+        Log.d("ReportsActivity", "Final decision: ${if (isMobileLayout) "Mobile" else "Tablet"} mode")
+    }
+
+    private fun initializeLayoutSpecificViews() {
+        if (isMobileLayout) {
+            // Mobile-specific views
+            drawerLayout = findViewById(R.id.drawer_layout)
+            navigationView = findViewById(R.id.nav_view)
+            hamburgerButton = findViewById(R.id.hamburgerButton)
+            fabMenu = findViewById(R.id.fabMenu)
+
+            Log.d("ReportsActivity", "✅ Mobile views initialized")
+            Log.d("ReportsActivity", "DrawerLayout: ${drawerLayout != null}")
+            Log.d("ReportsActivity", "NavigationView: ${navigationView != null}")
+            Log.d("ReportsActivity", "HamburgerButton: ${hamburgerButton != null}")
+            Log.d("ReportsActivity", "FAB Menu: ${fabMenu != null}")
+
+            setupMobileSpecificFeatures()
+        } else {
+            // Tablet-specific initialization
+            Log.d("ReportsActivity", "✅ Tablet layout detected")
+        }
+    }
+
+    private fun setupMobileSpecificFeatures() {
+        try {
+            // Setup navigation drawer
+            navigationView?.setNavigationItemSelectedListener(this)
+
+            // Update store name in navigation header
+            navigationView?.getHeaderView(0)?.let { headerView ->
+                val navStoreName = headerView.findViewById<TextView>(R.id.nav_store_name)
+                val currentStore = SessionManager.getCurrentUser()?.storeid ?: "Unknown Store"
+                navStoreName?.text = "Store: $currentStore"
+            }
+
+            // Setup hamburger button
+            hamburgerButton?.setOnClickListener {
+                drawerLayout?.openDrawer(GravityCompat.START)
+            }
+
+            // Setup FAB menu for mobile actions
+            fabMenu?.setOnClickListener {
+                showMobileActionsMenu()
+            }
+
+            Log.d("ReportsActivity", "✅ Mobile features setup complete")
+        } catch (e: Exception) {
+            Log.e("ReportsActivity", "❌ Mobile features setup failed", e)
+        }
+    }
+
+    private fun showMobileActionsMenu() {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_reports_mobile_actions, null)
+
+        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle4)
+            .setView(dialogView)
+            .create()
+
+        // Apply custom background
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+
+        // Set up click listeners for each action card
+        setupMobileActionClickListeners(dialogView, dialog)
+
+        // Cancel button
+        dialogView.findViewById<ImageButton>(R.id.cancelButton).setOnClickListener {
+            dialog.dismiss()
+        }
+
+        dialog.show()
+
+        // Add entrance animation
+        dialogView.alpha = 0f
+        dialogView.scaleX = 0.8f
+        dialogView.scaleY = 0.8f
+        dialogView.animate()
+            .alpha(1f)
+            .scaleX(1f)
+            .scaleY(1f)
+            .setDuration(300)
+            .setInterpolator(AccelerateDecelerateInterpolator())
+            .start()
+    }
+
+    private fun setupMobileActionClickListeners(dialogView: View, dialog: AlertDialog) {
+        // X-Read option
+        dialogView.findViewById<CardView>(R.id.xReadCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                performXRead()
+            }
+        }
+
+        // Z-Read option
+        dialogView.findViewById<CardView>(R.id.zReadCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                checkForExistingZRead()
+            }
+        }
+
+        // Cash Fund option
+        dialogView.findViewById<CardView>(R.id.cashFundCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                showCashFundDialog()
+            }
+        }
+
+        // Pullout Fund option
+        dialogView.findViewById<CardView>(R.id.pulloutCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                showPulloutCashFundDialog()
+            }
+        }
+
+        // Tender Declaration option
+        dialogView.findViewById<CardView>(R.id.tenderCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                showTenderDeclarationDialog()
+            }
+        }
+
+        // Item Sales option
+        dialogView.findViewById<CardView>(R.id.itemSalesCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                val selectedDateRange = if (isSameDay(startDate, endDate)) {
+                    formatDateForDisplay(endDate)
+                } else {
+                    "${SimpleDateFormat("MMM dd", Locale.getDefault()).format(startDate)} - ${formatDateForDisplay(endDate)}"
+                }
+                showItemSalesDialog(selectedDateRange)
+            }
+        }
+
+        // Reprint Z-Read option
+        dialogView.findViewById<CardView>(R.id.reprintCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                showReprintZReadSelection()
+            }
+        }
+
+        // Sync Data option
+        dialogView.findViewById<CardView>(R.id.syncCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                showAutoSyncMenu()
+            }
+        }
+    }
+
+    private fun animateCardClick(view: View, action: () -> Unit) {
+        view.animate()
+            .scaleX(0.95f)
+            .scaleY(0.95f)
+            .setDuration(100)
+            .withEndAction {
+                view.animate()
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setDuration(100)
+                    .withEndAction {
+                        action()
+                    }
+                    .start()
+            }
+            .start()
+    }
+
+    override fun onNavigationItemSelected(item: MenuItem): Boolean {
+        when (item.itemId) {
+            R.id.nav_reports -> {
+                // Already in reports, just close drawer
+            }
+            R.id.nav_stock_counting -> {
+                val intent = Intent(this, StockCountingActivity::class.java)
+                startActivity(intent)
+            }
+            R.id.nav_web_reports -> {
+                navigateToMainWithUrl("https://eljin.org/reports", "REPORTS")
+            }
+            R.id.nav_customers -> {
+                navigateToMainWithUrl("https://eljin.org/customers", "CUSTOMER")
+            }
+            R.id.nav_loyalty_card -> {
+                navigateToMainWithUrl("https://eljin.org/loyalty-cards", "Loyalty Card")
+            }
+            R.id.nav_stock_transfer -> {
+                navigateToMainWithUrl("https://eljin.org/StockTransfer", "Stock Transfer")
+            }
+            R.id.nav_attendance -> {
+                val intent = Intent(this, AttendanceActivity::class.java)
+                startActivity(intent)
+            }
+            R.id.nav_printer_settings -> {
+                val intent = Intent(this, PrinterSettingsActivity::class.java)
+                startActivity(intent)
+            }
+            R.id.nav_pos_system -> {
+                val intent = Intent(this, MainActivity::class.java)
+                startActivity(intent)
+                finish()
+            }
+            R.id.nav_logout -> {
+                val intent = Intent(this, MainActivity::class.java)
+                startActivity(intent)
+                finish()
+            }
+        }
+
+        drawerLayout?.closeDrawer(GravityCompat.START)
+        return true
+    }
+
+    override fun onBackPressed() {
+        when {
+            isMobileLayout && drawerLayout?.isDrawerOpen(GravityCompat.START) == true -> {
+                drawerLayout?.closeDrawer(GravityCompat.START)
+            }
+            else -> {
+                super.onBackPressed()
+            }
+        }
+    }
+
+    private fun navigateToMainWithUrl(url: String?, message: String?) {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            url?.let { putExtra("web_url", it) }
+        }
+        message?.let {
+            Toast.makeText(this, it, Toast.LENGTH_SHORT).show()
+        }
+        startActivity(intent)
+    }
+
+    // Apply mobile styling to dialogs
+    private fun applyMobileDialogStyling(dialog: AlertDialog) {
+        if (!isMobileLayout) return
+
+        try {
+            // Adjust button text sizes and padding
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.let { button ->
+                button.textSize = 12f
+                button.setPadding(2, 1, 12, 1)
+            }
+
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.let { button ->
+                button.textSize = 12f
+                button.setPadding(2, 1, 12, 1)
+                button.text = "Cancel"
+            }
+
+            // Adjust dialog title
+            val titleView = dialog.findViewById<TextView>(android.R.id.title)
+            titleView?.let { title ->
+                title.textSize = 14f
+                title.setPadding(16, 12, 16, 8)
+            }
+
+            // Adjust dialog width for mobile
+            dialog.window?.let { window ->
+                val layoutParams = window.attributes
+                val displayMetrics = resources.displayMetrics
+                layoutParams.width = (displayMetrics.widthPixels * 0.8).toInt()
+                window.attributes = layoutParams
+            }
+
+        } catch (e: Exception) {
+            Log.e("ReportsActivity", "Error applying mobile dialog styling", e)
+        }
+    }
+
     private fun setupSimpleAutoSync() {
         lifecycleScope.launch {
             delay(3000) // Wait for everything to load
@@ -395,6 +700,7 @@ class ReportsActivity : AppCompatActivity() {
         }
     }
     // X-Read functionality
+    // Updated showXReadPreviewDialog function with mobile layout support
     private fun showXReadPreviewDialog(
         transactions: List<TransactionSummary>,
         tenderDeclaration: TenderDeclaration?,
@@ -415,11 +721,34 @@ class ReportsActivity : AppCompatActivity() {
                     val printButton = dialogView.findViewById<Button>(R.id.printButton)
                     val cancelButton = dialogView.findViewById<Button>(R.id.cancelButton)
 
+                    // Apply mobile-specific styling to content and buttons
                     reportTextView.typeface = Typeface.MONOSPACE
                     reportTextView.text = xReadContent
 
-                    val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-                        .setTitle("X-Read Preview")
+                    if (isMobileLayout) {
+                        reportTextView.textSize = 10f
+                        printButton.textSize = 12f
+                        cancelButton.textSize = 12f
+                        printButton.setPadding(8, 4, 8, 4)
+                        cancelButton.setPadding(8, 4, 8, 4)
+                    }
+
+                    // Create custom title view
+                    val titleView = TextView(this@ReportsActivity)
+                    titleView.text = "X-Read Preview"
+                    titleView.textSize = if (isMobileLayout) 16f else 18f
+                    titleView.setTextColor(androidx.core.content.ContextCompat.getColor(this@ReportsActivity, android.R.color.black))
+                    titleView.setPadding(
+                        if (isMobileLayout) 50 else 24,  // left
+                        if (isMobileLayout) 50 else 20,  // top
+                        if (isMobileLayout) 16 else 24,  // right
+                        if (isMobileLayout) 8 else 12    // bottom
+                    )
+                    titleView.gravity = Gravity.CENTER_VERTICAL
+                    titleView.setTypeface(null, Typeface.BOLD)
+
+                    val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle3)
+                        .setCustomTitle(titleView)
                         .setView(dialogView)
                         .setCancelable(true)
                         .create()
@@ -444,7 +773,16 @@ class ReportsActivity : AppCompatActivity() {
 
                     dialog.window?.apply {
                         setBackgroundDrawableResource(R.drawable.dialog_background)
-                        setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                        if (isMobileLayout) {
+                            // Mobile-specific dialog sizing
+                            val displayMetrics = resources.displayMetrics
+                            val width = (displayMetrics.widthPixels * 0.95).toInt()
+                            val height = (displayMetrics.heightPixels * 0.85).toInt()
+                            setLayout(width, height)
+                        } else {
+                            // Tablet sizing
+                            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                        }
                     }
 
                     dialog.show()
@@ -463,7 +801,7 @@ class ReportsActivity : AppCompatActivity() {
         }
     }
 
-
+    // Updated showZReadPreviewDialog function with mobile layout support
     private fun showZReadPreviewDialog(
         transactions: List<TransactionSummary>,
         zReportId: String,
@@ -490,11 +828,34 @@ class ReportsActivity : AppCompatActivity() {
                     reportTextView.typeface = Typeface.MONOSPACE
                     reportTextView.text = zReadContent
 
-                    // FIXED: Better button text for reprint
-                    printButton.text = "🖨️ Reprint Z-Read"
+                    // Apply mobile-specific styling to content and buttons
+                    if (isMobileLayout) {
+                        reportTextView.textSize = 10f
+                        printButton.textSize = 12f
+                        cancelButton.textSize = 12f
+                        printButton.setPadding(8, 4, 8, 4)
+                        cancelButton.setPadding(8, 4, 8, 4)
+                    }
 
-                    val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-                        .setTitle("Z-Read Preview - Report #$zReportId")
+                    // FIXED: Better button text for reprint
+                    printButton.text = if (isMobileLayout) "🖨️ Reprint" else "🖨️ Reprint Z-Read"
+
+                    // Create custom title view
+                    val titleView = TextView(this@ReportsActivity)
+                    titleView.text = "Z-Read Preview - Report #$zReportId"
+                    titleView.textSize = if (isMobileLayout) 14f else 18f // Slightly smaller for mobile due to longer text
+                    titleView.setTextColor(androidx.core.content.ContextCompat.getColor(this@ReportsActivity, android.R.color.black))
+                    titleView.setPadding(
+                        if (isMobileLayout) 50 else 24,  // left
+                        if (isMobileLayout) 50 else 20,  // top
+                        if (isMobileLayout) 16 else 24,  // right
+                        if (isMobileLayout) 8 else 12    // bottom
+                    )
+                    titleView.gravity = Gravity.CENTER_VERTICAL
+                    titleView.setTypeface(null, Typeface.BOLD)
+
+                    val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle3)
+                        .setCustomTitle(titleView)
                         .setView(dialogView)
                         .setCancelable(true)
                         .create()
@@ -522,7 +883,16 @@ class ReportsActivity : AppCompatActivity() {
 
                     dialog.window?.apply {
                         setBackgroundDrawableResource(R.drawable.dialog_background)
-                        setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                        if (isMobileLayout) {
+                            // Mobile-specific dialog sizing
+                            val displayMetrics = resources.displayMetrics
+                            val width = (displayMetrics.widthPixels * 0.95).toInt()
+                            val height = (displayMetrics.heightPixels * 0.85).toInt()
+                            setLayout(width, height)
+                        } else {
+                            // Tablet sizing
+                            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                        }
                     }
 
                     dialog.show()
@@ -668,7 +1038,7 @@ class ReportsActivity : AppCompatActivity() {
 //        }
 //    }
 
-//    private fun performXRead() {
+    //    private fun performXRead() {
 //        lifecycleScope.launch {
 //            try {
 //                val currentDate = Date()
@@ -884,48 +1254,48 @@ class ReportsActivity : AppCompatActivity() {
 //            }
 //        }
 //    }
-private fun performXRead() {
-    lifecycleScope.launch {
-        try {
-            val currentDate = Date()
-            val selectedDate = endDate
+    private fun performXRead() {
+        lifecycleScope.launch {
+            try {
+                val currentDate = Date()
+                val selectedDate = endDate
 
-            val isToday = isSameDay(currentDate, selectedDate)
+                val isToday = isSameDay(currentDate, selectedDate)
 
-            if (!isToday) {
-                // For past dates, check for existing Z-Read
-                handlePastDateXRead(selectedDate)
-                return@launch
-            }
-
-            // FIXED: For today's X-Read, use consistent date range
-            val (todayTransactions, hasZRead) = getTodaysTransactionData()
-
-            withContext(Dispatchers.Main) {
-                if (todayTransactions.isEmpty()) {
-                    showNoTransactionsDialog("X-Read")
-                    return@withContext
+                if (!isToday) {
+                    // For past dates, check for existing Z-Read
+                    handlePastDateXRead(selectedDate)
+                    return@launch
                 }
 
-                val currentTenderDeclaration = withContext(Dispatchers.IO) {
-                    tenderDeclarationDao.getLatestTenderDeclaration()
+                // FIXED: For today's X-Read, use consistent date range
+                val (todayTransactions, hasZRead) = getTodaysTransactionData()
+
+                withContext(Dispatchers.Main) {
+                    if (todayTransactions.isEmpty()) {
+                        showNoTransactionsDialog("X-Read")
+                        return@withContext
+                    }
+
+                    val currentTenderDeclaration = withContext(Dispatchers.IO) {
+                        tenderDeclarationDao.getLatestTenderDeclaration()
+                    }
+
+                    showXReadPreviewDialog(todayTransactions, currentTenderDeclaration, hasZRead)
                 }
 
-                showXReadPreviewDialog(todayTransactions, currentTenderDeclaration, hasZRead)
-            }
-
-        } catch (e: Exception) {
-            Log.e("XRead", "Error performing X-Read", e)
-            withContext(Dispatchers.Main) {
-                Toast.makeText(
-                    this@ReportsActivity,
-                    "Error performing X-Read: ${e.message}",
-                    Toast.LENGTH_LONG
-                ).show()
+            } catch (e: Exception) {
+                Log.e("XRead", "Error performing X-Read", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@ReportsActivity,
+                        "Error performing X-Read: ${e.message}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
         }
     }
-}
 
     private suspend fun getTodaysTransactionData(): Pair<List<TransactionSummary>, Boolean> {
         return withContext(Dispatchers.IO) {
@@ -1077,7 +1447,7 @@ private fun performXRead() {
             }
         }
     }
-//
+    //
 //    private fun getCurrentDate(): String {
 //        return formatDateAsString(getCurrentPhilippineTime())
 //    }
@@ -1087,133 +1457,176 @@ private fun performXRead() {
 //        return TIME_FORMAT.format(getCurrentPhilippineTime())
 //    }
     // Rest of the existing methods...
-private fun showReprintZReadSelection() {
-    lifecycleScope.launch {
-        try {
-            val selectedDateString = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(endDate)
-            val existingZRead = withContext(Dispatchers.IO) {
-                zReadDao.getZReadByDate(selectedDateString)
-            }
+    private fun showReprintZReadSelection() {
+        lifecycleScope.launch {
+            try {
+                val selectedDateString = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(endDate)
+                val existingZRead = withContext(Dispatchers.IO) {
+                    zReadDao.getZReadByDate(selectedDateString)
+                }
 
-            if (existingZRead != null) {
-                // Show reprint Z-Read dialog with consistent styling
-                val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-                    .setTitle("Reprint Z-Read")
-                    .setMessage(
-                        "Z-Read found for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(endDate)}:\n\n" +
-                                "Z-Report ID: ${existingZRead.zReportId}\n" +
-                                "Date: ${existingZRead.date}\n" +
-                                "Time: ${existingZRead.time}\n" +
-                                "Transactions: ${existingZRead.totalTransactions}\n" +
-                                "Amount: ₱${String.format("%.2f", existingZRead.totalAmount)}\n\n" +
-                                "Would you like to view and reprint it?"
+                if (existingZRead != null) {
+                    // Show reprint Z-Read dialog with consistent styling
+                    val titleView = TextView(this@ReportsActivity)
+                    titleView.text = "Reprint Z-Read"
+                    titleView.textSize = if (isMobileLayout) 16f else 18f
+                    titleView.setTextColor(androidx.core.content.ContextCompat.getColor(this@ReportsActivity, android.R.color.black))
+                    titleView.setPadding(
+                        if (isMobileLayout) 50 else 24,  // left
+                        if (isMobileLayout) 50 else 20,  // top
+                        if (isMobileLayout) 16 else 24,  // right
+                        if (isMobileLayout) 8 else 12    // bottom
                     )
-                    .setPositiveButton("View & Reprint") { _, _ ->
-                        // Show the Z-Read preview dialog
-                        lifecycleScope.launch {
-                            try {
-                                val transactions = withContext(Dispatchers.IO) {
-                                    transactionDao.getTransactionsByDateRange(
-                                        formatDateToString(startDate),
-                                        formatDateToString(endDate)
-                                    )
-                                }
-                                val tenderDeclaration = withContext(Dispatchers.IO) {
-                                    tenderDeclarationDao.getLatestTenderDeclaration()
-                                }
+                    titleView.gravity = Gravity.CENTER_VERTICAL
+                    titleView.setTypeface(null, Typeface.BOLD)
 
-                                showZReadPreviewDialog(transactions, existingZRead.zReportId, tenderDeclaration)
-                            } catch (e: Exception) {
-                                Toast.makeText(this@ReportsActivity, "Error loading Z-Read: ${e.message}", Toast.LENGTH_SHORT).show()
+                    val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle3)
+                        .setCustomTitle(titleView)
+                        .setMessage(
+                            "Z-Read found for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(endDate)}:\n\n" +
+                                    "Z-Report ID: ${existingZRead.zReportId}\n" +
+                                    "Date: ${existingZRead.date}\n" +
+                                    "Time: ${existingZRead.time}\n" +
+                                    "Transactions: ${existingZRead.totalTransactions}\n" +
+                                    "Amount: ₱${String.format("%.2f", existingZRead.totalAmount)}\n\n" +
+                                    "Would you like to view and reprint it?"
+                        )
+                        .setPositiveButton("View & Reprint") { _, _ ->
+                            // Show the Z-Read preview dialog
+                            lifecycleScope.launch {
+                                try {
+                                    val transactions = withContext(Dispatchers.IO) {
+                                        transactionDao.getTransactionsByDateRange(
+                                            formatDateToString(startDate),
+                                            formatDateToString(endDate)
+                                        )
+                                    }
+                                    val tenderDeclaration = withContext(Dispatchers.IO) {
+                                        tenderDeclarationDao.getLatestTenderDeclaration()
+                                    }
+
+                                    showZReadPreviewDialog(transactions, existingZRead.zReportId, tenderDeclaration)
+                                } catch (e: Exception) {
+                                    Toast.makeText(this@ReportsActivity, "Error loading Z-Read: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
                             }
-                        }
-                    }
-                    .setNegativeButton("Cancel", null)
-                    .create()
-
-                dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-                dialog.show()
-                return@launch
-            }
-
-            // If no Z-Read in database, check transactions for Z-Report IDs
-            val transactions = withContext(Dispatchers.IO) {
-                transactionDao.getTransactionsByDateRange(
-                    formatDateToString(startDate),
-                    formatDateToString(endDate)
-                ).filter { it.transactionStatus == 1 }
-            }
-
-            withContext(Dispatchers.Main) {
-                if (transactions.isEmpty()) {
-                    // No transactions found for selected date
-                    val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-                        .setTitle("No Transactions Found")
-                        .setMessage(
-                            "No completed transactions found for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(endDate)}.\n\n" +
-                                    "Please select a date that has transactions with a completed Z-Read."
-                        )
-                        .setPositiveButton("OK", null)
-                        .create()
-
-                    dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-                    dialog.show()
-                    return@withContext
-                }
-
-                val transactionsWithZRead = transactions.filter {
-                    !it.zReportId.isNullOrEmpty()
-                }
-
-                if (transactionsWithZRead.isNotEmpty()) {
-                    val firstZReportId = transactionsWithZRead.first().zReportId
-
-                    val allSameZReportId = transactionsWithZRead.all {
-                        it.zReportId == firstZReportId
-                    }
-
-                    if (allSameZReportId && transactionsWithZRead.size == transactions.size) {
-                        // All transactions have the same Z-Report ID - show existing Z-Read dialog
-                        showExistingZReadDialog(firstZReportId!!, transactions)
-                    } else {
-                        // Mixed state - some transactions have Z-Report IDs, some don't
-                        showMixedZReadStateDialog(transactions, transactionsWithZRead)
-                    }
-                } else {
-                    // No Z-Read found anywhere for selected date
-                    val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-                        .setTitle("No Z-Read Found")
-                        .setMessage(
-                            "No Z-Read found for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(endDate)}.\n\n" +
-                                    "The transactions for this date do not have Z-Read data:\n\n" +
-                                    "Transactions: ${transactions.size}\n" +
-                                    "Total Amount: ₱${String.format("%.2f", transactions.sumOf { it.netAmount })}\n\n" +
-                                    "Would you like to generate a Z-Read first?"
-                        )
-                        .setPositiveButton("Generate Z-Read") { _, _ ->
-                            // Offer to generate Z-Read for these transactions
-                            showZReadConfirmationDialog(transactions.size)
                         }
                         .setNegativeButton("Cancel", null)
                         .create()
 
                     dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
                     dialog.show()
+                    applyMobileDialogStyling(dialog)
+                    return@launch
                 }
-            }
 
-        } catch (e: Exception) {
-            Log.e("ReportsActivity", "Error checking for Z-Read to reprint", e)
-            withContext(Dispatchers.Main) {
-                Toast.makeText(
-                    this@ReportsActivity,
-                    "Error checking Z-Read: ${e.message}",
-                    Toast.LENGTH_SHORT
-                ).show()
+                // If no Z-Read in database, check transactions for Z-Report IDs
+                val transactions = withContext(Dispatchers.IO) {
+                    transactionDao.getTransactionsByDateRange(
+                        formatDateToString(startDate),
+                        formatDateToString(endDate)
+                    ).filter { it.transactionStatus == 1 }
+                }
+
+                withContext(Dispatchers.Main) {
+                    if (transactions.isEmpty()) {
+                        // No transactions found for selected date
+                        val titleView = TextView(this@ReportsActivity)
+                        titleView.text = "No Transactions Found"
+                        titleView.textSize = if (isMobileLayout) 16f else 18f
+                        titleView.setTextColor(androidx.core.content.ContextCompat.getColor(this@ReportsActivity, android.R.color.black))
+                        titleView.setPadding(
+                            if (isMobileLayout) 50 else 24,  // left
+                            if (isMobileLayout) 50 else 20,  // top
+                            if (isMobileLayout) 16 else 24,  // right
+                            if (isMobileLayout) 8 else 12    // bottom
+                        )
+                        titleView.gravity = Gravity.CENTER_VERTICAL
+                        titleView.setTypeface(null, Typeface.BOLD)
+
+                        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle3)
+                            .setCustomTitle(titleView)
+                            .setMessage(
+                                "No completed transactions found for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(endDate)}.\n\n" +
+                                        "Please select a date that has transactions with a completed Z-Read."
+                            )
+                            .setPositiveButton("OK", null)
+                            .create()
+
+                        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+                        dialog.show()
+                        applyMobileDialogStyling(dialog)
+                        return@withContext
+                    }
+
+                    val transactionsWithZRead = transactions.filter {
+                        !it.zReportId.isNullOrEmpty()
+                    }
+
+                    if (transactionsWithZRead.isNotEmpty()) {
+                        val firstZReportId = transactionsWithZRead.first().zReportId
+
+                        val allSameZReportId = transactionsWithZRead.all {
+                            it.zReportId == firstZReportId
+                        }
+
+                        if (allSameZReportId && transactionsWithZRead.size == transactions.size) {
+                            // All transactions have the same Z-Report ID - show existing Z-Read dialog
+                            showExistingZReadDialog(firstZReportId!!, transactions)
+                        } else {
+                            // Mixed state - some transactions have Z-Report IDs, some don't
+                            showMixedZReadStateDialog(transactions, transactionsWithZRead)
+                        }
+                    } else {
+                        // No Z-Read found anywhere for selected date
+                        val titleView = TextView(this@ReportsActivity)
+                        titleView.text = "No Z-Read Found"
+                        titleView.textSize = if (isMobileLayout) 16f else 18f
+                        titleView.setTextColor(androidx.core.content.ContextCompat.getColor(this@ReportsActivity, android.R.color.black))
+                        titleView.setPadding(
+                            if (isMobileLayout) 50 else 24,  // left
+                            if (isMobileLayout) 50 else 20,  // top
+                            if (isMobileLayout) 16 else 24,  // right
+                            if (isMobileLayout) 8 else 12    // bottom
+                        )
+                        titleView.gravity = Gravity.CENTER_VERTICAL
+                        titleView.setTypeface(null, Typeface.BOLD)
+
+                        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle3)
+                            .setCustomTitle(titleView)
+                            .setMessage(
+                                "No Z-Read found for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(endDate)}.\n\n" +
+                                        "The transactions for this date do not have Z-Read data:\n\n" +
+                                        "Transactions: ${transactions.size}\n" +
+                                        "Total Amount: ₱${String.format("%.2f", transactions.sumOf { it.netAmount })}\n\n" +
+                                        "Would you like to generate a Z-Read first?"
+                            )
+                            .setPositiveButton("Generate Z-Read") { _, _ ->
+                                // Offer to generate Z-Read for these transactions
+                                showZReadConfirmationDialog(transactions.size)
+                            }
+                            .setNegativeButton("Cancel", null)
+                            .create()
+
+                        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+                        dialog.show()
+                        applyMobileDialogStyling(dialog)
+                    }
+                }
+
+            } catch (e: Exception) {
+                Log.e("ReportsActivity", "Error checking for Z-Read to reprint", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(
+                        this@ReportsActivity,
+                        "Error checking Z-Read: ${e.message}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
             }
         }
     }
-}
+
 
     private fun initializeComponents() {
         val database = AppDatabase.getDatabase(this)
@@ -1228,7 +1641,7 @@ private fun showReprintZReadSelection() {
         val numberSequenceRemoteRepository = NumberSequenceRemoteRepository(
             numberSequenceApi = numberSequenceApi,
             numberSequenceRemoteDao = numberSequenceRemoteDao,
-            transactionDao = transactionDao  // ADD THIS PARAMETER
+            transactionDao = transactionDao
         )
 
         transactionRepository = TransactionRepository(
@@ -1273,7 +1686,6 @@ private fun showReprintZReadSelection() {
         Log.d("ReportsActivity", "Start: ${formatDateToString(startDate)}")
         Log.d("ReportsActivity", "End: ${formatDateToString(endDate)}")
 
-        // Run debugging functions
         testDateQueries()
     }
 
@@ -1666,7 +2078,7 @@ private fun showReprintZReadSelection() {
             }
         }
     }
-//    private fun initializeWithTodaysDate() {
+    //    private fun initializeWithTodaysDate() {
 //        val today = Calendar.getInstance()
 //
 //        // FIXED: Set both start and end to today
@@ -1697,39 +2109,39 @@ private fun showReprintZReadSelection() {
 //        Log.d("ReportsActivity", "Start: ${formatDateToString(startDate)}")
 //        Log.d("ReportsActivity", "End: ${formatDateToString(endDate)}")
 //    }
-private fun initializeWithTodaysDate() {
-    val today = Calendar.getInstance()
+    private fun initializeWithTodaysDate() {
+        val today = Calendar.getInstance()
 
-    // Set start date to today at beginning of day
-    val todayStart = Calendar.getInstance().apply {
-        time = today.time
-        set(Calendar.HOUR_OF_DAY, 0)
-        set(Calendar.MINUTE, 0)
-        set(Calendar.SECOND, 0)
-        set(Calendar.MILLISECOND, 0)
+        // Set start date to today at beginning of day
+        val todayStart = Calendar.getInstance().apply {
+            time = today.time
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+
+        // Set end date to today at end of day
+        val todayEnd = Calendar.getInstance().apply {
+            time = today.time
+            set(Calendar.HOUR_OF_DAY, 23)
+            set(Calendar.MINUTE, 59)
+            set(Calendar.SECOND, 59)
+            set(Calendar.MILLISECOND, 999)
+        }
+
+        startDate = todayStart.time
+        endDate = todayEnd.time
+
+        // Set button texts to today's date
+        val todayText = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(today.time)
+        binding.startDatePickerButton.text = todayText
+        binding.endDatePickerButton.text = todayText
+
+        Log.d("ReportsActivity", "Initialized with today's date:")
+        Log.d("ReportsActivity", "Start: ${formatDateToString(startDate)}")
+        Log.d("ReportsActivity", "End: ${formatDateToString(endDate)}")
     }
-
-    // Set end date to today at end of day
-    val todayEnd = Calendar.getInstance().apply {
-        time = today.time
-        set(Calendar.HOUR_OF_DAY, 23)
-        set(Calendar.MINUTE, 59)
-        set(Calendar.SECOND, 59)
-        set(Calendar.MILLISECOND, 999)
-    }
-
-    startDate = todayStart.time
-    endDate = todayEnd.time
-
-    // Set button texts to today's date
-    val todayText = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(today.time)
-    binding.startDatePickerButton.text = todayText
-    binding.endDatePickerButton.text = todayText
-
-    Log.d("ReportsActivity", "Initialized with today's date:")
-    Log.d("ReportsActivity", "Start: ${formatDateToString(startDate)}")
-    Log.d("ReportsActivity", "End: ${formatDateToString(endDate)}")
-}
     private fun loadTransactionsExactlyLikeWindow1() {
         lifecycleScope.launch {
             try {
@@ -2434,10 +2846,10 @@ private fun initializeWithTodaysDate() {
                 val currentStoreId = SessionManager.getCurrentUser()?.storeid
                 if (currentStoreId != null) {
                     // Step 1: Clear old data (optional - remove if you want to keep old data)
-                     withContext(Dispatchers.IO) {
-                         transactionDao.deleteAllTransactions()
-                         transactionDao.deleteAllTransactionSummaries()
-                     }
+                    withContext(Dispatchers.IO) {
+                        transactionDao.deleteAllTransactions()
+                        transactionDao.deleteAllTransactionSummaries()
+                    }
 
                     // Step 2: Fetch fresh data from API
                     val success = syncTransactionsFromAPI(currentStoreId)
@@ -2493,6 +2905,13 @@ private fun initializeWithTodaysDate() {
 
     // STEP 5: Modify your existing setupButtons method to include auto-sync controls
     private fun setupButtons() {
+        if (isMobileLayout) {
+            // In mobile mode, actions are handled through FAB menu
+            // Hide traditional buttons or make them smaller
+            return
+        }
+
+        // Tablet mode button setup
         binding.xreadButton.setOnClickListener {
             performXRead()
         }
@@ -2591,19 +3010,17 @@ private fun initializeWithTodaysDate() {
     private fun showAutoSyncMenu() {
         val options = arrayOf(
             "Manual Refresh Now",
-            "Fresh API Sync", // NEW: Full API sync
+            "Fresh API Sync",
             if (isAutoSyncEnabled) "Disable Auto-Sync" else "Enable Auto-Sync",
             "Convert Date Formats",
             "Cancel"
         )
         val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-
-//        AlertDialog.Builder(this)
             .setTitle("Sync Options")
             .setItems(options) { _, which ->
                 when (which) {
                     0 -> manualRefresh()
-                    1 -> freshApiSync() // NEW: Fresh API sync
+                    1 -> freshApiSync()
                     2 -> toggleAutoSync(!isAutoSyncEnabled)
                     3 -> showDateConverterDialog()
                     4 -> { /* Cancel */ }
@@ -2614,7 +3031,7 @@ private fun initializeWithTodaysDate() {
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.show()
     }
-//    val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
+    //    val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
 //
 //    dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
 //    dialog.show()
@@ -2806,8 +3223,21 @@ private fun initializeWithTodaysDate() {
     ) {
         val firstZReportId = transactionsWithZRead.first().zReportId
 
-        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-            .setTitle("CHECK ZREAD")
+        val titleView = TextView(this@ReportsActivity)
+        titleView.text = "CHECK ZREAD"
+        titleView.textSize = if (isMobileLayout) 16f else 18f
+        titleView.setTextColor(androidx.core.content.ContextCompat.getColor(this@ReportsActivity, android.R.color.black))
+        titleView.setPadding(
+            if (isMobileLayout) 50 else 24,  // left
+            if (isMobileLayout) 50 else 20,  // top
+            if (isMobileLayout) 16 else 24,  // right
+            if (isMobileLayout) 8 else 12    // bottom
+        )
+        titleView.gravity = Gravity.CENTER_VERTICAL
+        titleView.setTypeface(null, Typeface.BOLD)
+
+        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle3)
+            .setCustomTitle(titleView)
             .setMessage(
                 "X-Read is only available for today's transactions.\n\n" +
                         "However, automatic Z-Read exists for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(selectedDate)}:\n\n" +
@@ -2833,13 +3263,27 @@ private fun initializeWithTodaysDate() {
 
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.show()
+        applyMobileDialogStyling(dialog)
     }
     private fun showNoZReadAvailable(
         transactions: List<TransactionSummary>,
         selectedDate: Date
     ) {
-        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-            .setTitle("X-Read Not Available")
+        val titleView = TextView(this@ReportsActivity)
+        titleView.text = "X-Read Not Available"
+        titleView.textSize = if (isMobileLayout) 16f else 18f
+        titleView.setTextColor(androidx.core.content.ContextCompat.getColor(this@ReportsActivity, android.R.color.black))
+        titleView.setPadding(
+            if (isMobileLayout) 50 else 24,  // left
+            if (isMobileLayout) 50 else 20,  // top
+            if (isMobileLayout) 16 else 24,  // right
+            if (isMobileLayout) 8 else 12    // bottom
+        )
+        titleView.gravity = Gravity.CENTER_VERTICAL
+        titleView.setTypeface(null, Typeface.BOLD)
+
+        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle3)
+            .setCustomTitle(titleView)
             .setMessage(
                 "X-Read is only available for today's transactions.\n\n" +
                         "No Z-Read found for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(selectedDate)}.\n\n" +
@@ -2853,6 +3297,7 @@ private fun initializeWithTodaysDate() {
 
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.show()
+        applyMobileDialogStyling(dialog)
     }
     // Add these missing methods to your ReportsActivity class
 
@@ -2896,8 +3341,21 @@ private fun initializeWithTodaysDate() {
             "today"
         }
 
-        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-            .setTitle("No Transactions")
+        val titleView = TextView(this@ReportsActivity)
+        titleView.text = "No Transactions"
+        titleView.textSize = if (isMobileLayout) 16f else 18f
+        titleView.setTextColor(androidx.core.content.ContextCompat.getColor(this@ReportsActivity, android.R.color.black))
+        titleView.setPadding(
+            if (isMobileLayout) 50 else 24,  // left
+            if (isMobileLayout) 50 else 20,  // top
+            if (isMobileLayout) 16 else 24,  // right
+            if (isMobileLayout) 8 else 12    // bottom
+        )
+        titleView.gravity = Gravity.CENTER_VERTICAL
+        titleView.setTypeface(null, Typeface.BOLD)
+
+        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle3)
+            .setCustomTitle(titleView)
             .setMessage("No transactions found for $dateStr. $reportType cannot be generated.")
             .setPositiveButton("OK") { dialog, _ ->
                 dialog.dismiss()
@@ -2906,6 +3364,7 @@ private fun initializeWithTodaysDate() {
 
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.show()
+        applyMobileDialogStyling(dialog)
     }
 
     private fun showExistingZReadOption(
@@ -2913,8 +3372,21 @@ private fun initializeWithTodaysDate() {
         transactions: List<TransactionSummary>,
         selectedDate: Date
     ) {
-        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-            .setTitle("CHECK ZREAD")
+        val titleView = TextView(this@ReportsActivity)
+        titleView.text = "CHECK ZREAD"
+        titleView.textSize = if (isMobileLayout) 16f else 18f
+        titleView.setTextColor(androidx.core.content.ContextCompat.getColor(this@ReportsActivity, android.R.color.black))
+        titleView.setPadding(
+            if (isMobileLayout) 50 else 24,  // left
+            if (isMobileLayout) 50 else 20,  // top
+            if (isMobileLayout) 16 else 24,  // right
+            if (isMobileLayout) 8 else 12    // bottom
+        )
+        titleView.gravity = Gravity.CENTER_VERTICAL
+        titleView.setTypeface(null, Typeface.BOLD)
+
+        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle3)
+            .setCustomTitle(titleView)
             .setMessage(
                 "X-Read is only available for today's transactions.\n\n" +
                         "However, Z-Read exists for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(selectedDate)}:\n\n" +
@@ -2942,8 +3414,8 @@ private fun initializeWithTodaysDate() {
 
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.show()
+        applyMobileDialogStyling(dialog)
     }
-
 
 
     // FIXED: Consistent method to get transactions for any date
@@ -3012,8 +3484,21 @@ private fun initializeWithTodaysDate() {
         }
     }
     private fun showExistingZReadDialog(zReportId: String, transactions: List<TransactionSummary>) {
-        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-            .setTitle("Z-Read Already Exists")
+        val titleView = TextView(this@ReportsActivity)
+        titleView.text = "Z-Read Already Exists"
+        titleView.textSize = if (isMobileLayout) 16f else 18f
+        titleView.setTextColor(androidx.core.content.ContextCompat.getColor(this@ReportsActivity, android.R.color.black))
+        titleView.setPadding(
+            if (isMobileLayout) 50 else 24,  // left
+            if (isMobileLayout) 50 else 20,  // top
+            if (isMobileLayout) 16 else 24,  // right
+            if (isMobileLayout) 8 else 12    // bottom
+        )
+        titleView.gravity = Gravity.CENTER_VERTICAL
+        titleView.setTypeface(null, Typeface.BOLD)
+
+        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle3)
+            .setCustomTitle(titleView)
             .setMessage("Z-Read for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(endDate)} already exists.\n\n" +
                     "Z-Report ID: $zReportId\n" +
                     "Transactions: ${transactions.size}\n" +
@@ -3044,7 +3529,9 @@ private fun initializeWithTodaysDate() {
 
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.show()
+        applyMobileDialogStyling(dialog)
     }
+
 
     private fun showMixedZReadStateDialog(
         allTransactions: List<TransactionSummary>,
@@ -3054,8 +3541,21 @@ private fun initializeWithTodaysDate() {
             it.zReportId.isNullOrEmpty()
         }
 
-        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-            .setTitle("Mixed Z-Read State")
+        val titleView = TextView(this@ReportsActivity)
+        titleView.text = "Mixed Z-Read State"
+        titleView.textSize = if (isMobileLayout) 16f else 18f
+        titleView.setTextColor(androidx.core.content.ContextCompat.getColor(this@ReportsActivity, android.R.color.black))
+        titleView.setPadding(
+            if (isMobileLayout) 50 else 24,  // left
+            if (isMobileLayout) 50 else 20,  // top
+            if (isMobileLayout) 16 else 24,  // right
+            if (isMobileLayout) 8 else 12    // bottom
+        )
+        titleView.gravity = Gravity.CENTER_VERTICAL
+        titleView.setTypeface(null, Typeface.BOLD)
+
+        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle3)
+            .setCustomTitle(titleView)
             .setMessage("Some transactions for this date already have Z-Read assigned:\n\n" +
                     "Total transactions: ${allTransactions.size}\n" +
                     "Already processed: ${transactionsWithZRead.size}\n" +
@@ -3079,6 +3579,7 @@ private fun initializeWithTodaysDate() {
 
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.show()
+        applyMobileDialogStyling(dialog)
     }
     private fun setupAutomaticZRead() {
         alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -3568,9 +4069,23 @@ private fun initializeWithTodaysDate() {
             }
         }
     }
+    // Updated showReprintZReadDialog function with mobile layout support
     private fun showReprintZReadDialog(zRead: ZRead) {
-        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-            .setTitle("Z-Read Already Exists")
+        val titleView = TextView(this@ReportsActivity)
+        titleView.text = "Z-Read Already Exists"
+        titleView.textSize = if (isMobileLayout) 16f else 18f
+        titleView.setTextColor(androidx.core.content.ContextCompat.getColor(this@ReportsActivity, android.R.color.black))
+        titleView.setPadding(
+            if (isMobileLayout) 50 else 24,  // left
+            if (isMobileLayout) 50 else 20,  // top
+            if (isMobileLayout) 16 else 24,  // right
+            if (isMobileLayout) 8 else 12    // bottom
+        )
+        titleView.gravity = Gravity.CENTER_VERTICAL
+        titleView.setTypeface(null, Typeface.BOLD)
+
+        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle3)
+            .setCustomTitle(titleView)
             .setMessage("Z-Read for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(endDate)} already exists.\n\nZ-Report ID: ${zRead.zReportId}\nTime: ${zRead.time}\n\nWould you like to view and reprint it?")
             .setPositiveButton("View & Reprint") { _, _ ->
                 // FIXED: Show preview instead of direct print
@@ -3605,6 +4120,7 @@ private fun initializeWithTodaysDate() {
 
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.show()
+        applyMobileDialogStyling(dialog)
     }
 
     private fun reprintZRead(zRead: ZRead) {
@@ -3639,8 +4155,21 @@ private fun initializeWithTodaysDate() {
         transactionCount: Int,
         specificTransactions: List<TransactionSummary>? = null
     ) {
-        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-            .setTitle("Z-Read Confirmation")
+        val titleView = TextView(this@ReportsActivity)
+        titleView.text = "Z-Read Confirmation"
+        titleView.textSize = if (isMobileLayout) 16f else 18f
+        titleView.setTextColor(androidx.core.content.ContextCompat.getColor(this@ReportsActivity, android.R.color.black))
+        titleView.setPadding(
+            if (isMobileLayout) 50 else 24,  // left
+            if (isMobileLayout) 50 else 20,  // top
+            if (isMobileLayout) 16 else 24,  // right
+            if (isMobileLayout) 8 else 12    // bottom
+        )
+        titleView.gravity = Gravity.CENTER_VERTICAL
+        titleView.setTypeface(null, Typeface.BOLD)
+
+        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle3)
+            .setCustomTitle(titleView)
             .setMessage("Z-Read will generate a final sales report for the selected date range.\n\n" +
                     "Transactions to include: $transactionCount\n" +
                     "Date: ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(endDate)}\n\n" +
@@ -3657,7 +4186,9 @@ private fun initializeWithTodaysDate() {
 
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.show()
+        applyMobileDialogStyling(dialog)
     }
+
 
     private suspend fun getCurrentZReadSequence(): Int {
         return withContext(Dispatchers.IO) {
@@ -3763,11 +4294,33 @@ private fun initializeWithTodaysDate() {
                     reportTextView.typeface = Typeface.MONOSPACE
                     reportTextView.text = zReadContent
 
+                    // Apply mobile-specific styling to buttons
+                    if (isMobileLayout) {
+                        printButton.textSize = 12f
+                        cancelButton.textSize = 12f
+                        reportTextView.textSize = 10f
+                        printButton.setPadding(8, 4, 8, 4)
+                        cancelButton.setPadding(8, 4, 8, 4)
+                    }
+
                     // Change button text for generation
                     printButton.text = "Generate & Print Z-Read"
 
-                    val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-                        .setTitle("Z-Read Generation Preview - #$zReportId")
+                    val titleView = TextView(this@ReportsActivity)
+                    titleView.text = "Z-Read Generation Preview - #$zReportId"
+                    titleView.textSize = if (isMobileLayout) 16f else 18f
+                    titleView.setTextColor(androidx.core.content.ContextCompat.getColor(this@ReportsActivity, android.R.color.black))
+                    titleView.setPadding(
+                        if (isMobileLayout) 50 else 24,  // left
+                        if (isMobileLayout) 50 else 20,  // top
+                        if (isMobileLayout) 16 else 24,  // right
+                        if (isMobileLayout) 8 else 12    // bottom
+                    )
+                    titleView.gravity = Gravity.CENTER_VERTICAL
+                    titleView.setTypeface(null, Typeface.BOLD)
+
+                    val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle3)
+                        .setCustomTitle(titleView)
                         .setView(dialogView)
                         .setCancelable(true)
                         .create()
@@ -3818,7 +4371,16 @@ private fun initializeWithTodaysDate() {
 
                     dialog.window?.apply {
                         setBackgroundDrawableResource(R.drawable.dialog_background)
-                        setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                        if (isMobileLayout) {
+                            // Mobile-specific dialog sizing
+                            val displayMetrics = resources.displayMetrics
+                            val width = (displayMetrics.widthPixels * 0.95).toInt()
+                            val height = (displayMetrics.heightPixels * 0.85).toInt()
+                            setLayout(width, height)
+                        } else {
+                            // Tablet sizing
+                            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                        }
                     }
 
                     dialog.show()
@@ -3972,50 +4534,50 @@ private fun initializeWithTodaysDate() {
         }
     }
 
-private fun simpleTest() {
-    lifecycleScope.launch {
-        try {
-            Log.d("ReportsActivity", "=== SIMPLE TEST ===")
+    private fun simpleTest() {
+        lifecycleScope.launch {
+            try {
+                Log.d("ReportsActivity", "=== SIMPLE TEST ===")
 
-            withContext(Dispatchers.IO) {
-                // Test 1: Check if we can get any transactions
-                val recent = transactionDao.getRecentTransactions()
-                Log.d("ReportsActivity", "Can we get recent transactions? ${recent.size}")
+                withContext(Dispatchers.IO) {
+                    // Test 1: Check if we can get any transactions
+                    val recent = transactionDao.getRecentTransactions()
+                    Log.d("ReportsActivity", "Can we get recent transactions? ${recent.size}")
 
-                if (recent.isNotEmpty()) {
-                    val first = recent[0]
-                    Log.d("ReportsActivity", "First transaction: ${first.transactionId}")
-                    Log.d("ReportsActivity", "First transaction date: '${first.createdDate}'")
-                    Log.d("ReportsActivity", "First transaction store: '${first.store}'")
+                    if (recent.isNotEmpty()) {
+                        val first = recent[0]
+                        Log.d("ReportsActivity", "First transaction: ${first.transactionId}")
+                        Log.d("ReportsActivity", "First transaction date: '${first.createdDate}'")
+                        Log.d("ReportsActivity", "First transaction store: '${first.store}'")
 
-                    // Test 2: Try querying for this specific transaction's date
-                    val testDate = first.createdDate
-                    Log.d("ReportsActivity", "Testing query with date: '$testDate'")
+                        // Test 2: Try querying for this specific transaction's date
+                        val testDate = first.createdDate
+                        Log.d("ReportsActivity", "Testing query with date: '$testDate'")
 
-                    // Try different formats
-                    val testQueries = listOf(
-                        testDate,  // Exact match
-                        testDate.substring(0, 19),  // Remove microseconds if any
-                        testDate.substring(0, 10) + " 00:00:00" to testDate.substring(0, 10) + " 23:59:59"  // Date range
-                    )
+                        // Try different formats
+                        val testQueries = listOf(
+                            testDate,  // Exact match
+                            testDate.substring(0, 19),  // Remove microseconds if any
+                            testDate.substring(0, 10) + " 00:00:00" to testDate.substring(0, 10) + " 23:59:59"  // Date range
+                        )
 
-                    // Test exact match first
-                    try {
-                        val exactResult = transactionDao.getTransactionsByDateRange(testDate, testDate)
-                        Log.d("ReportsActivity", "Exact date query result: ${exactResult.size}")
-                    } catch (e: Exception) {
-                        Log.e("ReportsActivity", "Exact date query failed: ${e.message}")
+                        // Test exact match first
+                        try {
+                            val exactResult = transactionDao.getTransactionsByDateRange(testDate, testDate)
+                            Log.d("ReportsActivity", "Exact date query result: ${exactResult.size}")
+                        } catch (e: Exception) {
+                            Log.e("ReportsActivity", "Exact date query failed: ${e.message}")
+                        }
+
+                    } else {
+                        Log.d("ReportsActivity", "NO TRANSACTIONS IN DATABASE!")
                     }
-
-                } else {
-                    Log.d("ReportsActivity", "NO TRANSACTIONS IN DATABASE!")
                 }
+            } catch (e: Exception) {
+                Log.e("ReportsActivity", "Simple test failed", e)
             }
-        } catch (e: Exception) {
-            Log.e("ReportsActivity", "Simple test failed", e)
         }
     }
-}
     // FIXED: Let's test different date query approaches
     private fun testDateQueries() {
         lifecycleScope.launch {
@@ -4171,7 +4733,6 @@ private fun simpleTest() {
         // Stop the simple monitoring
         stopAutoSync()
 
-        // Your existing onDestroy code...
         try {
             if (::autoZReadReceiver.isInitialized) {
                 unregisterReceiver(autoZReadReceiver)
@@ -4218,7 +4779,7 @@ private fun simpleTest() {
         }
     }
 
-private fun testDateFormats() {
+    private fun testDateFormats() {
         lifecycleScope.launch {
             try {
                 withContext(Dispatchers.IO) {
@@ -4304,8 +4865,27 @@ private fun testDateFormats() {
                     val dialogView = layoutInflater.inflate(R.layout.dialog_cash_fund, null)
                     val editTextCashFund = dialogView.findViewById<EditText>(R.id.editTextCashFund)
 
-                    val dialog = android.app.AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-                        .setTitle("Enter Cash Fund")
+                    // Apply mobile-specific styling to EditText
+                    if (isMobileLayout) {
+                        editTextCashFund.textSize = 16f
+                        dialogView.findViewById<EditText>(R.id.editTextStatus)?.textSize = 16f
+                    }
+
+                    val titleView = TextView(this@ReportsActivity)
+                    titleView.text = "Enter Cash Fund"
+                    titleView.textSize = if (isMobileLayout) 16f else 18f
+                    titleView.setTextColor(androidx.core.content.ContextCompat.getColor(this@ReportsActivity, android.R.color.black))
+                    titleView.setPadding(
+                        if (isMobileLayout) 50 else 24,  // left
+                        if (isMobileLayout) 50 else 20,  // top
+                        if (isMobileLayout) 16 else 24,  // right
+                        if (isMobileLayout) 8 else 12    // bottom
+                    )
+                    titleView.gravity = Gravity.CENTER_VERTICAL
+                    titleView.setTypeface(null, Typeface.BOLD)
+
+                    val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle3)
+                        .setCustomTitle(titleView) // Use setCustomTitle instead of setTitle
                         .setView(dialogView)
                         .setPositiveButton("Submit") { _, _ ->
                             val cashFund = editTextCashFund.text.toString().toDoubleOrNull()
@@ -4342,6 +4922,9 @@ private fun testDateFormats() {
 
                     dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
                     dialog.show()
+
+                    // Apply mobile styling after dialog is shown
+                    applyMobileDialogStyling(dialog)
                 }
             } catch (e: Exception) {
                 Log.e("ReportsActivity", "Error showing cash fund dialog", e)
@@ -4358,18 +4941,32 @@ private fun testDateFormats() {
 
     // Keep your existing showCurrentCashFundStatus method as is
     private fun showCurrentCashFundStatus() {
-        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-            .setTitle("Cash Fund Status")
+        val titleView = TextView(this@ReportsActivity)
+        titleView.text = "Cash Fund Status"
+        titleView.textSize = if (isMobileLayout) 16f else 18f
+        titleView.setTextColor(androidx.core.content.ContextCompat.getColor(this@ReportsActivity, android.R.color.black))
+        titleView.setPadding(
+            if (isMobileLayout) 50 else 24,  // left
+            if (isMobileLayout) 50 else 20,  // top
+            if (isMobileLayout) 16 else 24,  // right
+            if (isMobileLayout) 8 else 12    // bottom
+        )
+        titleView.gravity = Gravity.CENTER_VERTICAL
+        titleView.setTypeface(null, Typeface.BOLD)
+
+        val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle3)
+            .setCustomTitle(titleView)
             .setMessage(
                 "Current Cash Fund: ₱${String.format("%.2f", currentCashFund)}\n\nYou can manage the cash fund through the Pull-out Cash Fund option."
             )
-            .setPositiveButton("OK") { dialogInterface, _ ->
-                dialogInterface.dismiss()
-            }
+            .setPositiveButton("OK", null)
             .create()
 
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.show()
+
+        // Apply mobile styling after dialog is shown
+        applyMobileDialogStyling(dialog)
     }
 
     // Pullout Cash Fund functionality
@@ -4389,24 +4986,42 @@ private fun testDateFormats() {
             }
 
             if (currentCashFund <= 0) {
-                Toast.makeText(this@ReportsActivity, "No cash fund available to pull out", Toast.LENGTH_SHORT).show()
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@ReportsActivity, "No cash fund available to pull out", Toast.LENGTH_SHORT).show()
+                }
                 return@launch
             }
 
-            val dialog = android.app.AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-                .setTitle("Pull Out Cash Fund")
-                .setMessage("Current Cash Fund: ₱${String.format("%.2f", currentCashFund)}")
-                .setPositiveButton("Pull Out") { _, _ ->
-                    processPulloutCashFund(currentCashFund)
-                }
-                .setNegativeButton("Cancel") { dialog, _ ->
-                    dialog.dismiss()
-                }
-                .create()
-
             withContext(Dispatchers.Main) {
+                val titleView = TextView(this@ReportsActivity)
+                titleView.text = "Pull Out Cash Fund"
+                titleView.textSize = if (isMobileLayout) 16f else 18f
+                titleView.setTextColor(androidx.core.content.ContextCompat.getColor(this@ReportsActivity, android.R.color.black))
+                titleView.setPadding(
+                    if (isMobileLayout) 50 else 24,  // left
+                    if (isMobileLayout) 50 else 20,  // top
+                    if (isMobileLayout) 16 else 24,  // right
+                    if (isMobileLayout) 8 else 12    // bottom
+                )
+                titleView.gravity = Gravity.CENTER_VERTICAL
+                titleView.setTypeface(null, Typeface.BOLD)
+
+                val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle3)
+                    .setCustomTitle(titleView)
+                    .setMessage("Current Cash Fund: ₱${String.format("%.2f", currentCashFund)}")
+                    .setPositiveButton("Pull Out") { _, _ ->
+                        processPulloutCashFund(currentCashFund)
+                    }
+                    .setNegativeButton("Cancel") { dialog, _ ->
+                        dialog.dismiss()
+                    }
+                    .create()
+
                 dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
                 dialog.show()
+
+                // Apply mobile styling after dialog is shown
+                applyMobileDialogStyling(dialog)
             }
         }
     }
@@ -4421,8 +5036,11 @@ private fun testDateFormats() {
                 Toast.LENGTH_SHORT
             ).show()
         } else {
-            Toast.makeText(this, "Failed to print Pull-out Cash Fund Receipt", Toast.LENGTH_SHORT)
-                .show()
+            Toast.makeText(
+                this,
+                "Failed to print Pull-out Cash Fund Receipt",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
     private suspend fun hasZReadForToday(): Boolean {
@@ -4482,11 +5100,25 @@ private fun testDateFormats() {
                         dialogView.findViewById<EditText>(R.id.editText1)
                     )
 
+                    // Apply mobile-specific styling to cash EditTexts
+                    if (isMobileLayout) {
+                        cashEditTexts.forEach { editText ->
+                            editText.textSize = 12f
+                            editText.setPadding(8, 6, 8, 6)
+                        }
+                    }
+
                     val denominations = listOf(1000, 500, 200, 100, 50, 20, 10, 5, 1)
 
                     val textViewTotalCash = dialogView.findViewById<TextView>(R.id.textViewTotalCash)
                     val linearLayoutArTypes = dialogView.findViewById<LinearLayout>(R.id.linearLayoutArTypes)
                     val textViewTotalAr = dialogView.findViewById<TextView>(R.id.textViewTotalAr)
+
+                    // Apply mobile-specific styling to total text views
+                    if (isMobileLayout) {
+                        textViewTotalCash.textSize = 12f
+                        textViewTotalAr.textSize = 12f
+                    }
 
                     // Set hints for cash edit texts
                     cashEditTexts.forEach { editText ->
@@ -4512,9 +5144,23 @@ private fun testDateFormats() {
                                 addArTypesToLayout(nonCashArTypes, linearLayoutArTypes, arEditTexts, textViewTotalAr)
                                 calculateTotalAr(arEditTexts, textViewTotalAr)
 
+                                // Create custom title view
+                                val titleView = TextView(this@ReportsActivity)
+                                titleView.text = "Tender Declaration"
+                                titleView.textSize = if (isMobileLayout) 16f else 18f
+                                titleView.setTextColor(androidx.core.content.ContextCompat.getColor(this@ReportsActivity, android.R.color.black))
+                                titleView.setPadding(
+                                    if (isMobileLayout) 50 else 24,  // left
+                                    if (isMobileLayout) 50 else 20,  // top
+                                    if (isMobileLayout) 16 else 24,  // right
+                                    if (isMobileLayout) 8 else 12    // bottom
+                                )
+                                titleView.gravity = Gravity.CENTER_VERTICAL
+                                titleView.setTypeface(null, Typeface.BOLD)
+
                                 // Show dialog after AR types are loaded
-                                val dialog = android.app.AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle)
-                                    .setTitle("Tender Declaration")
+                                val dialog = AlertDialog.Builder(this@ReportsActivity, R.style.CustomDialogStyle3)
+                                    .setCustomTitle(titleView)
                                     .setView(dialogView)
                                     .setPositiveButton("Confirm") { _, _ ->
                                         val totalCash = textViewTotalCash.text.toString().replace("Total Cash: ₱", "").toDoubleOrNull() ?: 0.0
@@ -4530,8 +5176,19 @@ private fun testDateFormats() {
                                     }
                                     .create()
 
-                                dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+                                dialog.window?.apply {
+                                    setBackgroundDrawableResource(R.drawable.dialog_background)
+                                    if (isMobileLayout) {
+                                        // Mobile-specific dialog sizing for tender declaration
+                                        val displayMetrics = resources.displayMetrics
+                                        val width = (displayMetrics.widthPixels * 0.98).toInt()
+                                        val height = (displayMetrics.heightPixels * 0.90).toInt()
+                                        setLayout(width, height)
+                                    }
+                                }
+
                                 dialog.show()
+                                applyMobileDialogStyling(dialog)
 
                                 // Break out of collect after first emission
                                 return@collect
@@ -4565,7 +5222,7 @@ private fun testDateFormats() {
     }
 
     private fun addArTypesToLayout(
-        arTypes: List<String>, // Assuming you have a list of AR type names
+        arTypes: List<String>,
         layout: LinearLayout,
         editTexts: MutableList<EditText>,
         totalArTextView: TextView
@@ -4573,8 +5230,9 @@ private fun testDateFormats() {
         layout.removeAllViews()
         editTexts.clear()
 
-        // Group AR types into rows of 3
-        val chunkedArTypes = arTypes.chunked(3)
+        // Group AR types into rows of 3 for tablet, 2 for mobile
+        val columnsPerRow = if (isMobileLayout) 2 else 3
+        val chunkedArTypes = arTypes.chunked(columnsPerRow)
 
         chunkedArTypes.forEach { rowArTypes ->
             val rowLayout = LinearLayout(this).apply {
@@ -4582,7 +5240,7 @@ private fun testDateFormats() {
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply {
-                    bottomMargin = 1.dpToPx()
+                    bottomMargin = if (isMobileLayout) 2.dpToPx() else 1.dpToPx()
                 }
                 orientation = LinearLayout.HORIZONTAL
             }
@@ -4593,7 +5251,7 @@ private fun testDateFormats() {
             }
 
             // Add empty views to fill remaining columns if needed
-            val remainingColumns = 3 - rowArTypes.size
+            val remainingColumns = columnsPerRow - rowArTypes.size
             repeat(remainingColumns) {
                 val emptyView = View(this).apply {
                     layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
@@ -4604,6 +5262,7 @@ private fun testDateFormats() {
             layout.addView(rowLayout)
         }
     }
+
     private fun createArTypeView(
         arType: String,
         editTexts: MutableList<EditText>,
@@ -4611,14 +5270,30 @@ private fun testDateFormats() {
     ): LinearLayout {
         val arTypeLayout = layoutInflater.inflate(R.layout.item_ar_type, null) as LinearLayout
 
-        // Set layout parameters for 3-column layout
-        arTypeLayout.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        // Set layout parameters for responsive column layout
+        arTypeLayout.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+            if (isMobileLayout) {
+                marginEnd = 4.dpToPx()
+                marginStart = 4.dpToPx()
+            }
+        }
 
         val arTypeLabel = arTypeLayout.findViewById<TextView>(R.id.textViewArTypeLabel)
         val arTypeEditText = arTypeLayout.findViewById<EditText>(R.id.editTextArTypeAmount)
 
+        // Apply mobile-specific styling
+        if (isMobileLayout) {
+            arTypeLabel.textSize = 10f
+            arTypeEditText.textSize = 11f
+            arTypeEditText.setPadding(6, 4, 6, 4)
+
+            // Adjust minimum width for mobile
+            arTypeEditText.minWidth = 60.dpToPx()
+        }
+
         // Truncate long AR type names to fit in the layout
-        val displayName = if (arType.length > 8) "${arType.take(20)}" else arType
+        val maxLength = if (isMobileLayout) 6 else 8
+        val displayName = if (arType.length > maxLength) "${arType.take(maxLength)}.." else arType
         arTypeLabel.text = "$displayName:"
 
         arTypeEditText.tag = arType
@@ -4644,6 +5319,7 @@ private fun testDateFormats() {
         }
         textViewTotalAr.text = String.format("Total AR: ₱%.2f", total)
     }
+
 
     private fun calculateTotalCash(
         editTexts: List<EditText>,
@@ -4706,161 +5382,7 @@ private fun testDateFormats() {
             SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
         }
     }
-    private fun updatePaymentDistributionAndItemSales(
-        paymentDistribution: PaymentDistribution,
-        itemSales: List<ItemSalesSummary>
-    ) {
-        // Clear existing payment distribution views
-        binding.paymentDistributionContainer.removeAllViews()
 
-        // Create payment method views - only show methods with positive net amounts
-        val paymentMethods = listOf(
-            "Cash" to paymentDistribution.cash,
-            "Card" to paymentDistribution.card,
-            "GCash" to paymentDistribution.gCash,
-            "PayMaya" to paymentDistribution.payMaya,
-            "Loyalty Card" to paymentDistribution.loyaltyCard,
-            "Charge" to paymentDistribution.charge,
-            "Foodpanda" to paymentDistribution.foodpanda,
-            "GrabFood" to paymentDistribution.grabfood,
-            "Representation" to paymentDistribution.representation,
-//            "AR" to paymentDistribution.ar
-        ).filter { it.second != 0.0 } // Show all non-zero amounts (positive or negative)
-
-        // Group payment methods into rows of 3
-        val paymentMethodChunks = paymentMethods.chunked(3)
-
-        paymentMethodChunks.forEach { rowMethods ->
-            // Create a horizontal LinearLayout for each row
-            val rowLayout = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    bottomMargin = 12.dpToPx()
-                }
-            }
-
-            rowMethods.forEachIndexed { index, (method, amount) ->
-                val cardView = createPaymentMethodView(method, amount)
-
-                // Set layout params with weight for equal distribution
-                cardView.layoutParams = LinearLayout.LayoutParams(
-                    0,
-                    120.dpToPx(),
-                    1f
-                ).apply {
-                    when (index) {
-                        0 -> marginEnd = 6.dpToPx()
-                        1 -> {
-                            marginStart = 6.dpToPx()
-                            marginEnd = 6.dpToPx()
-                        }
-                        2 -> marginStart = 6.dpToPx()
-                    }
-                }
-
-                rowLayout.addView(cardView)
-            }
-
-            // If row has less than 3 items, add empty views to maintain grid
-            val emptyViewsNeeded = 3 - rowMethods.size
-            repeat(emptyViewsNeeded) { index ->
-                val emptyView = View(this).apply {
-                    layoutParams = LinearLayout.LayoutParams(
-                        0,
-                        120.dpToPx(),
-                        1f
-                    ).apply {
-                        when (rowMethods.size + index) {
-                            1 -> {
-                                marginStart = 6.dpToPx()
-                                marginEnd = 6.dpToPx()
-                            }
-                            2 -> marginStart = 6.dpToPx()
-                        }
-                    }
-                }
-                rowLayout.addView(emptyView)
-            }
-
-            binding.paymentDistributionContainer.addView(rowLayout)
-        }
-
-        // Calculate total payment amount (net of returns)
-        val totalPayments = paymentMethods.sumOf { it.second }
-
-        if (totalPayments != 0.0) {
-            // Add a divider before total
-            val dividerView = View(this).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    1.dpToPx()
-                ).apply {
-                    setMargins(0, 8.dpToPx(), 0, 8.dpToPx())
-                }
-                setBackgroundColor(resources.getColor(android.R.color.darker_gray, null))
-            }
-            binding.paymentDistributionContainer.addView(dividerView)
-
-            // Create total payment summary
-            val totalPaymentCard = androidx.cardview.widget.CardView(this).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    setMargins(0, 8.dpToPx(), 0, 8.dpToPx())
-                }
-                radius = 12f
-                cardElevation = 4f
-                setCardBackgroundColor(
-                    if (totalPayments >= 0) {
-                        resources.getColor(android.R.color.holo_green_dark, null)
-                    } else {
-                        resources.getColor(android.R.color.holo_red_dark, null)
-                    }
-                )
-            }
-
-            val totalPaymentLayout = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                setPadding(16.dpToPx(), 16.dpToPx(), 16.dpToPx(), 16.dpToPx())
-            }
-
-            val totalPaymentText = TextView(this).apply {
-                text = "NET TOTAL PAYMENTS"
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                textSize = 16f
-                setTextColor(resources.getColor(android.R.color.white, null))
-                setTypeface(null, android.graphics.Typeface.BOLD)
-            }
-
-            val totalPaymentAmountText = TextView(this).apply {
-                text = "₱${String.format("%.2f", totalPayments)}"
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                textSize = 20f
-                gravity = Gravity.END
-                setTextColor(resources.getColor(android.R.color.white, null))
-                setTypeface(null, android.graphics.Typeface.BOLD)
-            }
-//
-//            totalPaymentLayout.addView(totalPaymentText)
-//            totalPaymentLayout.addView(totalPaymentAmountText)
-//            totalPaymentCard.addView(totalPaymentLayout)
-            binding.paymentDistributionContainer.addView(totalPaymentCard)
-        }
-
-        // Update item sales with grouping
-//        createAllItemSales(itemSales)
-    }
     private fun createPaymentDistributionTwoColumns(paymentDistribution: PaymentDistribution) {
         val paymentMethods = mapOf(
             "Cash" to paymentDistribution.cash,
@@ -4872,37 +5394,38 @@ private fun testDateFormats() {
             "Foodpanda" to paymentDistribution.foodpanda,
             "GrabFood" to paymentDistribution.grabfood,
             "Representation" to paymentDistribution.representation,
-//            "AR" to paymentDistribution.ar
         ).filter { it.value > 0 }
 
         if (paymentMethods.isEmpty()) {
             val noPaymentsText = TextView(this).apply {
                 text = "No payments recorded for this date range"
-                textSize = 14f
+                textSize = if (isMobileLayout) 12f else 14f
                 setTextColor(resources.getColor(android.R.color.darker_gray, null))
                 gravity = Gravity.CENTER
-                setPadding(16, 32, 16, 32)
+                setPadding(16, if (isMobileLayout) 24 else 32, 16, if (isMobileLayout) 24 else 32)
             }
             binding.paymentDistributionContainer.addView(noPaymentsText)
             return
         }
 
         val methods = paymentMethods.toList()
-        for (i in methods.indices step 2) {
+        val columnsPerRow = if (isMobileLayout) 2 else 2 // Keep 2 columns for both
+
+        for (i in methods.indices step columnsPerRow) {
             val rowLayout = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply {
-                    setMargins(0, 4, 0, 4)
+                    setMargins(0, if (isMobileLayout) 2 else 4, 0, if (isMobileLayout) 2 else 4)
                 }
             }
 
             val firstMethod = methods[i]
             val firstPaymentView = createPaymentMethodView(firstMethod.first, firstMethod.second)
             firstPaymentView.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginEnd = 8
+                marginEnd = if (isMobileLayout) 4 else 8
             }
             rowLayout.addView(firstPaymentView)
 
@@ -4910,7 +5433,7 @@ private fun testDateFormats() {
                 val secondMethod = methods[i + 1]
                 val secondPaymentView = createPaymentMethodView(secondMethod.first, secondMethod.second)
                 secondPaymentView.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                    marginStart = 8
+                    marginStart = if (isMobileLayout) 4 else 8
                 }
                 rowLayout.addView(secondPaymentView)
             } else {
@@ -4955,9 +5478,23 @@ private fun testDateFormats() {
                                 itemGroup = itemGroup
                             ))
 
-                            val effectivePrice = if (item.priceOverride!! > 0.0) item.priceOverride else item.price
-                            val itemTotal = effectivePrice * item.quantity
+                            // Use the same logic as calculateItemTotals
+                            val effectivePrice = when {
+                                // Use grossAmount/quantity for accurate calculation
+                                item.grossAmount != null && item.quantity > 0 -> {
+                                    item.grossAmount / item.quantity
+                                }
+                                // Fallback to price override
+                                item.priceOverride != null && item.priceOverride > 0.0 -> {
+                                    item.priceOverride
+                                }
+                                // Final fallback to regular price
+                                else -> {
+                                    item.price
+                                }
+                            }
 
+                            val itemTotal = effectivePrice * item.quantity
                             totalQuantity += item.quantity
 
                             itemSales[key] = currentSummary.copy(
@@ -4992,7 +5529,13 @@ private fun testDateFormats() {
                     }
 
                     binding.noItemSalesText.visibility = android.view.View.GONE
-                    displayAllItemSalesFromDatabase(groupedItems, totalQuantity, totalSales, transactions.size)
+
+                    // Apply mobile-specific layout
+                    if (isMobileLayout) {
+                        displayAllItemSalesFromDatabase(groupedItems, totalQuantity, totalSales, transactions.size)
+                    } else {
+                        displayAllItemSalesFromDatabase(groupedItems, totalQuantity, totalSales, transactions.size)
+                    }
                 }
 
             } catch (e: Exception) {
@@ -5000,6 +5543,71 @@ private fun testDateFormats() {
                     hideItemSalesLoading()
                     showItemSalesError(e.message ?: "Error loading items")
                     Log.e("ReportsActivity", "Error loading all item sales", e)
+                }
+            }
+        }
+    }
+    private fun verifyRNDSampleFix() {
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    Log.d("RNDVerification", "=== VERIFYING RND SAMPLE FIX ===")
+
+                    val transactions = transactionDao.getTransactionsByDateRange(
+                        formatDateToString(startDate),
+                        formatDateToString(endDate)
+                    )
+
+                    var totalUsingGrossAmount = 0.0
+                    var totalUsingPriceOverride = 0.0
+                    var rndItemCount = 0
+
+                    transactions.forEach { transaction ->
+                        val items = transactionDao.getTransactionRecordsByTransactionId(transaction.transactionId)
+                        val rndItems = items.filter { it.name.contains("RND SAMPLE", ignoreCase = true) }
+
+                        rndItems.forEach { item ->
+                            rndItemCount++
+
+                            // Method 1: Using grossAmount (correct)
+                            val priceFromGross = if (item.grossAmount != null && item.quantity > 0) {
+                                item.grossAmount / item.quantity
+                            } else {
+                                item.price
+                            }
+                            val totalFromGross = priceFromGross * item.quantity
+                            totalUsingGrossAmount += totalFromGross
+
+                            // Method 2: Using priceOverride (incorrect due to truncation)
+                            val priceFromOverride = if (item.priceOverride != null && item.priceOverride > 0.0) {
+                                item.priceOverride
+                            } else {
+                                item.price
+                            }
+                            val totalFromOverride = priceFromOverride * item.quantity
+                            totalUsingPriceOverride += totalFromOverride
+
+                            Log.d("RNDVerification", "Item $rndItemCount:")
+                            Log.d("RNDVerification", "  Gross amount: ${item.grossAmount}")
+                            Log.d("RNDVerification", "  Price override: ${item.priceOverride}")
+                            Log.d("RNDVerification", "  Quantity: ${item.quantity}")
+                            Log.d("RNDVerification", "  Price from gross: $priceFromGross")
+                            Log.d("RNDVerification", "  Price from override: $priceFromOverride")
+                            Log.d("RNDVerification", "  Total from gross: $totalFromGross")
+                            Log.d("RNDVerification", "  Total from override: $totalFromOverride")
+                        }
+                    }
+
+                    Log.d("RNDVerification", "=== FINAL COMPARISON ===")
+                    Log.d("RNDVerification", "Total using grossAmount method: $totalUsingGrossAmount")
+                    Log.d("RNDVerification", "Total using priceOverride method: $totalUsingPriceOverride")
+                    Log.d("RNDVerification", "Expected total: 250.61")
+                    Log.d("RNDVerification", "Difference (gross method): ${250.61 - totalUsingGrossAmount}")
+                    Log.d("RNDVerification", "Difference (override method): ${250.61 - totalUsingPriceOverride}")
+                    Log.d("RNDVerification", "Gross method is correct: ${totalUsingGrossAmount == 250.61}")
+
+                } catch (e: Exception) {
+                    Log.e("RNDVerification", "Error in verification", e)
                 }
             }
         }
@@ -5039,33 +5647,47 @@ private fun testDateFormats() {
             val groupTotalRow = createTotalRow(group.totalQuantity, group.totalAmount)
             binding.itemSalesContainer.addView(groupTotalRow)
 
-            // Add spacing between groups
+            // Add spacing between groups - adjust for mobile
             val spacerView = android.view.View(this).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
-                    12
+                    if (isMobileLayout) 8 else 12
                 )
             }
             binding.itemSalesContainer.addView(spacerView)
         }
 
-        // Create grand total summary
+        // Create grand total summary with mobile-responsive styling
         val grandTotalView = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                setMargins(0, 16, 0, 8)
+                setMargins(
+                    0,
+                    if (isMobileLayout) 12 else 16,
+                    0,
+                    if (isMobileLayout) 6 else 8
+                )
             }
-            setPadding(12, 12, 12, 12)
+            setPadding(
+                if (isMobileLayout) 8 else 12,
+                if (isMobileLayout) 8 else 12,
+                if (isMobileLayout) 8 else 12,
+                if (isMobileLayout) 8 else 12
+            )
             setBackgroundColor(resources.getColor(android.R.color.holo_blue_dark, null))
         }
 
         val totalText = TextView(this).apply {
-            text = "GRAND TOTAL (${totalQuantity} items, ${totalTransactions} transactions)"
+            text = if (isMobileLayout) {
+                "TOTAL\n${totalQuantity} items, ${totalTransactions} transactions"
+            } else {
+                "GRAND TOTAL (${totalQuantity} items, ${totalTransactions} transactions)"
+            }
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            textSize = 16f
+            textSize = if (isMobileLayout) 14f else 16f
             setTextColor(resources.getColor(android.R.color.white, null))
             setTypeface(null, android.graphics.Typeface.BOLD)
         }
@@ -5076,7 +5698,7 @@ private fun testDateFormats() {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
-            textSize = 16f
+            textSize = if (isMobileLayout) 14f else 16f
             gravity = Gravity.END
             setTextColor(resources.getColor(android.R.color.white, null))
             setTypeface(null, android.graphics.Typeface.BOLD)
@@ -5086,19 +5708,29 @@ private fun testDateFormats() {
         grandTotalView.addView(totalAmountText)
         binding.itemSalesContainer.addView(grandTotalView)
 
-        // Add print button
+        // Add print button with mobile-responsive styling
         val printButton = Button(this).apply {
-            text = "🖨️ Print Item Sales Report"
+            text = if (isMobileLayout) "🖨️ Print Report" else "🖨️ Print Item Sales Report"
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                setMargins(0, 12, 0, 8)
+                setMargins(
+                    0,
+                    if (isMobileLayout) 8 else 12,
+                    0,
+                    if (isMobileLayout) 6 else 8
+                )
             }
-            setPadding(16, 12, 16, 12)
+            setPadding(
+                if (isMobileLayout) 12 else 16,
+                if (isMobileLayout) 8 else 12,
+                if (isMobileLayout) 12 else 16,
+                if (isMobileLayout) 8 else 12
+            )
             setBackgroundColor(resources.getColor(android.R.color.holo_green_dark, null))
             setTextColor(resources.getColor(android.R.color.white, null))
-            textSize = 14f
+            textSize = if (isMobileLayout) 12f else 14f
             setTypeface(null, android.graphics.Typeface.BOLD)
 
             setOnClickListener {
@@ -5110,10 +5742,16 @@ private fun testDateFormats() {
         // Hide "View All Items" button since we're showing all items
         binding.viewAllItemsButton.visibility = android.view.View.GONE
 
-        // Show completion message
+        // Show completion message with mobile-appropriate text
+        val message = if (isMobileLayout) {
+            "Loaded ${totalQuantity} items from ${groupedItems.size} categories"
+        } else {
+            "Loaded all ${totalQuantity} items from ${groupedItems.size} categories"
+        }
+
         Toast.makeText(
             this@ReportsActivity,
-            "Loaded all ${totalQuantity} items from ${groupedItems.size} categories",
+            message,
             Toast.LENGTH_SHORT
         ).show()
     }
@@ -5586,6 +6224,248 @@ private fun testDateFormats() {
             null
         }
     }
+    private fun runPriceDebugging() {
+        Log.d("DEBUG", "Starting comprehensive price debugging...")
+        checkDatabaseSchema()
+        debugPriceOverrideDecimals()
+    }
+    private fun debugPriceOverrideDecimals() {
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    Log.d("PriceDebug", "=== DEBUGGING PRICE OVERRIDE DECIMALS ===")
+
+                    // Get recent transactions
+                    val transactions = transactionDao.getRecentTransactions().take(5)
+
+                    transactions.forEach { transaction ->
+                        Log.d("PriceDebug", "Transaction: ${transaction.transactionId}")
+
+                        val items = transactionDao.getTransactionRecordsByTransactionId(transaction.transactionId)
+
+                        items.forEach { item ->
+                            Log.d("PriceDebug", "=== ITEM: ${item.name} ===")
+                            Log.d("PriceDebug", "Raw price field: ${item.price}")
+                            Log.d("PriceDebug", "Raw priceOverride field: ${item.priceOverride}")
+                            Log.d("PriceDebug", "priceOverride type: ${item.priceOverride?.javaClass?.simpleName}")
+                            Log.d("PriceDebug", "priceOverride is null: ${item.priceOverride == null}")
+                            Log.d("PriceDebug", "priceOverride > 0: ${item.priceOverride != null && item.priceOverride > 0.0}")
+
+                            // Test different ways to handle the value
+                            item.priceOverride?.let { override ->
+                                Log.d("PriceDebug", "Override as Double: $override")
+                                Log.d("PriceDebug", "Override toString: ${override.toString()}")
+                                Log.d("PriceDebug", "Override formatted: ${String.format("%.2f", override)}")
+
+                                // Check if it's being truncated somewhere
+                                val calculation = override * item.quantity
+                                Log.d("PriceDebug", "Override * quantity: $override * ${item.quantity} = $calculation")
+                            }
+
+                            // Also check the regular price for comparison
+                            Log.d("PriceDebug", "Regular price: ${item.price}")
+                            Log.d("PriceDebug", "Regular price * quantity: ${item.price} * ${item.quantity} = ${item.price * item.quantity}")
+                            Log.d("PriceDebug", "---")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("PriceDebug", "Error debugging price override", e)
+            }
+        }
+    }
+
+    // UPDATED calculateItemTotals with more detailed debugging
+    // Add this enhanced debugging specifically for RND SAMPLE items
+    private fun debugRndSampleCalculations() {
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    Log.d("RNDDebug", "=== DEBUGGING RND SAMPLE CALCULATIONS ===")
+
+                    val transactions = transactionDao.getTransactionsByDateRange(
+                        formatDateToString(startDate),
+                        formatDateToString(endDate)
+                    )
+
+                    var totalRndSampleFromDatabase = 0.0
+                    var totalRndSampleQuantity = 0
+
+                    transactions.forEach { transaction ->
+                        val items = transactionDao.getTransactionRecordsByTransactionId(transaction.transactionId)
+
+                        val rndSampleItems = items.filter { it.name.contains("RND SAMPLE", ignoreCase = true) }
+
+                        if (rndSampleItems.isNotEmpty()) {
+                            Log.d("RNDDebug", "Transaction ${transaction.transactionId} has ${rndSampleItems.size} RND SAMPLE items:")
+
+                            rndSampleItems.forEach { item ->
+                                Log.d("RNDDebug", "=== RND SAMPLE ITEM ===")
+                                Log.d("RNDDebug", "Name: ${item.name}")
+                                Log.d("RNDDebug", "Regular price: ${item.price}")
+                                Log.d("RNDDebug", "Price override: ${item.priceOverride}")
+                                Log.d("RNDDebug", "Price override null: ${item.priceOverride == null}")
+                                Log.d("RNDDebug", "Quantity: ${item.quantity}")
+
+                                // Test both price calculation methods
+                                val effectivePrice1 = if (item.priceOverride != null && item.priceOverride > 0.0) {
+                                    item.priceOverride
+                                } else {
+                                    item.price
+                                }
+
+                                val effectivePrice2 = when {
+                                    item.priceOverride != null && item.priceOverride > 0.0 -> item.priceOverride
+                                    else -> item.price
+                                }
+
+                                val itemTotal1 = effectivePrice1 * item.quantity
+                                val itemTotal2 = effectivePrice2 * item.quantity
+
+                                Log.d("RNDDebug", "Effective price method 1: $effectivePrice1")
+                                Log.d("RNDDebug", "Effective price method 2: $effectivePrice2")
+                                Log.d("RNDDebug", "Item total method 1: $itemTotal1")
+                                Log.d("RNDDebug", "Item total method 2: $itemTotal2")
+                                Log.d("RNDDebug", "Methods match: ${itemTotal1 == itemTotal2}")
+
+                                // Check if this might be the problematic 87.96 item
+                                if (item.priceOverride != null) {
+                                    val formattedOverride = String.format("%.2f", item.priceOverride)
+                                    Log.d("RNDDebug", "Formatted override: $formattedOverride")
+
+                                    if (formattedOverride == "87.96") {
+                                        Log.d("RNDDebug", "🔥 FOUND THE 87.96 ITEM!")
+                                        Log.d("RNDDebug", "Raw override value: ${item.priceOverride}")
+                                        Log.d("RNDDebug", "Override * quantity: ${item.priceOverride} * ${item.quantity} = ${item.priceOverride * item.quantity}")
+                                    }
+                                }
+
+                                totalRndSampleFromDatabase += itemTotal1
+                                totalRndSampleQuantity += item.quantity
+
+                                Log.d("RNDDebug", "Running total: $totalRndSampleFromDatabase")
+                                Log.d("RNDDebug", "---")
+                            }
+                        }
+                    }
+
+                    Log.d("RNDDebug", "=== FINAL RND SAMPLE TOTALS ===")
+                    Log.d("RNDDebug", "Total RND SAMPLE from database: $totalRndSampleFromDatabase")
+                    Log.d("RNDDebug", "Total RND SAMPLE quantity: $totalRndSampleQuantity")
+                    Log.d("RNDDebug", "Expected from API: 250.61")
+                    Log.d("RNDDebug", "Difference: ${250.61 - totalRndSampleFromDatabase}")
+
+                } catch (e: Exception) {
+                    Log.e("RNDDebug", "Error debugging RND SAMPLE", e)
+                }
+            }
+        }
+    }
+
+    // ENHANCED calculateItemTotals with specific RND SAMPLE debugging
+    private suspend fun calculateItemTotalsWithRndDebug(transactions: List<TransactionSummary>): ItemCalculationResult {
+        return withContext(Dispatchers.IO) {
+            val itemSales = mutableMapOf<String, ItemSalesSummary>()
+            var totalGross = 0.0
+            var totalQuantity = 0
+
+            Log.d("GrossCalculation", "=== STARTING ENHANCED ITEM CALCULATION ===")
+
+            transactions.forEach { transaction ->
+                val items = transactionDao.getTransactionRecordsByTransactionId(transaction.transactionId)
+
+                items.forEach { item ->
+                    val key = item.name
+
+                    // SPECIAL HANDLING for RND SAMPLE items
+                    if (item.name.contains("RND SAMPLE", ignoreCase = true)) {
+                        Log.d("GrossCalculation", "🔍 SPECIAL RND SAMPLE PROCESSING:")
+                        Log.d("GrossCalculation", "Name: ${item.name}")
+                        Log.d("GrossCalculation", "Price: ${item.price}")
+                        Log.d("GrossCalculation", "PriceOverride: ${item.priceOverride}")
+                        Log.d("GrossCalculation", "PriceOverride type: ${item.priceOverride?.javaClass?.simpleName}")
+                        Log.d("GrossCalculation", "Quantity: ${item.quantity}")
+
+                        // Check for precision issues
+                        if (item.priceOverride != null) {
+                            val exactValue = item.priceOverride
+                            val roundedValue = Math.round(item.priceOverride * 100.0) / 100.0
+                            Log.d("GrossCalculation", "Exact value: $exactValue")
+                            Log.d("GrossCalculation", "Rounded value: $roundedValue")
+                            Log.d("GrossCalculation", "Values match: ${exactValue == roundedValue}")
+                        }
+                    }
+
+                    // ENHANCED: Better decimal precision handling
+                    val effectivePrice = when {
+                        item.priceOverride != null && item.priceOverride > 0.0 -> {
+                            // Use exact value without rounding
+                            val exactPrice = item.priceOverride
+                            if (item.name.contains("RND SAMPLE", ignoreCase = true)) {
+                                Log.d("GrossCalculation", "✅ Using exact price override: $exactPrice")
+                            }
+                            exactPrice
+                        }
+                        else -> {
+                            if (item.name.contains("RND SAMPLE", ignoreCase = true)) {
+                                Log.d("GrossCalculation", "📝 Using regular price: ${item.price}")
+                            }
+                            item.price
+                        }
+                    }
+
+                    // Calculate item total with full precision
+                    val itemTotal = effectivePrice * item.quantity
+
+                    if (item.name.contains("RND SAMPLE", ignoreCase = true)) {
+                        Log.d("GrossCalculation", "RND SAMPLE calculation: $effectivePrice * ${item.quantity} = $itemTotal")
+                        Log.d("GrossCalculation", "Formatted total: ${String.format("%.2f", itemTotal)}")
+                    }
+
+                    totalGross += itemTotal
+                    totalQuantity += item.quantity
+
+                    val currentSummary = itemSales.getOrDefault(key, ItemSalesSummary(
+                        name = item.name,
+                        quantity = 0,
+                        totalAmount = 0.0,
+                        itemGroup = item.itemGroup ?: "Unknown"
+                    ))
+
+                    val newSummary = currentSummary.copy(
+                        quantity = currentSummary.quantity + item.quantity,
+                        totalAmount = currentSummary.totalAmount + itemTotal
+                    )
+
+                    itemSales[key] = newSummary
+                }
+            }
+
+            // Log specific RND SAMPLE totals
+            val rndSampleSummary = itemSales["RND SAMPLE"]
+            if (rndSampleSummary != null) {
+                Log.d("GrossCalculation", "=== RND SAMPLE FINAL SUMMARY ===")
+                Log.d("GrossCalculation", "Total quantity: ${rndSampleSummary.quantity}")
+                Log.d("GrossCalculation", "Total amount: ${rndSampleSummary.totalAmount}")
+                Log.d("GrossCalculation", "Formatted amount: ${String.format("%.2f", rndSampleSummary.totalAmount)}")
+                Log.d("GrossCalculation", "Expected: 250.61")
+                Log.d("GrossCalculation", "Difference: ${250.61 - rndSampleSummary.totalAmount}")
+            }
+
+            Log.d("GrossCalculation", "=== FINAL TOTALS ===")
+            Log.d("GrossCalculation", "Total Gross: $totalGross")
+            Log.d("GrossCalculation", "Expected: 29459.36")
+            Log.d("GrossCalculation", "Difference: ${29459.36 - totalGross}")
+
+            ItemCalculationResult(
+                totalGross = totalGross,
+                totalQuantity = totalQuantity,
+                itemSales = itemSales.values.sortedByDescending { it.totalAmount }
+            )
+        }
+    }
+
+    // IMMEDIATE FIX: Replace your calculateItemTotals method with this precision-safe version
     private suspend fun calculateItemTotals(transactions: List<TransactionSummary>): ItemCalculationResult {
         return withContext(Dispatchers.IO) {
             val itemSales = mutableMapOf<String, ItemSalesSummary>()
@@ -5597,13 +6477,55 @@ private fun testDateFormats() {
                 items.forEach { item ->
                     val key = item.name
 
-                    val effectivePrice = if (item.priceOverride != null && item.priceOverride > 0.0) {
-                        item.priceOverride
-                    } else {
-                        item.price
+                    // FIXED: Use grossAmount/quantity for accurate price calculation
+                    val effectivePrice = when {
+                        // First priority: If grossAmount exists and quantity > 0, calculate from gross
+                        item.grossAmount != null && item.quantity > 0 -> {
+                            val calculatedPrice = item.grossAmount / item.quantity
+                            if (item.name.contains("RND SAMPLE", ignoreCase = true)) {
+                                Log.d("PriceCalculation", "Using grossAmount for ${item.name}: ${item.grossAmount} ÷ ${item.quantity} = $calculatedPrice")
+                            }
+                            calculatedPrice
+                        }
+                        // Second priority: Price override if it exists and > 0
+                        item.priceOverride != null && item.priceOverride > 0.0 -> {
+                            if (item.name.contains("RND SAMPLE", ignoreCase = true)) {
+                                Log.d("PriceCalculation", "Using price override for ${item.name}: ${item.priceOverride}")
+                            }
+                            item.priceOverride
+                        }
+                        // Fallback: Regular price
+                        else -> {
+                            if (item.name.contains("RND SAMPLE", ignoreCase = true)) {
+                                Log.d("PriceCalculation", "Using regular price for ${item.name}: ${item.price}")
+                            }
+                            item.price
+                        }
                     }
 
+                    // Calculate item total using the effective price
                     val itemTotal = effectivePrice * item.quantity
+
+                    // Enhanced debugging for RND SAMPLE
+                    if (item.name.contains("RND SAMPLE", ignoreCase = true)) {
+                        Log.d("RNDCalculation", "=== RND SAMPLE DETAILED CALCULATION ===")
+                        Log.d("RNDCalculation", "Name: ${item.name}")
+                        Log.d("RNDCalculation", "Regular price: ${item.price}")
+                        Log.d("RNDCalculation", "Price override: ${item.priceOverride}")
+                        Log.d("RNDCalculation", "Gross amount: ${item.grossAmount}")
+                        Log.d("RNDCalculation", "Net amount: ${item.netAmount}")
+                        Log.d("RNDCalculation", "Quantity: ${item.quantity}")
+                        Log.d("RNDCalculation", "Calculated effective price: $effectivePrice")
+                        Log.d("RNDCalculation", "Item total: $effectivePrice * ${item.quantity} = $itemTotal")
+
+                        // Compare with what should be the correct total
+                        if (item.grossAmount != null) {
+                            Log.d("RNDCalculation", "Expected total (from grossAmount): ${item.grossAmount}")
+                            Log.d("RNDCalculation", "Calculated total: $itemTotal")
+                            Log.d("RNDCalculation", "Match: ${item.grossAmount == itemTotal}")
+                        }
+                        Log.d("RNDCalculation", "=== END RND SAMPLE CALCULATION ===")
+                    }
 
                     totalGross += itemTotal
                     totalQuantity += item.quantity
@@ -5622,11 +6544,60 @@ private fun testDateFormats() {
                 }
             }
 
+            // Final verification for RND SAMPLE
+            val rndSampleSummary = itemSales["RND SAMPLE"]
+            if (rndSampleSummary != null) {
+                Log.d("RNDCalculation", "=== FINAL RND SAMPLE SUMMARY ===")
+                Log.d("RNDCalculation", "Total quantity: ${rndSampleSummary.quantity}")
+                Log.d("RNDCalculation", "Total amount: ${rndSampleSummary.totalAmount}")
+                Log.d("RNDCalculation", "Expected: 250.61 (90.00 + 87.96 + 50.00 + 22.65)")
+                Log.d("RNDCalculation", "Difference: ${250.61 - rndSampleSummary.totalAmount}")
+            }
+
             ItemCalculationResult(
                 totalGross = totalGross,
                 totalQuantity = totalQuantity,
                 itemSales = itemSales.values.sortedByDescending { it.totalAmount }
             )
+        }
+    }
+
+    private fun checkDatabaseSchema() {
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    Log.d("SchemaDebug", "=== CHECKING DATABASE SCHEMA ===")
+
+                    // Get a sample record to check the data types
+                    val sampleRecord = transactionDao.getAllTransactionRecords().firstOrNull()
+
+                    if (sampleRecord != null) {
+                        Log.d("SchemaDebug", "Sample record ID: ${sampleRecord.id}")
+                        Log.d("SchemaDebug", "Price field value: ${sampleRecord.price}")
+                        Log.d("SchemaDebug", "Price field type: ${sampleRecord.price.javaClass.simpleName}")
+
+                        sampleRecord.priceOverride?.let { override ->
+                            Log.d("SchemaDebug", "PriceOverride field value: $override")
+                            Log.d("SchemaDebug", "PriceOverride field type: ${override.javaClass.simpleName}")
+                        } ?: run {
+                            Log.d("SchemaDebug", "PriceOverride field is null")
+                        }
+
+                        // Check if there are any records with non-null price overrides
+                        val recordsWithOverride = transactionDao.getAllTransactionRecords()
+                            .filter { it.priceOverride != null && it.priceOverride > 0.0 }
+
+                        Log.d("SchemaDebug", "Found ${recordsWithOverride.size} records with price override")
+
+                        recordsWithOverride.take(3).forEach { record ->
+                            Log.d("SchemaDebug", "Override example: ${record.name} - ${record.priceOverride}")
+                        }
+                    }
+
+                } catch (e: Exception) {
+                    Log.e("SchemaDebug", "Error checking schema", e)
+                }
+            }
         }
     }
     private fun showItemSalesDialog(dateStr: String) {
@@ -5673,7 +6644,6 @@ private fun testDateFormats() {
                     result
                 }
 
-
                 // Get all items from these transactions and group them
                 val itemSales = mutableMapOf<String, ItemSalesSummary>()
                 var totalSales = 0.0
@@ -5695,8 +6665,14 @@ private fun testDateFormats() {
                                 itemGroup = itemGroup
                             ))
 
-                            val effectivePrice = if (item.priceOverride!! > 0.0) item.priceOverride else item.price
+                            // FIXED: Use same price override logic as calculateItemTotals
+                            val effectivePrice = when {
+                                item.priceOverride != null && item.priceOverride > 0.0 -> item.priceOverride
+                                else -> item.price
+                            }
                             val itemTotal = effectivePrice * item.quantity
+
+                            Log.d("ItemSalesDialog", "Item: ${item.name}, Price: ${item.price}, Override: ${item.priceOverride}, Effective: $effectivePrice, Qty: ${item.quantity}, Total: $itemTotal")
 
                             totalQuantity += item.quantity
 
@@ -5835,7 +6811,7 @@ private fun testDateFormats() {
         // Clear existing payment distribution views
         binding.paymentDistributionContainer.removeAllViews()
 
-        // Create payment method views - only show methods with positive net amounts
+        // Create payment method views - only show methods with non-zero amounts
         val paymentMethods = listOf(
             "Cash" to paymentDistribution.cash,
             "Card" to paymentDistribution.card,
@@ -5846,10 +6822,23 @@ private fun testDateFormats() {
             "Foodpanda" to paymentDistribution.foodpanda,
             "GrabFood" to paymentDistribution.grabfood,
             "Representation" to paymentDistribution.representation,
-        ).filter { it.second != 0.0 } // Show all non-zero amounts (positive or negative)
+        ).filter { it.second != 0.0 }
 
-        // Group payment methods into rows of 3
-        val paymentMethodChunks = paymentMethods.chunked(3)
+        if (paymentMethods.isEmpty()) {
+            val noPaymentsText = TextView(this).apply {
+                text = "No payments recorded for this date range"
+                textSize = 14f
+                setTextColor(resources.getColor(android.R.color.darker_gray, null))
+                gravity = Gravity.CENTER
+                setPadding(16.dpToPx(), 32.dpToPx(), 16.dpToPx(), 32.dpToPx())
+            }
+            binding.paymentDistributionContainer.addView(noPaymentsText)
+            return
+        }
+
+        // Group payment methods into rows of 2 for mobile mode
+        val cardsPerRow = if (isMobileLayout) 2 else 3
+        val paymentMethodChunks = paymentMethods.chunked(cardsPerRow)
 
         paymentMethodChunks.forEach { rowMethods ->
             // Create a horizontal LinearLayout for each row
@@ -5859,24 +6848,24 @@ private fun testDateFormats() {
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply {
-                    bottomMargin = 12.dpToPx()
+                    bottomMargin = if (isMobileLayout) 8.dpToPx() else 12.dpToPx()
                 }
             }
 
             rowMethods.forEachIndexed { index, (method, amount) ->
-                val cardView = createPaymentMethodView(method, amount)
+                val cardView = createMobilePaymentMethodView(method, amount)
 
                 // Set layout params with weight for equal distribution
                 cardView.layoutParams = LinearLayout.LayoutParams(
                     0,
-                    120.dpToPx(),
+                    if (isMobileLayout) 100.dpToPx() else 120.dpToPx(), // Shorter height for mobile
                     1f
                 ).apply {
                     when (index) {
-                        0 -> marginEnd = 6.dpToPx()
+                        0 -> marginEnd = if (isMobileLayout) 4.dpToPx() else 6.dpToPx()
                         1 -> {
-                            marginStart = 6.dpToPx()
-                            marginEnd = 6.dpToPx()
+                            marginStart = if (isMobileLayout) 4.dpToPx() else 6.dpToPx()
+                            if (cardsPerRow == 3) marginEnd = 6.dpToPx()
                         }
                         2 -> marginStart = 6.dpToPx()
                     }
@@ -5885,19 +6874,20 @@ private fun testDateFormats() {
                 rowLayout.addView(cardView)
             }
 
-            // If row has less than 3 items, add empty views to maintain grid
-            val emptyViewsNeeded = 3 - rowMethods.size
+            // If row has less than maximum items, add empty views to maintain grid
+            val emptyViewsNeeded = cardsPerRow - rowMethods.size
             repeat(emptyViewsNeeded) { index ->
                 val emptyView = View(this).apply {
                     layoutParams = LinearLayout.LayoutParams(
                         0,
-                        120.dpToPx(),
+                        if (isMobileLayout) 100.dpToPx() else 120.dpToPx(),
                         1f
                     ).apply {
-                        when (rowMethods.size + index) {
+                        val currentIndex = rowMethods.size + index
+                        when (currentIndex) {
                             1 -> {
-                                marginStart = 6.dpToPx()
-                                marginEnd = 6.dpToPx()
+                                marginStart = if (isMobileLayout) 4.dpToPx() else 6.dpToPx()
+                                if (cardsPerRow == 3) marginEnd = 6.dpToPx()
                             }
                             2 -> marginStart = 6.dpToPx()
                         }
@@ -5913,84 +6903,17 @@ private fun testDateFormats() {
         val totalPayments = paymentMethods.sumOf { it.second }
 
         if (totalPayments != 0.0) {
-            // Add a divider before total
-            val dividerView = View(this).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    1.dpToPx()
-                ).apply {
-                    setMargins(0, 8.dpToPx(), 0, 8.dpToPx())
-                }
-                setBackgroundColor(resources.getColor(android.R.color.darker_gray, null))
-            }
-            binding.paymentDistributionContainer.addView(dividerView)
-
-            // Create total payment summary
-            val totalPaymentCard = androidx.cardview.widget.CardView(this).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    setMargins(0, 8.dpToPx(), 0, 8.dpToPx())
-                }
-                radius = 12f
-                cardElevation = 4f
-                setCardBackgroundColor(
-                    if (totalPayments >= 0) {
-                        resources.getColor(android.R.color.holo_green_dark, null)
-                    } else {
-                        resources.getColor(android.R.color.holo_red_dark, null)
-                    }
-                )
-            }
-
-            val totalPaymentLayout = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                setPadding(16.dpToPx(), 16.dpToPx(), 16.dpToPx(), 16.dpToPx())
-            }
-
-            val totalPaymentText = TextView(this).apply {
-                text = "NET TOTAL PAYMENTS"
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                textSize = 16f
-                setTextColor(resources.getColor(android.R.color.white, null))
-                setTypeface(null, android.graphics.Typeface.BOLD)
-            }
-
-            val totalPaymentAmountText = TextView(this).apply {
-                text = "₱${String.format("%.2f", totalPayments)}"
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                textSize = 20f
-                gravity = Gravity.END
-                setTextColor(resources.getColor(android.R.color.white, null))
-                setTypeface(null, android.graphics.Typeface.BOLD)
-            }
-
-            totalPaymentLayout.addView(totalPaymentText)
-            totalPaymentLayout.addView(totalPaymentAmountText)
-            totalPaymentCard.addView(totalPaymentLayout)
-            binding.paymentDistributionContainer.addView(totalPaymentCard)
-        }
-    }
-    private fun getVoidedTransactionsCount(transactions: List<TransactionSummary>): Int {
-        // Count transactions with return comments (same logic as buildReadReport)
-        return transactions.count { transaction ->
-            transaction.comment.contains("Return:", ignoreCase = true) ||
-                    transaction.comment.contains("Return processed:", ignoreCase = true)
+            // Add total payment summary with mobile-optimized design
+//            val totalPaymentCard = createMobileTotalPaymentCard(totalPayments)
+//            binding.paymentDistributionContainer.addView(totalPaymentCard)
         }
     }
 
-    private fun createPaymentMethodView(method: String, amount: Double): androidx.cardview.widget.CardView {
+    // New mobile-optimized payment method view
+    private fun createMobilePaymentMethodView(method: String, amount: Double): androidx.cardview.widget.CardView {
         val cardView = androidx.cardview.widget.CardView(this).apply {
-            radius = 12f
-            cardElevation = 2f
+            radius = if (isMobileLayout) 25f else 25f
+            cardElevation = 4f
             setCardBackgroundColor(
                 if (amount >= 0) {
                     resources.getColor(android.R.color.white, null)
@@ -6006,7 +6929,107 @@ private fun testDateFormats() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.MATCH_PARENT
             )
-            setPadding(16.dpToPx(), 16.dpToPx(), 16.dpToPx(), 16.dpToPx())
+            setPadding(
+                if (isMobileLayout) 12.dpToPx() else 16.dpToPx(),
+                if (isMobileLayout) 12.dpToPx() else 16.dpToPx(),
+                if (isMobileLayout) 12.dpToPx() else 16.dpToPx(),
+                if (isMobileLayout) 12.dpToPx() else 16.dpToPx()
+            )
+            gravity = if (isMobileLayout) Gravity.CENTER else Gravity.CENTER_VERTICAL
+        }
+
+        // Payment method icon (larger for mobile)
+        val iconTextView = TextView(this).apply {
+            text = getPaymentMethodIcon(method)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = if (isMobileLayout) 4.dpToPx() else 4.dpToPx()
+                gravity = if (isMobileLayout) Gravity.CENTER_HORIZONTAL else Gravity.START
+            }
+            textSize = if (isMobileLayout) 18f else 20f
+            gravity = if (isMobileLayout) Gravity.CENTER else Gravity.START
+        }
+
+        // Payment method name (smaller text for mobile)
+        val methodNameTextView = TextView(this).apply {
+            text = method.uppercase()
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = if (isMobileLayout) 2.dpToPx() else 4.dpToPx()
+            }
+            textSize = if (isMobileLayout) 10f else 10f
+            setTextColor(Color.parseColor("#64748B"))
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            gravity = if (isMobileLayout) Gravity.CENTER else Gravity.START
+        }
+
+        // Amount with proper sign display (adjusted size for mobile)
+        val amountTextView = TextView(this).apply {
+            text = if (amount < 0) {
+                "-₱${String.format("%.2f", kotlin.math.abs(amount))}"
+            } else {
+                "₱${String.format("%.2f", amount)}"
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            textSize = if (isMobileLayout) 14f else 20f
+            setTextColor(
+                if (amount >= 0) {
+                    getPaymentMethodColor(method)
+                } else {
+                    resources.getColor(android.R.color.holo_red_dark, null)
+                }
+            )
+            setTypeface(null, android.graphics.Typeface.BOLD)
+            gravity = if (isMobileLayout) Gravity.CENTER else Gravity.START
+        }
+
+        paymentView.addView(iconTextView)
+        paymentView.addView(methodNameTextView)
+        paymentView.addView(amountTextView)
+
+        cardView.addView(paymentView)
+        return cardView
+    }
+    private fun getVoidedTransactionsCount(transactions: List<TransactionSummary>): Int {
+        // Count transactions with return comments (same logic as buildReadReport)
+        return transactions.count { transaction ->
+            transaction.comment.contains("Return:", ignoreCase = true) ||
+                    transaction.comment.contains("Return processed:", ignoreCase = true)
+        }
+    }
+
+    private fun createPaymentMethodView(method: String, amount: Double): androidx.cardview.widget.CardView {
+        val cardView = androidx.cardview.widget.CardView(this).apply {
+            radius = if (isMobileLayout) 25f else 25f
+            cardElevation = if (isMobileLayout) 4f else 4f
+            setCardBackgroundColor(
+                if (amount >= 0) {
+                    resources.getColor(android.R.color.white, null)
+                } else {
+                    resources.getColor(android.R.color.holo_red_light, null)
+                }
+            )
+        }
+
+        val paymentView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.MATCH_PARENT
+            )
+            setPadding(
+                if (isMobileLayout) 8.dpToPx() else 16.dpToPx(),
+                if (isMobileLayout) 8.dpToPx() else 16.dpToPx(),
+                if (isMobileLayout) 8.dpToPx() else 16.dpToPx(),
+                if (isMobileLayout) 8.dpToPx() else 16.dpToPx()
+            )
             gravity = Gravity.CENTER_VERTICAL
         }
 
@@ -6017,9 +7040,9 @@ private fun testDateFormats() {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                bottomMargin = 4.dpToPx()
+                bottomMargin = if (isMobileLayout) 2.dpToPx() else 4.dpToPx()
             }
-            textSize = 20f
+            textSize = if (isMobileLayout) 16f else 20f
         }
 
         // Payment method name
@@ -6029,9 +7052,9 @@ private fun testDateFormats() {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                bottomMargin = 4.dpToPx()
+                bottomMargin = if (isMobileLayout) 2.dpToPx() else 4.dpToPx()
             }
-            textSize = 10f
+            textSize = if (isMobileLayout) 8f else 10f
             setTextColor(Color.parseColor("#64748B"))
             setTypeface(null, android.graphics.Typeface.BOLD)
         }
@@ -6047,7 +7070,7 @@ private fun testDateFormats() {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
-            textSize = 20f
+            textSize = if (isMobileLayout) 14f else 20f
             setTextColor(
                 if (amount >= 0) {
                     getPaymentMethodColor(method)
@@ -6102,14 +7125,16 @@ private fun testDateFormats() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                setMargins(0, 2, 0, 2)
+                setMargins(0, if (isMobileLayout) 1 else 2, 0, if (isMobileLayout) 1 else 2)
             }
-            setPadding(16, 8, 16, 8)
+            setPadding(
+                if (isMobileLayout) 12 else 16,
+                if (isMobileLayout) 6 else 8,
+                if (isMobileLayout) 12 else 16,
+                if (isMobileLayout) 6 else 8
+            )
             setBackgroundResource(android.R.color.white)
         }
-
-        // Table header (only show once - you might want to handle this separately)
-        // This would typically be added once at the top of your list
 
         // Table row for item
         val tableRow = LinearLayout(this).apply {
@@ -6118,37 +7143,41 @@ private fun testDateFormats() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
-            setPadding(0, 4, 0, 4)
+            setPadding(0, if (isMobileLayout) 2 else 4, 0, if (isMobileLayout) 2 else 4)
         }
 
         // Item name column (50% width)
         val itemNameTextView = TextView(this).apply {
-            text = item.name
+            text = if (isMobileLayout && item.name.length > 20) {
+                item.name.take(20) + "..."
+            } else {
+                item.name
+            }
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f)
-            textSize = 12f
+            textSize = if (isMobileLayout) 10f else 12f
             setTextColor(resources.getColor(android.R.color.black, null))
             gravity = Gravity.START
-            setPadding(0, 0, 8, 0)
+            setPadding(0, 0, if (isMobileLayout) 6 else 8, 0)
         }
 
         // Quantity column (25% width)
         val quantityTextView = TextView(this).apply {
             text = item.quantity.toString()
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            textSize = 12f
+            textSize = if (isMobileLayout) 10f else 12f
             setTextColor(resources.getColor(android.R.color.black, null))
             gravity = Gravity.CENTER
-            setPadding(4, 0, 4, 0)
+            setPadding(if (isMobileLayout) 2 else 4, 0, if (isMobileLayout) 2 else 4, 0)
         }
 
         // Price column (25% width)
         val priceTextView = TextView(this).apply {
             text = "₱${String.format("%.2f", item.totalAmount)}"
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            textSize = 12f
+            textSize = if (isMobileLayout) 10f else 12f
             setTextColor(resources.getColor(android.R.color.black, null))
             gravity = Gravity.END
-            setPadding(4, 0, 0, 0)
+            setPadding(if (isMobileLayout) 2 else 4, 0, 0, 0)
         }
 
         tableRow.addView(itemNameTextView)
@@ -6163,7 +7192,7 @@ private fun testDateFormats() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 1
             ).apply {
-                setMargins(0, 4, 0, 0)
+                setMargins(0, if (isMobileLayout) 2 else 4, 0, 0)
             }
             setBackgroundColor(resources.getColor(android.R.color.darker_gray, null))
         }
@@ -6181,13 +7210,16 @@ private fun testDateFormats() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                setMargins(0, 8, 0, 2)
+                setMargins(0, if (isMobileLayout) 6 else 8, 0, if (isMobileLayout) 1 else 2)
             }
-            setPadding(16, 12, 16, 12)
+            setPadding(
+                if (isMobileLayout) 12 else 16,
+                if (isMobileLayout) 8 else 12,
+                if (isMobileLayout) 12 else 16,
+                if (isMobileLayout) 8 else 12
+            )
             setBackgroundResource(android.R.color.white)
         }
-
-        // Add a thicker divider line above total
 
         // Total row
         val totalRow = LinearLayout(this).apply {
@@ -6196,17 +7228,17 @@ private fun testDateFormats() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
-            setPadding(0, 4, 0, 4)
+            setPadding(0, if (isMobileLayout) 2 else 4, 0, if (isMobileLayout) 2 else 4)
         }
 
         // Total label column (50% width)
         val totalLabelTextView = TextView(this).apply {
             text = "TOTAL"
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f)
-            textSize = 12f
+            textSize = if (isMobileLayout) 10f else 12f
             setTextColor(resources.getColor(android.R.color.black, null))
             gravity = Gravity.START
-            setPadding(0, 0, 8, 0)
+            setPadding(0, 0, if (isMobileLayout) 6 else 8, 0)
             setTypeface(null, android.graphics.Typeface.BOLD)
         }
 
@@ -6214,10 +7246,10 @@ private fun testDateFormats() {
         val totalQuantityTextView = TextView(this).apply {
             text = totalQuantity.toString()
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            textSize = 12f
+            textSize = if (isMobileLayout) 10f else 12f
             setTextColor(resources.getColor(android.R.color.black, null))
             gravity = Gravity.CENTER
-            setPadding(4, 0, 4, 0)
+            setPadding(if (isMobileLayout) 2 else 4, 0, if (isMobileLayout) 2 else 4, 0)
             setTypeface(null, android.graphics.Typeface.BOLD)
         }
 
@@ -6225,10 +7257,10 @@ private fun testDateFormats() {
         val totalPriceTextView = TextView(this).apply {
             text = "₱${String.format("%.2f", totalAmount)}"
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            textSize = 12f
+            textSize = if (isMobileLayout) 10f else 12f
             setTextColor(resources.getColor(android.R.color.black, null))
             gravity = Gravity.END
-            setPadding(4, 0, 0, 0)
+            setPadding(if (isMobileLayout) 2 else 4, 0, 0, 0)
             setTypeface(null, android.graphics.Typeface.BOLD)
         }
 
@@ -6236,18 +7268,14 @@ private fun testDateFormats() {
         totalRow.addView(totalQuantityTextView)
         totalRow.addView(totalPriceTextView)
 
-        /*
-                totalView.addView(thickDivider)
-        */
         totalView.addView(totalRow)
 
         return totalView
     }
 
+
 // Usage example: Add this after adding all your item views
 // Make sure to add the total row to your parent container like this:
 // val totalRow = createTotalRow(4, 100.0)
 // parentContainer.addView(totalRow)
-
-
 }

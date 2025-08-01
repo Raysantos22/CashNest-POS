@@ -1,3 +1,4 @@
+
 package com.example.possystembw.ui
 
 import android.content.Intent
@@ -23,6 +24,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.possystembw.DeviceUtils
 import com.example.possystembw.R
 import com.example.possystembw.RetrofitClient
 import com.example.possystembw.adapter.MixMatchItemsAdapter
@@ -40,51 +42,94 @@ import com.example.possystembw.ui.ViewModel.MixMatchRequest
 import com.example.possystembw.ui.ViewModel.ProductViewModel
 import com.example.possystembw.ui.ViewModel.RequestItem
 import kotlinx.coroutines.launch
-
-
 import androidx.lifecycle.lifecycleScope
 import com.example.possystembw.adapter.ProductSearchAdapter
-
+import androidx.drawerlayout.widget.DrawerLayout
+import androidx.constraintlayout.widget.ConstraintLayout
+import android.util.Log
+import com.example.possystembw.ui.AttendanceActivity.Companion
 
 class RequestActivity : AppCompatActivity() {
     private lateinit var requestRepository: RequestRepository
     lateinit var itemsAdapter: MixMatchItemsAdapter
     val selectedItems = mutableListOf<MixMatchItemRequest>()
     private lateinit var productViewModel: ProductViewModel
+
+    // Mobile/Tablet layout detection
+    private var isMobileLayout = false
+    private var drawerLayout: DrawerLayout? = null
+    private lateinit var sidebarLayout: ConstraintLayout
+
+    companion object {
+        private const val TAG = "RequestActivity"
+    }
+
     private fun initializeViewModel() {
         productViewModel = ViewModelProvider(
             this,
             ProductViewModel.ProductViewModelFactory(application)
         )[ProductViewModel::class.java]
     }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Set orientation based on device
+        DeviceUtils.setOrientationBasedOnDevice(this)
+
         setContentView(R.layout.activity_request)
+
+        // Detect layout type
+        detectLayoutType()
 
         setupToolbar()
         setupRequestButtons()
+    }
 
+    private fun detectLayoutType() {
+        // Check what views actually exist in the loaded layout
+        val drawerLayoutView = findViewById<DrawerLayout>(R.id.drawer_layout)
+        val sidebarLayoutView = findViewById<ConstraintLayout>(R.id.sidebarLayout)
+
+        val isTabletDevice = DeviceUtils.isTablet(this)
+        val hasDrawer = drawerLayoutView != null
+        val hasSidebar = sidebarLayoutView != null
+
+        Log.d(TAG, "=== LAYOUT DETECTION ===")
+        Log.d(TAG, "Device type: ${if (isTabletDevice) "Tablet" else "Phone"}")
+        Log.d(TAG, "Has DrawerLayout: $hasDrawer")
+        Log.d(TAG, "Has SidebarLayout: $hasSidebar")
+
+        // Determine layout type based on actual layout loaded
+        isMobileLayout = hasDrawer && !hasSidebar
+
+        if (isMobileLayout) {
+            drawerLayout = drawerLayoutView
+        } else if (hasSidebar) {
+            sidebarLayout = sidebarLayoutView
+        }
+
+        Log.d(TAG, "Final decision: ${if (isMobileLayout) "Mobile" else "Tablet"} mode")
     }
 
     private fun setupToolbar() {
         val toolbar = findViewById<Toolbar>(R.id.toolbar)
         setSupportActionBar(toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.title = "Create Request"
+
+        // Adjust title size based on layout
+        supportActionBar?.title = if (isMobileLayout) "Create Request" else "Create Request"
 
         toolbar.setNavigationOnClickListener {
             onBackPressed()
         }
     }
-    //    private fun openLineVisibilityScreen() {
-//        val intent = Intent(this, LineTransactionVisibilityActivity::class.java)
-//        startActivity(intent)
-//    }
 
     private fun openProductVisibilityScreen() {
         val intent = Intent(this, ProductVisibilityActivity::class.java)
         startActivity(intent)
     }
+
     private fun openWindowVisibilityScreen() {
         val intent = Intent(this, WindowVisibilityActivity::class.java)
         startActivity(intent)
@@ -121,12 +166,13 @@ class RequestActivity : AppCompatActivity() {
             showEditDiscountDialog()
         }
     }
+
     private fun showHideShowDialog(product: Product) {
         lifecycleScope.launch {
             val isHidden = productViewModel.isProductHidden(product.id)
             val action = if (isHidden) "Show" else "Hide"
 
-            AlertDialog.Builder(this@RequestActivity)
+            val dialog = AlertDialog.Builder(this@RequestActivity)
                 .setTitle("$action Product")
                 .setMessage("Do you want to $action '${product.itemName}'?")
                 .setPositiveButton(action) { _, _ ->
@@ -139,10 +185,51 @@ class RequestActivity : AppCompatActivity() {
                     }
                 }
                 .setNegativeButton("Cancel", null)
-                .show()
+                .create()
+
+            // Apply mobile-specific styling if needed
+            if (isMobileLayout) {
+                applyMobileDialogStyling(dialog)
+            }
+
+            dialog.show()
         }
     }
+    private fun applyMobileDialogStyling(dialog: AlertDialog) {
+        if (!isMobileLayout) return
 
+        try {
+            // Adjust button text sizes and padding
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.let { button ->
+                button.textSize = 12f
+                button.setPadding(12, 8, 12, 8)
+            }
+
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.let { button ->
+                button.textSize = 12f
+                button.setPadding(12, 8, 12, 8)
+                button.text = "Cancel"
+            }
+
+            // Adjust dialog title
+            val titleView = dialog.findViewById<TextView>(android.R.id.title)
+            titleView?.let { title ->
+                title.textSize = 14f
+                title.setPadding(16, 12, 16, 8)
+            }
+
+            // Adjust dialog width for mobile
+            dialog.window?.let { window ->
+                val layoutParams = window.attributes
+                val displayMetrics = resources.displayMetrics
+                layoutParams.width = (displayMetrics.widthPixels * 0.9).toInt()
+                window.attributes = layoutParams
+            }
+
+        } catch (e: Exception) {
+            Log.e(AttendanceActivity.TAG, "Error applying mobile dialog styling", e)
+        }
+    }
     // Method to show list of hidden products with option to unhide
     private fun showHiddenProductsDialog() {
         lifecycleScope.launch {
@@ -176,7 +263,7 @@ class RequestActivity : AppCompatActivity() {
     }
 
     private fun showUnhideConfirmDialog(product: Product) {
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("Show Product")
             .setMessage("Do you want to show '${product.itemName}'?")
             .setPositiveButton("Show") { _, _ ->
@@ -184,8 +271,15 @@ class RequestActivity : AppCompatActivity() {
                 Toast.makeText(this, "Product is now visible", Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton("Cancel", null)
-            .show()
+            .create()
+
+        if (isMobileLayout) {
+            applyMobileDialogStyling(dialog)
+        }
+
+        dialog.show()
     }
+
     // Dialog methods will be implemented next
     private fun showAddItemDialog() {
         val dialogView = layoutInflater.inflate(R.layout.dialog_add_item, null)
@@ -194,7 +288,7 @@ class RequestActivity : AppCompatActivity() {
         val priceInput = dialogView.findViewById<EditText>(R.id.etPrice)
         val costInput = dialogView.findViewById<EditText>(R.id.etCost)
 
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("Add New Item")
             .setView(dialogView)
             .setPositiveButton("Submit Request") { dialog, _ ->
@@ -218,7 +312,13 @@ class RequestActivity : AppCompatActivity() {
                 }
             }
             .setNegativeButton("Cancel", null)
-            .show()
+            .create()
+
+        if (isMobileLayout) {
+            applyMobileDialogStyling(dialog)
+        }
+
+        dialog.show()
     }
 
     private fun showEditItemDialog() {
@@ -274,12 +374,19 @@ class RequestActivity : AppCompatActivity() {
             }
         })
 
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("Search Item")
             .setView(dialogView)
             .setNegativeButton("Cancel", null)
-            .show()
+            .create()
+
+        if (isMobileLayout) {
+            applyMobileDialogStyling(dialog)
+        }
+
+        dialog.show()
     }
+
     private fun showEditItemDetailsDialog(product: Product) {
         val dialogView = layoutInflater.inflate(R.layout.dialog_edit_item, null)
 
@@ -288,7 +395,7 @@ class RequestActivity : AppCompatActivity() {
         dialogView.findViewById<EditText>(R.id.etItemGroup).setText(product.itemGroup)
         dialogView.findViewById<EditText>(R.id.etPrice).setText(product.price.toString())
 
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("Edit Item Details")
             .setView(dialogView)
             .setPositiveButton("Submit Request") { dialog, _ ->
@@ -317,7 +424,13 @@ class RequestActivity : AppCompatActivity() {
                 submitItemRequest(editRequest)
             }
             .setNegativeButton("Cancel", null)
-            .show()
+            .create()
+
+        if (isMobileLayout) {
+            applyMobileDialogStyling(dialog)
+        }
+
+        dialog.show()
     }
     private fun showUpdateItemDialog() {
         // Implementation coming in next steps
@@ -464,6 +577,10 @@ class RequestActivity : AppCompatActivity() {
             .setNegativeButton("Cancel", null)
             .create()
 
+        if (isMobileLayout) {
+            applyMobileDialogStyling(dialog)
+        }
+
         dialog.show()
 
         // Override the positive button click to add validation
@@ -512,6 +629,7 @@ class RequestActivity : AppCompatActivity() {
             dialog.dismiss()
         }
     }
+
     private fun showProductSelectionDialog(
         products: List<Product>,
         onItemSelected: (Product) -> Unit
@@ -537,9 +655,12 @@ class RequestActivity : AppCompatActivity() {
             dialog.dismiss()
         }
 
+        if (isMobileLayout) {
+            applyMobileDialogStyling(dialog)
+        }
+
         dialog.show()
     }
-
     // Helper function to update totals
     private fun updateTotals(
         items: List<MixMatchItemRequest>,
@@ -596,13 +717,19 @@ class RequestActivity : AppCompatActivity() {
     ) {
         val items = products.map { it.itemName }.toTypedArray()
 
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("Select Item")
             .setItems(items) { dialog, which ->
                 onItemSelected(products[which])
             }
             .setNegativeButton("Cancel", null)
-            .show()
+            .create()
+
+        if (isMobileLayout) {
+            applyMobileDialogStyling(dialog)
+        }
+
+        dialog.show()
     }
 
     private fun showAddDiscountDialog() {
@@ -618,7 +745,7 @@ class RequestActivity : AppCompatActivity() {
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         typeSpinner.adapter = adapter
 
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("Add New Discount")
             .setView(dialogView)
             .setPositiveButton("Submit Request") { dialog, _ ->
@@ -639,9 +766,14 @@ class RequestActivity : AppCompatActivity() {
                 }
             }
             .setNegativeButton("Cancel", null)
-            .show()
-    }
+            .create()
 
+        if (isMobileLayout) {
+            applyMobileDialogStyling(dialog)
+        }
+
+        dialog.show()
+    }
 
     private fun showEditDiscountDialog() {
         // First show a dialog to select the discount

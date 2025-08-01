@@ -9,6 +9,8 @@
     <com.google.android.material.textfield.TextInputLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:textColor="@color/black"
+        android:background="@drawable/date_picker_background"
         android:layout_marginBottom="8dp">
 
         <EditText
@@ -17,12 +19,19 @@
             android:layout_height="wrap_content"
             android:hint="Start Date"
             android:focusable="false"
+            android:drawableStart="@drawable/calendar"
+
+            android:textColor="@color/black"
+
             android:clickable="true" />
     </com.google.android.material.textfield.TextInputLayout>
 
     <com.google.android.material.textfield.TextInputLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:textColor="@color/black"
+        android:background="@drawable/date_picker_background"
+
         android:layout_marginBottom="16dp">
 
         <EditText
@@ -31,6 +40,8 @@
             android:layout_height="wrap_content"
             android:hint="End Date"
             android:focusable="false"
+            android:drawableStart="@drawable/calendar"
+            android:textColor="@color/black"
             android:clickable="true" />
     </com.google.android.material.textfield.TextInputLayout>
 
@@ -40,6 +51,7 @@
         android:layout_height="wrap_content"
         android:layout_marginBottom="16dp"
         android:textSize="16sp"
+        android:textColor="@color/black"
         android:textStyle="bold" />
 
     <LinearLayout
@@ -53,8 +65,11 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Select All"
+            android:textColor="@color/black"
+                android:buttonTint="@color/black"
             android:textStyle="bold" />
     </LinearLayout>
+
 
     <ProgressBar
         android:id="@+id/progressBar"

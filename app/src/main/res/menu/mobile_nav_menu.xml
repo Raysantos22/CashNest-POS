@@ -30,6 +30,10 @@
         android:id="@+id/nav_stock_transfer"
         android:icon="@drawable/transfer_solid_svgrepo_com"
         android:title="Stock Transfer" />
+    <item
+        android:id="@+id/nav_pos_system"
+        android:icon="@drawable/cashier"
+        android:title="Cashier" />
 
     <item android:title="Settings">
         <menu>

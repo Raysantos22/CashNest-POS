@@ -351,15 +351,18 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        DeviceUtils.setOrientationBasedOnDevice(this)
+
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN)
 
         // Set orientation based on device
-        DeviceUtils.setOrientationBasedOnDevice(this)
 
         binding = ActivityWindow1Binding.inflate(layoutInflater)
         setContentView(binding.root)
 
         try {
+            DeviceUtils.setOrientationBasedOnDevice(this)
+
             // Detect layout type
             detectLayoutType()
             loadDiscountsForWindow()
@@ -589,7 +592,7 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
             }
 
             // Setup options button for mobile
-            findViewById<Button>(R.id.optionsButton)?.setOnClickListener {
+            findViewById<ImageButton>(R.id.optionsButton)?.setOnClickListener {
                 showOptionsDialog()
             }
 
@@ -637,38 +640,346 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
     }
 
     private fun showOptionsDialog() {
-        val options = arrayOf(
-            "Discount",
-            "Set Price",
-            "Partial Payment",
-            "Void Partial Payment",
-            "Add Comment",
-            "Cash Drawer",
-            "Daily Journal",
-            "Change Fund",
-            "Pullout Change Fund"
-        )
+        val dialogView = layoutInflater.inflate(R.layout.dialog_options_custom, null)
 
-        AlertDialog.Builder(this, R.style.CustomDialogStyle3)
-            .setTitle("Options")
-            .setItems(options) { _, which ->
-                when (which) {
-                    0 -> showDiscountDialog()
-                    1 -> showPriceOverrideDialog()
-                    2 -> showPartialPaymentDialog()
-                    3 -> showVoidPartialPaymentDialog()
-                    4 -> showAddCommentDialog()
-                    5 -> {
-                        val intent = Intent(this, ReportsActivity::class.java)
+        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle4)
+            .setView(dialogView)
+            .create()
+
+        // Apply custom background
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+
+        // Set up click listeners for each option card
+        setupOptionClickListeners(dialogView, dialog)
+
+        // Cancel button
+        dialogView.findViewById<ImageButton>(R.id.cancelButton).setOnClickListener {
+            dialog.dismiss()
+        }
+
+        dialog.show()
+
+        // Add entrance animation
+        dialogView.alpha = 0f
+        dialogView.scaleX = 0.8f
+        dialogView.scaleY = 0.8f
+        dialogView.animate()
+            .alpha(1f)
+            .scaleX(1f)
+            .scaleY(1f)
+            .setDuration(300)
+            .setInterpolator(AccelerateDecelerateInterpolator())
+            .start()
+    }
+    private fun setupOptionClickListeners(dialogView: View, dialog: AlertDialog) {
+        // Discount option
+        dialogView.findViewById<CardView>(R.id.discountCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                showDiscountDialog()
+            }
+        }
+
+        // Set Price option
+        dialogView.findViewById<CardView>(R.id.setPriceCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                showPriceOverrideDialog()
+            }
+        }
+
+        // Partial Payment option
+        dialogView.findViewById<CardView>(R.id.partialPaymentCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                showPartialPaymentDialog()
+            }
+        }
+
+        // Void Partial Payment option
+        dialogView.findViewById<CardView>(R.id.voidPartialCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                showVoidPartialPaymentDialog()
+            }
+        }
+
+        // Add Comment option
+        dialogView.findViewById<CardView>(R.id.addCommentCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                showAddCommentDialog()
+            }
+        }
+
+
+        // QR Scanner option - Fixed for mobile mode
+        dialogView.findViewById<CardView>(R.id.qrScannerCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                openQRScanner()
+            }
+        }
+        dialogView.findViewById<CardView>(R.id.printerCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                // Handle printer indicator click (same logic as your existing printer indicator)
+                if (!bluetoothPrinterHelper.isConnected()) {
+                    // Try to reconnect to last known printer first
+                    val prefs = getSharedPreferences("BluetoothPrinter", Context.MODE_PRIVATE)
+                    val lastPrinterAddress = prefs.getString("last_printer_address", null)
+
+                    if (lastPrinterAddress != null) {
+                        lifecycleScope.launch {
+                            try {
+                                val connected = bluetoothPrinterHelper.connect(lastPrinterAddress)
+                                if (!connected) {
+                                    // If reconnection fails, open printer settings
+                                    val intent = Intent(this@Window1, PrinterSettingsActivity::class.java)
+                                    startActivity(intent)
+                                }
+                                updatePrinterIndicator()
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error reconnecting to printer", e)
+                                // Open printer settings on connection error
+                                val intent = Intent(this@Window1, PrinterSettingsActivity::class.java)
+                                startActivity(intent)
+                            }
+                        }
+                    } else {
+                        // No last known printer, open printer settings directly
+                        val intent = Intent(this@Window1, PrinterSettingsActivity::class.java)
                         startActivity(intent)
                     }
-                    6 -> showTransactionListDialog()
-                    7 -> showCashFundDialog()
-                    8 -> showPulloutCashFundDialog()
+                } else {
+                    // Show printer status dialog when connected
+                    showPrinterStatusDialog()
                 }
             }
-            .setNegativeButton("Cancel", null)
-            .show()
+        }
+
+        // Insert Button option - NEW
+        dialogView.findViewById<CardView>(R.id.updateCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+
+                // Show loading dialog
+                val loadingDialog = createLoadingDialog("Syncing data...")
+                loadingDialog.show()
+
+                // Handle insert button click (same logic as your existing insert button)
+                lifecycleScope.launch {
+                    try {
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(
+                                this@Window1,
+                                "Fetching all data from API...",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+
+                        coroutineScope {
+                            val productsJob = async {
+                                updateLoadingText(loadingDialog, "Syncing products...")
+                                productViewModel.insertAllProductsFromApi()
+                            }
+                            val discountsJob = async {
+                                try {
+                                    updateLoadingText(loadingDialog, "Syncing discounts...")
+                                    discountViewModel.fetchDiscounts()
+                                } catch (e: Exception) {
+                                    Log.e("Window1", "Error fetching discounts", e)
+                                }
+                            }
+                            val arTypesJob = async {
+                                try {
+                                    updateLoadingText(loadingDialog, "Syncing AR types...")
+                                    arViewModel.refreshARTypes()
+                                } catch (e: Exception) {
+                                    Log.e("Window1", "Error fetching AR types", e)
+                                }
+                            }
+                            val customersJob = async {
+                                try {
+                                    updateLoadingText(loadingDialog, "Syncing customers...")
+                                    customerViewModel.refreshCustomers()
+                                } catch (e: Exception) {
+                                    Log.e("Window1", "Error fetching customers", e)
+                                }
+                            }
+                            val mixMatchJob = async {
+                                try {
+                                    updateLoadingText(loadingDialog, "Syncing promotions...")
+                                    mixMatchViewModel.refreshMixMatches()
+                                } catch (e: Exception) {
+                                    Log.e("Window1", "Error fetching mix & match data", e)
+                                }
+                            }
+
+                            val results = awaitAll(
+                                productsJob,
+                                discountsJob,
+                                arTypesJob,
+                                customersJob,
+                                mixMatchJob
+                            )
+
+                            updateLoadingText(loadingDialog, "Finalizing...")
+                            productViewModel.loadAlignedProducts()
+
+                            val statusMessages = mutableListOf<String>()
+
+                            if (results[0] != null) {
+                                statusMessages.add("Products updated")
+                            }
+
+                            discountViewModel.discounts.value?.let {
+                                statusMessages.add("Discounts updated (${it.size} items)")
+                            }
+
+                            (arViewModel.arTypes.value as? List<*>)?.let {
+                                statusMessages.add("AR Types updated (${it.size} items)")
+                            }
+
+                            (customerViewModel.customers.value as? List<*>)?.let {
+                                statusMessages.add("Customers updated (${it.size} items)")
+                            }
+
+                            mixMatchViewModel.mixMatches.value.let {
+                                statusMessages.add("Mix & Match offers updated (${it.size} items)")
+                            }
+
+                            withContext(Dispatchers.Main) {
+                                loadingDialog.dismiss()
+
+                                if (statusMessages.isNotEmpty()) {
+                                    // Show success dialog
+                                    showSuccessDialog(statusMessages.joinToString("\n"))
+                                    updateCategoriesAndRecreate()
+                                    refreshProductAdapter()
+                                } else {
+                                    Toast.makeText(
+                                        this@Window1,
+                                        "No data was updated. Please check your connection.",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("Window1", "Error syncing data", e)
+                        withContext(Dispatchers.Main) {
+                            loadingDialog.dismiss()
+                            Toast.makeText(
+                                this@Window1,
+                                "Sync failed: ${e.message}",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                }
+            }
+        }
+        // Cash Drawer option
+        dialogView.findViewById<CardView>(R.id.cashDrawerCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                val intent = Intent(this, ReportsActivity::class.java)
+                startActivity(intent)
+            }
+        }
+
+        // Daily Journal option
+        dialogView.findViewById<CardView>(R.id.dailyJournalCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                showTransactionListDialog()
+            }
+        }
+
+        // Change Fund option
+        dialogView.findViewById<CardView>(R.id.changeFundCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                showCashFundDialog()
+            }
+        }
+
+        // Pullout Fund option
+        dialogView.findViewById<CardView>(R.id.pulloutFundCard).setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                showPulloutCashFundDialog()
+            }
+        }
+    }
+    private fun createLoadingDialog(message: String): AlertDialog {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_loading, null)
+        val messageText = dialogView.findViewById<TextView>(R.id.loadingMessage)
+        messageText.text = message
+
+        return AlertDialog.Builder(this, R.style.CustomDialogStyle3)
+            .setView(dialogView)
+            .setCancelable(false)
+            .create().apply {
+                window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+            }
+    }
+
+    private fun updateLoadingText(dialog: AlertDialog, message: String) {
+        runOnUiThread {
+            dialog.findViewById<TextView>(R.id.loadingMessage)?.text = message
+        }
+    }
+
+    private fun showSuccessDialog(message: String) {
+        AlertDialog.Builder(this, R.style.CustomDialogStyle3)
+            .setTitle("✅ Sync Successful")
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .create()
+            .apply {
+                window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+                show()
+            }
+    }
+    private fun animateCardClick(view: View, action: () -> Unit) {
+        view.animate()
+            .scaleX(0.95f)
+            .scaleY(0.95f)
+            .setDuration(100)
+            .withEndAction {
+                view.animate()
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setDuration(100)
+                    .withEndAction {
+                        action()
+                    }
+                    .start()
+            }
+            .start()
+    }
+    private fun openQRScanner() {
+        try {
+            if (!isScannerAvailable()) {
+                Toast.makeText(this, "Barcode scanner not available in mobile layout", Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            if (checkCameraPermission()) {
+                // Initialize camera provider if not already done
+                if (!::cameraProviderFuture.isInitialized) {
+                    setupBarcodeScanning()
+                }
+                showBarcodeScannerOverlay()
+            } else {
+                requestCameraPermission()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error opening QR scanner", e)
+            Toast.makeText(this, "Error opening QR scanner: ${e.message}", Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
@@ -701,6 +1012,11 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                 val intent = Intent(this, PrinterSettingsActivity::class.java)
                 startActivity(intent)
             }
+            R.id.nav_cash_drawer -> {
+                val intent = Intent(this, ReportsActivity::class.java)
+                startActivity(intent)
+            }
+
             R.id.nav_logout -> {
                 val intent = Intent(this, MainActivity::class.java)
                 startActivity(intent)
@@ -1227,30 +1543,43 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
         return (dp * resources.displayMetrics.density).toInt()
     }
 
-    private fun showTransactionListDialog() {
-        val dialogView = layoutInflater.inflate(R.layout.dialog_transaction_list, null)
-        val recyclerView = dialogView.findViewById<RecyclerView>(R.id.transactionRecyclerView)
-        val searchEditText = dialogView.findViewById<EditText>(R.id.searchEditText)
-        val searchButton = dialogView.findViewById<ImageButton>(R.id.searchButton)
-        val closeButton = dialogView.findViewById<Button>(R.id.closeButton)
-        val datePickerButton = dialogView.findViewById<Button>(R.id.datePickerButton)
-        val itemSalesButton = dialogView.findViewById<Button>(R.id.itemSalesButton)
+        private fun showTransactionListDialog() {
+            val dialogView = layoutInflater.inflate(R.layout.dialog_transaction_list, null)
+            val recyclerView = dialogView.findViewById<RecyclerView>(R.id.transactionRecyclerView)
+            val searchEditText = dialogView.findViewById<EditText>(R.id.searchEditText)
+            val searchButton = dialogView.findViewById<ImageButton>(R.id.searchButton)
+            val closeButton = dialogView.findViewById<Button>(R.id.closeButton)
+            val datePickerButton = dialogView.findViewById<Button>(R.id.datePickerButton)
+            val itemSalesButton = dialogView.findViewById<Button>(R.id.itemSalesButton)
 
-        // Set current date as default
-        val currentDate = Calendar.getInstance()
-        datePickerButton.text = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(currentDate.time)
-        recyclerView.layoutManager = LinearLayoutManager(this)
+            // Apply mobile-specific styling
+            if (isMobileLayout) {
+                searchEditText.textSize = 12f
+                closeButton.textSize = 11f
+                datePickerButton.textSize = 10f
+                itemSalesButton.textSize = 10f
 
-        // Create adapter with sorting logic
-        val transactionAdapter = TransactionAdapter { transaction ->
-            showTransactionDetailsDialog(transaction)
-        }.apply {
-            setSortComparator { t1, t2 ->
-                Log.d(TAG, "Dialog sorting: ${t1.transactionId} vs ${t2.transactionId}")
-                t2.createdDate.compareTo(t1.createdDate)
+                // Adjust padding for mobile
+                val paddingDp = (8 * resources.displayMetrics.density).toInt()
+                dialogView.setPadding(paddingDp, paddingDp/2, paddingDp, paddingDp/2)
             }
-        }
-        recyclerView.adapter = transactionAdapter
+
+            // Set current date as default
+            val currentDate = Calendar.getInstance()
+            datePickerButton.text = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(currentDate.time)
+            recyclerView.layoutManager = LinearLayoutManager(this)
+
+            // Create adapter with sorting logic
+            val transactionAdapter = TransactionAdapter { transaction ->
+                showTransactionDetailsDialog(transaction)
+            }.apply {
+                setSortComparator { t1, t2 ->
+                    Log.d(TAG, "Dialog sorting: ${t1.transactionId} vs ${t2.transactionId}")
+                    t2.createdDate.compareTo(t1.createdDate)
+                }
+            }
+            recyclerView.adapter = transactionAdapter
+
 
         // FIXED: Date picker functionality with proper date range handling
         datePickerButton.setOnClickListener {
@@ -1392,7 +1721,21 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
             transactionAdapter.filter(searchEditText.text.toString())
         }
 
-        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle1)
+        val titleView = TextView(this@Window1)
+//        titleView.text = "Transaction History"
+        titleView.textSize = if (isMobileLayout) 16f else 18f
+        titleView.setTextColor(ContextCompat.getColor(this@Window1, android.R.color.black))
+        titleView.setPadding(
+            if (isMobileLayout) 50 else 24,  // left
+            if (isMobileLayout) 50 else 20,  // top
+            if (isMobileLayout) 16 else 24,  // right
+            if (isMobileLayout) 8 else 12    // bottom
+        )
+        titleView.gravity = Gravity.CENTER_VERTICAL
+        titleView.setTypeface(null, Typeface.BOLD)
+
+        val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle3)
+//            .setCustomTitle(titleView)
             .setView(dialogView)
             .create()
 
@@ -1410,6 +1753,9 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
         }
 
         dialog.show()
+
+        // Apply mobile styling after dialog is shown
+        applyMobileDialogStyling(dialog)
     }
     private fun showTransactionDetailsDialog(transaction: TransactionSummary) {
         Log.d(TAG, "Showing transaction details dialog for transaction ID: ${transaction.transactionId}")
@@ -1487,7 +1833,7 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
             appendLine("TIN: Your TIN Number")
             appendLine("MIN: Your MIN")
             appendLine("Store: ${transaction.store}")
-            appendLine("═".repeat(45))
+            appendLine("═".repeat(30))
 
             // Transaction Info with proper receipt type
             when {
@@ -1508,11 +1854,11 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                 appendLine("Original SI#: ${transaction.refundReceiptId}")
             }
 
-            appendLine("═".repeat(45))
+            appendLine("═".repeat(30))
 
             // Items Section
             appendLine("Item                    Price   Qty    Total")
-            appendLine("═".repeat(45))
+            appendLine("═".repeat(30))
 
             items.forEach { item ->
                 val effectivePrice = if (item.priceOverride != null && item.priceOverride!! > 0.0) {
@@ -1563,7 +1909,7 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                 }
             }
 
-            appendLine("═".repeat(45))
+            appendLine("═".repeat(30))
 
             // Totals - for returns, show positive amounts for readability but indicate they are returns
             if (isReturn) {
@@ -1583,9 +1929,9 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
 
             // Payment Method Details Section - Show for all non-return transactions (same as generateReceiptContent)
             if (!isReturn) {
-                appendLine("═".repeat(45))
+                appendLine("═".repeat(30))
                 appendLine("PAYMENT DETAILS")
-                appendLine("═".repeat(45))
+                appendLine("═".repeat(30))
 
                 // Check for all payment methods used - Include AR calculation
                 val paymentMethods = mutableListOf<Pair<String, Double>>()
@@ -1618,7 +1964,7 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                     paymentMethods.forEach { (method, amount) ->
                         appendLine("${method.padEnd(25)} ${String.format("%12.2f", amount)}")
                     }
-                    appendLine("═".repeat(45))
+                    appendLine("═".repeat(30))
                     appendLine("Total Amount:${String.format("%26.2f", transaction.netAmount)}")
 
                     // Show breakdown of payments
@@ -1647,7 +1993,7 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
 
                 // Handle partial payments
                 if (hasPartialPayment) {
-                    appendLine("═".repeat(45))
+                    appendLine("═".repeat(30))
                     appendLine("PARTIAL PAYMENT SUMMARY:")
                     appendLine("Previous Payment:${String.format("%24.2f", transaction.partialPayment)}")
                     appendLine("This Payment:${String.format("%28.2f", transaction.totalAmountPaid)}")
@@ -1660,9 +2006,9 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                 }
             } else {
                 // For return transactions, show refund method details
-                appendLine("═".repeat(45))
+                appendLine("═".repeat(30))
                 appendLine("REFUND DETAILS")
-                appendLine("═".repeat(45))
+                appendLine("═".repeat(30))
 
                 val refundMethods = mutableListOf<Pair<String, Double>>()
 
@@ -1682,7 +2028,7 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                     refundMethods.forEach { (method, amount) ->
                         appendLine("${method.padEnd(25)} ${String.format("%12.2f", amount)}")
                     }
-                    appendLine("═".repeat(45))
+                    appendLine("═".repeat(30))
                     appendLine("Total Refund:${String.format("%26.2f", refundMethods.sumOf { it.second })}")
                 } else if (refundMethods.isNotEmpty()) {
                     val (method, amount) = refundMethods.first()
@@ -1692,7 +2038,7 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
             }
 
             // VAT Information - show positive amounts for readability
-            appendLine("═".repeat(45))
+            appendLine("═".repeat(30))
             if (isReturn) {
                 appendLine("VATable Sales:${String.format("%26.2f", kotlin.math.abs(transaction.vatableSales))}")
                 appendLine("VAT Amount:${String.format("%29.2f", kotlin.math.abs(transaction.vatAmount))}")
@@ -1703,7 +2049,7 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
             appendLine("VAT Exempt:${String.format("%29.2f", 0.0)}")
 
             // Footer
-            appendLine("═".repeat(45))
+            appendLine("═".repeat(30))
             if (!isReturn) {
                 appendLine("ID/PWD/OSCA#:")
                 appendLine("Name:")
@@ -1721,12 +2067,12 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
             if ((!transaction.customerAccount.isNullOrBlank() && transaction.customerAccount != "Walk-in Customer") ||
                 (!transaction.customerName.isNullOrBlank() && transaction.customerName != "Walk-in Customer")
             ) {
-                appendLine("═".repeat(45))
+                appendLine("═".repeat(30))
                 appendLine("Customer Account: ${transaction.customerAccount}")
                 appendLine("Customer Name: ${transaction.customerName ?: "N/A"}")
             }
 
-            appendLine("═".repeat(45))
+            appendLine("═".repeat(30))
             appendLine("Valid for 5 years from PTU date")
             appendLine("POS Provider: IT WARRIORS")
         }
@@ -1979,6 +2325,21 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                 val deselectAllButton = dialogView.findViewById<Button>(R.id.deselectAllButton)
                 val selectionCountTextView = dialogView.findViewById<TextView>(R.id.selectionCountTextView)
 
+                // Apply mobile-specific styling
+                if (isMobileLayout) {
+                    remarksEditText.textSize = 12f
+                    returnButton.textSize = 11f
+                    cancelButton.textSize = 11f
+                    selectAllButton?.textSize = 10f
+                    deselectAllButton?.textSize = 10f
+                    selectionCountTextView?.textSize = 12f
+                    warningTextView.textSize = 11f
+
+                    // Adjust padding for mobile
+                    val paddingDp = (12 * resources.displayMetrics.density).toInt()
+                    dialogView.setPadding(paddingDp, paddingDp/2, paddingDp, paddingDp/2)
+                }
+
                 // Check for partial payment
                 val hasPartialPayment = returnable.any { it.partialPaymentAmount > 0 }
 
@@ -2010,6 +2371,7 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                 // Create adapter
                 returnItemsAdapter = TransactionItemsAdapter(
                     items = returnable.toMutableList(), // ← Make sure this is 'returnable', not 'items'
+//                    isMobileLayout = isMobileLayout, // Pass mobile layout flag
                     onItemSelected = { item, isSelected ->
                         updateReturnButtonState(returnButton, returnItemsAdapter, remarksEditText)
                         selectionCountTextView?.let { updateSelectionCount(it, returnItemsAdapter) }
@@ -2023,7 +2385,6 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                         }
                     }
                 )
-
 
                 recyclerView.layoutManager = LinearLayoutManager(this@Window1)
                 recyclerView.adapter = returnItemsAdapter
@@ -2053,7 +2414,21 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                 }
                 updateReturnButtonState(returnButton, returnItemsAdapter, remarksEditText)
 
-                returnDialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle1)
+                val titleView = TextView(this@Window1)
+//                titleView.text = "Return Transaction"
+                titleView.textSize = if (isMobileLayout) 16f else 18f
+                titleView.setTextColor(ContextCompat.getColor(this@Window1, android.R.color.black))
+                titleView.setPadding(
+                    if (isMobileLayout) 50 else 24,  // left
+                    if (isMobileLayout) 50 else 20,  // top
+                    if (isMobileLayout) 16 else 24,  // right
+                    if (isMobileLayout) 8 else 12    // bottom
+                )
+                titleView.gravity = Gravity.CENTER_VERTICAL
+                titleView.setTypeface(null, Typeface.BOLD)
+
+                returnDialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle3)
+//                    .setCustomTitle(titleView)
                     .setView(dialogView)
                     .setCancelable(false)
                     .create()
@@ -2075,6 +2450,10 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                 }
 
                 returnDialog?.show()
+
+                // Apply mobile styling after dialog is shown
+                returnDialog?.let { applyMobileDialogStyling(it) }
+
                 Log.d(TAG, "Return dialog shown for transaction ${transaction.transactionId}")
 
             } catch (e: Exception) {
@@ -2199,6 +2578,17 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                     val confirmButton = dialogView.findViewById<Button>(R.id.confirmReturnButton)
                     val cancelButton = dialogView.findViewById<Button>(R.id.cancelReturnButton)
 
+                    // Apply mobile-specific styling
+                    if (isMobileLayout) {
+                        receiptTextView.textSize = 8f
+                        confirmButton.textSize = 11f
+                        cancelButton.textSize = 11f
+
+                        // Adjust padding for mobile
+                        val paddingDp = (12 * resources.displayMetrics.density).toInt()
+                        dialogView.setPadding(paddingDp, paddingDp/2, paddingDp, paddingDp/2)
+                    }
+
                     // Set monospace font for receipt preview
                     receiptTextView.typeface = Typeface.MONOSPACE
                     receiptTextView.text = returnReceiptContent
@@ -2206,8 +2596,21 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                     // Add return summary
                     addReturnSummaryViews(summaryContainer, returnCalculation, selectedItems.size)
 
-                    val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle)
-                        .setTitle("Return Transaction Preview")
+                    val titleView = TextView(this@Window1)
+//                    titleView.text = "Return Transaction Preview"
+                    titleView.textSize = if (isMobileLayout) 16f else 18f
+                    titleView.setTextColor(ContextCompat.getColor(this@Window1, android.R.color.black))
+                    titleView.setPadding(
+                        if (isMobileLayout) 50 else 24,  // left
+                        if (isMobileLayout) 50 else 20,  // top
+                        if (isMobileLayout) 16 else 24,  // right
+                        if (isMobileLayout) 8 else 12    // bottom
+                    )
+                    titleView.gravity = Gravity.CENTER_VERTICAL
+                    titleView.setTypeface(null, Typeface.BOLD)
+
+                    val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle3)
+//                        .setCustomTitle(titleView)
                         .setView(dialogView)
                         .setCancelable(true)
                         .create()
@@ -2251,6 +2654,9 @@ class Window1 : AppCompatActivity(), NavigationView.OnNavigationItemSelectedList
                     }
 
                     dialog.show()
+
+                    // Apply mobile styling after dialog is shown
+                    applyMobileDialogStyling(dialog)
                 }
 
             } catch (e: Exception) {
@@ -3432,22 +3838,39 @@ override fun onDestroy() {
 
     private fun showVoidPartialPaymentDialog() {
         if (partialPaymentApplied) {
-            val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle)
-                .setTitle("Void Partial Payment")
+            val titleView = TextView(this@Window1)
+            titleView.text = "Void Partial Payment"
+            titleView.textSize = if (isMobileLayout) 16f else 18f
+            titleView.setTextColor(ContextCompat.getColor(this@Window1, android.R.color.black))
+            titleView.setPadding(
+                if (isMobileLayout) 50 else 24,  // left
+                if (isMobileLayout) 50 else 20,  // top
+                if (isMobileLayout) 16 else 24,  // right
+                if (isMobileLayout) 8 else 12    // bottom
+            )
+            titleView.gravity = Gravity.CENTER_VERTICAL
+            titleView.setTypeface(null, Typeface.BOLD)
+
+            val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle3)
+                .setCustomTitle(titleView)
                 .setMessage("Are you sure you want to void the partial payment?")
                 .setPositiveButton("Yes") { _, _ ->
                     voidPartialPayment()
                 }
-                .setNegativeButton("No", null)
+                .setNegativeButton("No") { dialog, _ ->
+                    dialog.dismiss()
+                }
                 .create()
 
             dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
             dialog.show()
+
+            // Apply mobile styling after dialog is shown
+            applyMobileDialogStyling(dialog)
         } else {
             Toast.makeText(this@Window1, "No partial payment applied", Toast.LENGTH_SHORT).show()
         }
     }
-
 //    private fun voidPartialPayment() {
 //        lifecycleScope.launch {
 //            try {
@@ -5843,26 +6266,55 @@ private fun printXReadWithBluetoothPrinter(
     private fun openPrinterSettings() {
         startActivity(Intent(this, PrinterSettingsActivity::class.java))
     }
-    private fun updatePrinterIndicator() {
-        printerIndicator?.let { indicator ->
-            val isConnected = bluetoothPrinterHelper.isConnected()
+//    private fun updatePrinterIndicator() {
+//        printerIndicator?.let { indicator ->
+//            val isConnected = bluetoothPrinterHelper.isConnected()
+//            indicator.setColorFilter(
+//                ContextCompat.getColor(
+//                    this,
+//                    if (isConnected) android.R.color.holo_green_light
+//                    else android.R.color.holo_red_light
+//                ),
+//                PorterDuff.Mode.SRC_IN
+//            )
+//
+//            // Update tooltip/content description for accessibility
+//            indicator.contentDescription = if (isConnected) {
+//                "Printer connected (click for status)"
+//            } else {
+//                "Printer disconnected (click to connect)"
+//            }
+//        }
+//    }
+private fun updatePrinterIndicator() {
+    // Check both tablet and mobile layouts for printer indicator
+    val tabletPrinterIndicator = findViewById<ImageView>(R.id.printerIndicator)
+    val mobilePrinterIndicator = cartBottomSheet?.findViewById<ImageView>(R.id.printerIndicator)
+
+    val indicators = listOfNotNull(tabletPrinterIndicator, mobilePrinterIndicator)
+
+    indicators.forEach { indicator ->
+        val isConnected = bluetoothPrinterHelper.isConnected()
+
+        if (isConnected) {
+            // Connected - Green color
             indicator.setColorFilter(
-                ContextCompat.getColor(
-                    this,
-                    if (isConnected) android.R.color.holo_green_light
-                    else android.R.color.holo_red_light
-                ),
+                ContextCompat.getColor(this, R.color.connected_green),
                 PorterDuff.Mode.SRC_IN
             )
-
-            // Update tooltip/content description for accessibility
-            indicator.contentDescription = if (isConnected) {
-                "Printer connected (click for status)"
-            } else {
-                "Printer disconnected (click to connect)"
-            }
+            indicator.alpha = 1.0f
+        } else {
+            // Disconnected - Red color
+            indicator.setColorFilter(
+                ContextCompat.getColor(this, R.color.disconnected_red),
+                PorterDuff.Mode.SRC_IN
+            )
+            indicator.alpha = 0.7f
         }
     }
+
+    Log.d(TAG, "Printer indicator updated - Connected: ${bluetoothPrinterHelper.isConnected()}")
+}
     private suspend fun getLastConnectedPrinter(): PrinterSettings? {
         return withContext(Dispatchers.IO) {
             // Get all saved printers ordered by last connected date
@@ -6006,30 +6458,55 @@ private fun printReceiptWithBluetoothPrinter(
         bluetoothPrinterHelper.printGenericReceipt(cutCommand)
     }
 
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        when (requestCode) {
-            BLUETOOTH_PERMISSION_REQUEST_CODE -> {
-                if ((grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)) {
-                    // Permission was granted, you can print now
-                    // You might want to call printReceiptWithBluetoothPrinter here if it was initiated by user action
-                } else {
-                    // Permission denied, show a message to the user
-                    Toast.makeText(
-                        this,
-                        "Bluetooth permission is required to print receipts",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-                return
+//    override fun onRequestPermissionsResult(
+//        requestCode: Int,
+//        permissions: Array<out String>,
+//        grantResults: IntArray
+//    ) {
+//        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+//        when (requestCode) {
+//            BLUETOOTH_PERMISSION_REQUEST_CODE -> {
+//                if ((grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED)) {
+//                    // Permission was granted, you can print now
+//                    // You might want to call printReceiptWithBluetoothPrinter here if it was initiated by user action
+//                } else {
+//                    // Permission denied, show a message to the user
+//                    Toast.makeText(
+//                        this,
+//                        "Bluetooth permission is required to print receipts",
+//                        Toast.LENGTH_LONG
+//                    ).show()
+//                }
+//                return
+//            }
+//        }
+//    }
+override fun onRequestPermissionsResult(
+    requestCode: Int,
+    permissions: Array<out String>,
+    grantResults: IntArray
+) {
+    super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+    when (requestCode) {
+        CAMERA_PERMISSION_REQUEST_CODE -> {
+            if (grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                showBarcodeScannerOverlay()
+            } else {
+                Toast.makeText(
+                    this,
+                    "Camera permission is required for QR scanning",
+                    Toast.LENGTH_LONG
+                ).show()
             }
         }
     }
-
+}
+    private fun isScannerAvailable(): Boolean {
+        val scannerOverlay = findViewById<FrameLayout>(R.id.barcodeScannerOverlay)
+        return scannerOverlay != null
+    }
     private fun updateTotalAmountWithComment() {
         lifecycleScope.launch {
             try {
@@ -6438,10 +6915,28 @@ private fun printReceiptWithBluetoothPrinter(
         // Pre-fill existing comment if any
         commentEditText.setText(transactionComment)
 
-        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle)
-            .setTitle("Add Transaction Comment")
+        // Apply mobile-specific styling to EditText
+        if (isMobileLayout) {
+            commentEditText.textSize = 16f
+        }
+
+        val titleView = TextView(this@Window1)
+        titleView.text = "Add Transaction Comment"
+        titleView.textSize = if (isMobileLayout) 16f else 18f
+        titleView.setTextColor(ContextCompat.getColor(this@Window1, android.R.color.black))
+        titleView.setPadding(
+            if (isMobileLayout) 50 else 24,  // left
+            if (isMobileLayout) 50 else 20,  // top
+            if (isMobileLayout) 16 else 24,  // right
+            if (isMobileLayout) 8 else 12    // bottom
+        )
+        titleView.gravity = Gravity.CENTER_VERTICAL
+        titleView.setTypeface(null, Typeface.BOLD)
+
+        val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle3)
+            .setCustomTitle(titleView) // Use setCustomTitle instead of setTitle
             .setView(dialogView)
-            .setPositiveButton("Save") { dialog, _ ->
+            .setPositiveButton("Save") { _, _ ->
                 val comment = commentEditText.text.toString().trim()
                 lifecycleScope.launch {
                     try {
@@ -6461,14 +6956,20 @@ private fun printReceiptWithBluetoothPrinter(
                         }
                     }
                 }
+            }
+            .setNegativeButton("Cancel") { dialog, _ ->
                 dialog.dismiss()
             }
-            .setNegativeButton("Cancel", null)
             .create()
 
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.show()
+
+        // Apply mobile styling after dialog is shown
+        applyMobileDialogStyling(dialog)
     }
+
+
 
     private fun setupDeleteCommentButton() {
         binding.deleteCommentButton?.setOnClickListener {
@@ -6486,19 +6987,36 @@ private fun printReceiptWithBluetoothPrinter(
             return
         }
 
-        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle)
-            .setTitle("Delete Comment")
+        val titleView = TextView(this@Window1)
+        titleView.text = "Delete Comment"
+        titleView.textSize = if (isMobileLayout) 16f else 18f
+        titleView.setTextColor(ContextCompat.getColor(this@Window1, android.R.color.black))
+        titleView.setPadding(
+            if (isMobileLayout) 50 else 24,  // left
+            if (isMobileLayout) 50 else 20,  // top
+            if (isMobileLayout) 16 else 24,  // right
+            if (isMobileLayout) 8 else 12    // bottom
+        )
+        titleView.gravity = Gravity.CENTER_VERTICAL
+        titleView.setTypeface(null, Typeface.BOLD)
+
+        val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle3)
+            .setCustomTitle(titleView)
             .setMessage("Are you sure you want to delete the current comment?")
             .setPositiveButton("Yes") { _, _ ->
                 deleteComment()  // Delete the comment and refresh UI
             }
-            .setNegativeButton("No", null)
+            .setNegativeButton("No") { dialog, _ ->
+                dialog.dismiss()
+            }
             .create()
 
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.show()
-    }
 
+        // Apply mobile styling after dialog is shown
+        applyMobileDialogStyling(dialog)
+    }
     private fun deleteComment() {
         lifecycleScope.launch {
             try {
@@ -7149,6 +7667,8 @@ private fun connectToPrinter() {
             binding.recyclerviewcart // Tablet cart in sidebar
         }
 
+        Log.d(TAG, "Setting up cart RecyclerView - Mobile mode: $isMobileLayout")
+
         class CartDeleteHelper(private val adapter: CartAdapter) {
             fun deleteBundle(cartItem: CartItem) {
                 val bundleItems = adapter.currentList.filter { item ->
@@ -7163,10 +7683,18 @@ private fun connectToPrinter() {
         lateinit var deleteHelper: CartDeleteHelper
 
         val adapter = CartAdapter(
-            onItemClick = { cartItem -> /* Handle item click */ },
+            onItemClick = { cartItem ->
+                Log.d(TAG, "Cart item clicked: ${cartItem.productName}")
+            },
             onDeleteClick = { cartItem ->
+                Log.d(TAG, "Delete button clicked for: ${cartItem.productName}")
                 if (!partialPaymentApplied) {
                     cartViewModel.deleteCartItem(cartItem)
+                    Toast.makeText(
+                        this@Window1,
+                        "${cartItem.productName} removed from cart",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 } else {
                     Toast.makeText(
                         this@Window1,
@@ -7176,79 +7704,136 @@ private fun connectToPrinter() {
                 }
             },
             onQuantityChange = { cartItem, newQuantity ->
+                Log.d(TAG, "Quantity changed for ${cartItem.productName}: $newQuantity")
                 cartViewModel.update(cartItem.copy(quantity = newQuantity))
             },
             onDiscountDoubleTap = { cartItem ->
+                Log.d(TAG, "Discount double-tap for: ${cartItem.productName}")
                 showDiscountDialog()
             }
         )
 
+        // Initialize delete helper after adapter is created
+        deleteHelper = CartDeleteHelper(adapter)
+
         cartRecyclerView?.apply {
             this.adapter = adapter
             layoutManager = LinearLayoutManager(this@Window1)
+            Log.d(TAG, "✅ Cart RecyclerView configured")
+        } ?: run {
+            Log.e(TAG, "❌ Cart RecyclerView not found!")
+            return
         }
 
-        // Set up swipe-to-delete only for tablet (mobile uses delete buttons)
-        if (!isMobileLayout) {
-            val itemTouchHelper = ItemTouchHelper(object :
-                ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT) {
-                override fun onMove(
-                    recyclerView: RecyclerView,
-                    viewHolder: RecyclerView.ViewHolder,
-                    target: RecyclerView.ViewHolder
-                ): Boolean {
-                    return false
-                }
+        // Set up swipe-to-delete for BOTH mobile and tablet modes
+        val itemTouchHelper = ItemTouchHelper(object :
+            ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT or ItemTouchHelper.RIGHT) {
 
-                override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
-                    val position = viewHolder.adapterPosition
-                    if (position != RecyclerView.NO_POSITION) {
-                        val cartItem = adapter.currentList[position]
+            override fun onMove(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean {
+                return false
+            }
 
-                        if (!partialPaymentApplied) {
-                            if (cartItem.bundleId != null) {
-                                deleteHelper.deleteBundle(cartItem)
-                                Toast.makeText(
-                                    this@Window1,
-                                    "Entire bundle has been removed",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            } else {
-                                cartViewModel.deleteCartItem(cartItem)
-                            }
-                        } else {
-                            adapter.notifyItemChanged(position)
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+                val position = viewHolder.adapterPosition
+                Log.d(TAG, "Swipe detected at position: $position, direction: $direction")
+
+                if (position != RecyclerView.NO_POSITION) {
+                    val cartItem = adapter.currentList[position]
+                    Log.d(TAG, "Swiping to delete: ${cartItem.productName}")
+
+                    if (!partialPaymentApplied) {
+                        if (cartItem.bundleId != null) {
+                            Log.d(TAG, "Deleting entire bundle with ID: ${cartItem.bundleId}")
+                            deleteHelper.deleteBundle(cartItem)
                             Toast.makeText(
                                 this@Window1,
-                                "Cannot delete items when partial payment is applied",
+                                "Entire bundle has been removed",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            Log.d(TAG, "Deleting single item: ${cartItem.productName}")
+                            cartViewModel.deleteCartItem(cartItem)
+                            Toast.makeText(
+                                this@Window1,
+                                "${cartItem.productName} removed from cart",
                                 Toast.LENGTH_SHORT
                             ).show()
                         }
-                    }
-                }
-
-                override fun getSwipeDirs(
-                    recyclerView: RecyclerView,
-                    viewHolder: RecyclerView.ViewHolder
-                ): Int {
-                    return if (partialPaymentApplied) {
-                        0
                     } else {
-                        super.getSwipeDirs(recyclerView, viewHolder)
+                        Log.w(TAG, "Cannot delete - partial payment applied")
+                        adapter.notifyItemChanged(position)
+                        Toast.makeText(
+                            this@Window1,
+                            "Cannot delete items when partial payment is applied",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     }
                 }
-            })
+            }
 
-            itemTouchHelper.attachToRecyclerView(cartRecyclerView)
-        }
+            override fun getSwipeDirs(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder
+            ): Int {
+                return if (partialPaymentApplied) {
+                    Log.d(TAG, "Swipe disabled - partial payment applied")
+                    0 // Disable swiping when partial payment is applied
+                } else {
+                    Log.d(TAG, "Swipe enabled for cart item")
+                    super.getSwipeDirs(recyclerView, viewHolder)
+                }
+            }
+
+            override fun onChildDraw(
+                c: Canvas,
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                dX: Float,
+                dY: Float,
+                actionState: Int,
+                isCurrentlyActive: Boolean
+            ) {
+                super.onChildDraw(c, recyclerView, viewHolder, dX, dY, actionState, isCurrentlyActive)
+
+                // Add visual feedback during swipe
+                if (actionState == ItemTouchHelper.ACTION_STATE_SWIPE) {
+                    val alpha = 1.0f - abs(dX) / viewHolder.itemView.width.toFloat()
+                    viewHolder.itemView.alpha = alpha
+                    viewHolder.itemView.translationX = dX
+                }
+            }
+
+            override fun clearView(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder) {
+                super.clearView(recyclerView, viewHolder)
+                // Reset the view state
+                viewHolder.itemView.alpha = 1.0f
+                viewHolder.itemView.translationX = 0f
+            }
+        })
+
+        // Attach ItemTouchHelper to RecyclerView for BOTH mobile and tablet
+        itemTouchHelper.attachToRecyclerView(cartRecyclerView)
+        Log.d(TAG, "✅ Swipe-to-delete enabled for ${if (isMobileLayout) "mobile" else "tablet"} mode")
 
         // Observe partial payment changes
         lifecycleScope.launch {
             cartViewModel.getPartialPaymentForWindow(windowId).collect { partialPayment ->
+                val wasPartialPaymentApplied = partialPaymentApplied
                 partialPaymentApplied = partialPayment > 0
                 partialPaymentAmount = partialPayment
+
+                if (wasPartialPaymentApplied != partialPaymentApplied) {
+                    Log.d(TAG, "Partial payment status changed: $partialPaymentApplied")
+                }
+
                 adapter.setPartialPaymentApplied(partialPaymentApplied)
                 adapter.setDeletionEnabled(!partialPaymentApplied)
+
+                Log.d(TAG, "Cart state - Partial payment: $partialPaymentApplied, Amount: $partialPaymentAmount")
             }
         }
     }
@@ -7421,18 +8006,41 @@ private fun connectToPrinter() {
                     val searchEditText = dialogView.findViewById<EditText>(R.id.searchDiscounts)
                     val selectAllCheckbox = dialogView.findViewById<CheckBox>(R.id.selectAllCheckbox)
 
+                    // Apply mobile-specific styling to existing UI elements
+                    if (isMobileLayout) {
+                        searchEditText.textSize = 12f
+                        cartItemsTitle.textSize = 9f
+                        selectAllCheckbox.textSize = 9f
+
+                        // Adjust other text views in the dialog
+                        val selectDiscountText = dialogView.findViewById<TextView>(R.id.selectDiscountText)
+                        selectDiscountText?.textSize = 9f
+                    }
+
                     var selectedDiscount: Discount? = null
                     var adapter: DiscountAdapter? = null
 
-                    val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle)
-                        .setTitle("Apply Discount - ${getWindowTypeLabel(windowType)}")
+                    val titleView = TextView(this@Window1)
+                    titleView.text = "Apply Discount - ${getWindowTypeLabel(windowType)}"
+                    titleView.textSize = if (isMobileLayout) 16f else 18f
+                    titleView.setTextColor(ContextCompat.getColor(this@Window1, android.R.color.black))
+                    titleView.setPadding(
+                        if (isMobileLayout) 50 else 24,  // left
+                        if (isMobileLayout) 50 else 20,  // top
+                        if (isMobileLayout) 16 else 24,  // right
+                        if (isMobileLayout) 8 else 12    // bottom
+                    )
+                    titleView.gravity = Gravity.CENTER_VERTICAL
+                    titleView.setTypeface(null, Typeface.BOLD)
+
+                    val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle3)
+                        .setCustomTitle(titleView)
                         .setView(dialogView)
-                        .setPositiveButton("Apply") { dialog, _ ->
+                        .setPositiveButton("Apply") { _, _ ->
                             applySelectedDiscountWithWindowType(dialogView, selectedDiscount, windowType)
-                            dialog.dismiss()
                         }
                         .setNegativeButton("Cancel") { dialog, _ ->
-                            dialog.cancel()
+                            dialog.dismiss()
                         }
                         .create()
 
@@ -7526,12 +8134,25 @@ private fun connectToPrinter() {
                                 tag = cartItem.id
                                 setTextColor(Color.BLACK)
                                 buttonTintList = ColorStateList.valueOf(Color.BLACK)
+
+                                // Apply mobile-specific styling to dynamically created checkboxes
+                                textSize = if (isMobileLayout) 12f else 14f
+                                minHeight = if (isMobileLayout) 28 else 32
+                                setPadding(
+                                    if (isMobileLayout) 4 else 6,  // left
+                                    if (isMobileLayout) 20 else 20,  // top
+                                    if (isMobileLayout) 4 else 6,  // right
+                                    if (isMobileLayout) 20 else 20   // bottom
+                                )
                             }
                             cartItemsLayout.addView(checkBox)
                         }
                     }
 
                     dialog.show()
+
+                    // Apply mobile styling after dialog is shown
+                    applyMobileDialogStyling(dialog)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error showing discount dialog: ${e.message}", e)
@@ -7933,10 +8554,24 @@ private fun connectToPrinter() {
 
             val dialogView = layoutInflater.inflate(R.layout.dialog_price_override_list, null)
             val recyclerView = dialogView.findViewById<RecyclerView>(R.id.priceOverrideRecyclerView)
-            val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle)
-                .setTitle("Override Prices")
+
+            val titleView = TextView(this@Window1)
+            titleView.text = "Override Prices"
+            titleView.textSize = if (isMobileLayout) 16f else 18f
+            titleView.setTextColor(ContextCompat.getColor(this@Window1, android.R.color.black))
+            titleView.setPadding(
+                if (isMobileLayout) 50 else 24,  // left
+                if (isMobileLayout) 50 else 20,  // top
+                if (isMobileLayout) 16 else 24,  // right
+                if (isMobileLayout) 8 else 12    // bottom
+            )
+            titleView.gravity = Gravity.CENTER_VERTICAL
+            titleView.setTypeface(null, Typeface.BOLD)
+
+            val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle3)
+                .setCustomTitle(titleView)
                 .setView(dialogView)
-                .setPositiveButton("Close") { dialogInterface, _ ->
+                .setPositiveButton("Close") { _, _ ->
                     val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
                     imm.hideSoftInputFromWindow(dialogView.windowToken, 0)
                 }
@@ -7952,6 +8587,7 @@ private fun connectToPrinter() {
             }
 
             val priceOverrideAdapter = PriceOverrideAdapter(
+                isMobileLayout = isMobileLayout,  // Pass mobile layout flag to adapter
                 onPriceOverride = { cartItem, newPrice ->
                     cartViewModel.updatePriceoverride(cartItem.id, newPrice)
                     dialog.dismiss()
@@ -7987,6 +8623,10 @@ private fun connectToPrinter() {
             }
 
             dialog.show()
+
+            // Apply mobile styling after dialog is shown
+            applyMobileDialogStyling(dialog)
+
             dialog.window?.setLayout(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
@@ -10295,61 +10935,181 @@ private fun showPointsRedemptionDialog(
     }
 
 
+//    private fun setupBarcodeScanButton() {
+//        val barcodeScanButton = findViewById<ImageButton>(R.id.barcodeScanButton)
+//        barcodeScanButton.setOnClickListener {
+//            if (checkCameraPermission()) {
+//                showBarcodeScannerOverlay()
+//            } else {
+//                requestCameraPermission()
+//            }
+//        }
+//    }
     private fun setupBarcodeScanButton() {
         val barcodeScanButton = findViewById<ImageButton>(R.id.barcodeScanButton)
-        barcodeScanButton.setOnClickListener {
-            if (checkCameraPermission()) {
-                showBarcodeScannerOverlay()
-            } else {
-                requestCameraPermission()
-            }
+        barcodeScanButton?.setOnClickListener {
+            openQRScanner()
+        } ?: run {
+            Log.w(TAG, "Barcode scan button not found in current layout")
         }
     }
     private fun setupDraggableScanner() {
         val scannerOverlay = findViewById<FrameLayout>(R.id.barcodeScannerOverlay)
-        var dX = 0f
         var dY = 0f
+        var dX = 0f
+        var initialY = 0f
+        var initialX = 0f
+        var isDragging = false
 
         scannerOverlay.setOnTouchListener { view, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    dX = view.x - event.rawX
                     dY = view.y - event.rawY
+                    dX = view.x - event.rawX
+                    initialY = view.y
+                    initialX = view.x
+                    isDragging = false
+
+                    // Consume the touch event to prevent it from reaching underlying views
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    view.animate()
-                        .x(event.rawX + dX)
-                        .y(event.rawY + dY)
-                        .setDuration(0)
-                        .start()
+                    val deltaY = abs(event.rawY + dY - initialY)
+                    val deltaX = abs(event.rawX + dX - initialX)
+
+                    // Start dragging if moved more than touch slop
+                    if (!isDragging && (deltaY > 10 || deltaX > 10)) {
+                        isDragging = true
+                    }
+
+                    if (isDragging) {
+                        val newY = event.rawY + dY
+                        val newX = event.rawX + dX
+
+                        // Get screen bounds
+                        val displayMetrics = resources.displayMetrics
+                        val screenHeight = displayMetrics.heightPixels
+                        val screenWidth = displayMetrics.widthPixels
+                        val viewHeight = view.height
+                        val viewWidth = view.width
+
+                        // Constrain movement to screen bounds
+                        val constrainedY = when {
+                            newY < 0 -> 0f
+                            newY + viewHeight > screenHeight -> (screenHeight - viewHeight).toFloat()
+                            else -> newY
+                        }
+
+                        val constrainedX = when {
+                            newX < 0 -> 0f
+                            newX + viewWidth > screenWidth -> (screenWidth - viewWidth).toFloat()
+                            else -> newX
+                        }
+
+                        if (isMobileLayout) {
+                            // Mobile: Only allow vertical movement
+                            view.y = constrainedY
+                        } else {
+                            // Tablet: Allow both horizontal and vertical movement
+                            view.x = constrainedX
+                            view.y = constrainedY
+                        }
+                    }
+
+                    // Always consume the event during move
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    isDragging = false
+                    // Consume the event to prevent click-through
                     true
                 }
                 else -> false
             }
         }
+
+        // Also set the scanner overlay to be focusable and clickable to intercept touches
+        scannerOverlay.isFocusable = true
+        scannerOverlay.isClickable = true
     }
-    private fun showBarcodeScannerOverlay() {
+//    private fun showBarcodeScannerOverlay() {
+//        val scannerOverlay = findViewById<FrameLayout>(R.id.barcodeScannerOverlay)
+//        val previewView = findViewById<PreviewView>(R.id.previewView)
+//        val closeButton = findViewById<ImageButton>(R.id.closeButton)
+//        val scannerStatus = findViewById<TextView>(R.id.scannerStatus)
+//
+//        isProcessingBarcode = false
+//        lastScannedBarcode = null
+//        scannerOverlay.visibility = View.VISIBLE
+//        scannerStatus.text = "Ready to scan..."
+//        setupDraggableScanner()
+//
+//        closeButton.setOnClickListener {
+//            scannerOverlay.visibility = View.GONE
+//            try {
+//                cameraProviderFuture.get().unbindAll()
+//            } catch (e: Exception) {
+//                Log.e(TAG, "Error unbinding camera", e)
+//            }
+//        }
+//
+//        cameraProviderFuture.addListener({
+//            try {
+//                val cameraProvider = cameraProviderFuture.get()
+//                bindCameraPreview(
+//                    cameraProvider,
+//                    previewView,
+//                    scannerOverlay,
+//                    scannerStatus
+//                )
+//            } catch (e: Exception) {
+//                Log.e(TAG, "Error setting up camera preview", e)
+//                scannerStatus.text = "Error: ${e.message}"
+//            }
+//        }, ContextCompat.getMainExecutor(this))
+//    }
+private fun showBarcodeScannerOverlay() {
+    try {
         val scannerOverlay = findViewById<FrameLayout>(R.id.barcodeScannerOverlay)
         val previewView = findViewById<PreviewView>(R.id.previewView)
         val closeButton = findViewById<ImageButton>(R.id.closeButton)
         val scannerStatus = findViewById<TextView>(R.id.scannerStatus)
 
+        if (scannerOverlay == null) {
+            Toast.makeText(this, "Scanner not available in this layout", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Reset scanner state
         isProcessingBarcode = false
         lastScannedBarcode = null
-        scannerOverlay.visibility = View.VISIBLE
+
+        // Ensure the scanner overlay is brought to front and properly configured
+        scannerOverlay.apply {
+            visibility = View.VISIBLE
+            alpha = 0f
+            elevation = 100f // High elevation to ensure it's on top
+            bringToFront() // Bring to front of parent
+            isFocusable = true
+            isClickable = true
+        }
+
+        // Animate in
+        scannerOverlay.animate()
+            .alpha(1f)
+            .setDuration(300)
+            .start()
+
         scannerStatus.text = "Ready to scan..."
+
+        // Setup draggable functionality
         setupDraggableScanner()
 
         closeButton.setOnClickListener {
-            scannerOverlay.visibility = View.GONE
-            try {
-                cameraProviderFuture.get().unbindAll()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error unbinding camera", e)
-            }
+            closeBarcodeScanner(scannerOverlay)
         }
 
+        // Initialize camera
         cameraProviderFuture.addListener({
             try {
                 val cameraProvider = cameraProviderFuture.get()
@@ -10361,11 +11121,66 @@ private fun showPointsRedemptionDialog(
                 )
             } catch (e: Exception) {
                 Log.e(TAG, "Error setting up camera preview", e)
-                scannerStatus.text = "Error: ${e.message}"
+                scannerStatus.text = "Camera Error: ${e.message}"
+                Toast.makeText(this, "Camera initialization failed", Toast.LENGTH_SHORT).show()
             }
         }, ContextCompat.getMainExecutor(this))
+
+    } catch (e: Exception) {
+        Log.e(TAG, "Error showing barcode scanner overlay", e)
+        Toast.makeText(this, "Scanner error: ${e.message}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+    private fun setCartSwipeEnabled(enabled: Boolean) {
+        val cartRecyclerView = if (isMobileLayout) {
+            findViewById<RecyclerView>(R.id.recyclerviewcart)
+        } else {
+            binding.recyclerviewcart
+        }
+
+        cartRecyclerView?.let { recyclerView ->
+            // Find the ItemTouchHelper attached to this RecyclerView
+            val field = RecyclerView::class.java.getDeclaredField("mItemDecorations")
+            field.isAccessible = true
+            val decorations = field.get(recyclerView) as ArrayList<*>
+
+            decorations.forEach { decoration ->
+                if (decoration.toString().contains("ItemTouchHelper")) {
+                    try {
+                        val itemTouchHelper = decoration as ItemTouchHelper
+                        if (enabled) {
+                            itemTouchHelper.attachToRecyclerView(recyclerView)
+                        } else {
+                            itemTouchHelper.attachToRecyclerView(null)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error toggling cart swipe", e)
+                    }
+                }
+            }
+        }
     }
 
+// Update your closeBarcodeScanner method to re-enable cart swiping:
+
+    private fun closeBarcodeScanner(scannerOverlay: FrameLayout) {
+        scannerOverlay.animate()
+            .alpha(0f)
+            .setDuration(300)
+            .withEndAction {
+                scannerOverlay.visibility = View.GONE
+                scannerOverlay.elevation = 0f // Reset elevation
+                try {
+                    cameraProviderFuture.get().unbindAll()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error unbinding camera", e)
+                }
+                // Re-enable cart swiping when scanner is closed
+                setCartSwipeEnabled(true)
+            }
+            .start()
+    }
     private fun checkCameraPermission(): Boolean {
         return ContextCompat.checkSelfPermission(
             this,
@@ -11603,53 +12418,124 @@ private fun initializeSequences() {
                 .start()
         }
     }
-    private fun showStaffSelectionDialog() {
-        val dialogView = layoutInflater.inflate(R.layout.dialog_staff_selection, null)
-        val recyclerView = dialogView.findViewById<RecyclerView>(R.id.staffRecyclerView)
-        val passcodeInput = dialogView.findViewById<EditText>(R.id.passcodeInput)
+//    private fun showStaffSelectionDialog() {
+//        val dialogView = layoutInflater.inflate(R.layout.dialog_staff_selection, null)
+//        val recyclerView = dialogView.findViewById<RecyclerView>(R.id.staffRecyclerView)
+//        val passcodeInput = dialogView.findViewById<EditText>(R.id.passcodeInput)
+//
+//        recyclerView.layoutManager = LinearLayoutManager(this)
+//        val staffAdapter = StaffAdapter()
+//        recyclerView.adapter = staffAdapter
+//
+//        var selectedStaff: StaffEntity? = null
+//        staffAdapter.onStaffSelected = { staff ->
+//            selectedStaff = staff
+//        }
+//
+//        lifecycleScope.launch {
+//            try {
+//                val staffDao = AppDatabase.getDatabase(application).staffDao()
+//                val currentStoreId = SessionManager.getCurrentUser()?.storeid ?: return@launch
+//                val staffList = withContext(Dispatchers.IO) {
+//                    staffDao.getStaffByStore(currentStoreId)
+//                }
+//                staffAdapter.updateStaff(staffList)
+//            } catch (e: Exception) {
+//                Log.e("Window1", "Error loading staff", e)
+//                Toast.makeText(this@Window1, "Error loading staff data", Toast.LENGTH_SHORT).show()
+//            }
+//        }
+//
+//        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle3)
+//            .setView(dialogView)
+//            .setPositiveButton("Confirm", null)
+//            .setNegativeButton("Cancel") { dialog, _ ->
+//                dialog.dismiss()
+//            }
+//            .create()
+//
+//        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+//
+//        dialog.setOnShowListener {
+//            val positiveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+//            positiveButton.setOnClickListener {
+//                handleStaffLogin(selectedStaff, passcodeInput.text.toString(), dialog)
+//            }
+//        }
+//
+//        dialog.show()
+//    }
+private fun showStaffSelectionDialog() {
+    val dialogView = layoutInflater.inflate(R.layout.dialog_staff_selection, null)
+    val recyclerView = dialogView.findViewById<RecyclerView>(R.id.staffRecyclerView)
+    val passcodeInput = dialogView.findViewById<EditText>(R.id.passcodeInput)
+    val confirmButton = dialogView.findViewById<Button>(R.id.confirmButton)
+    val cancelButton = dialogView.findViewById<Button>(R.id.cancelButton)
 
-        recyclerView.layoutManager = LinearLayoutManager(this)
-        val staffAdapter = StaffAdapter()
-        recyclerView.adapter = staffAdapter
-
-        var selectedStaff: StaffEntity? = null
-        staffAdapter.onStaffSelected = { staff ->
-            selectedStaff = staff
-        }
-
-        lifecycleScope.launch {
-            try {
-                val staffDao = AppDatabase.getDatabase(application).staffDao()
-                val currentStoreId = SessionManager.getCurrentUser()?.storeid ?: return@launch
-                val staffList = withContext(Dispatchers.IO) {
-                    staffDao.getStaffByStore(currentStoreId)
-                }
-                staffAdapter.updateStaff(staffList)
-            } catch (e: Exception) {
-                Log.e("Window1", "Error loading staff", e)
-                Toast.makeText(this@Window1, "Error loading staff data", Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle3)
-            .setView(dialogView)
-            .setPositiveButton("Confirm", null)
-            .setNegativeButton("Cancel") { dialog, _ ->
-                dialog.dismiss()
-            }
-            .create()
-
-        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
-
-        dialog.setOnShowListener {
-            val positiveButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-            positiveButton.setOnClickListener {
-                handleStaffLogin(selectedStaff, passcodeInput.text.toString(), dialog)
-            }
-        }
-
-        dialog.show()
+    // Apply mobile-specific styling if needed
+    if (isMobileLayout) {
+        passcodeInput.textSize = 14f
+        confirmButton.textSize = 12f
+        cancelButton.textSize = 12f
     }
+
+    recyclerView.layoutManager = LinearLayoutManager(this)
+    val staffAdapter = StaffAdapter()
+    recyclerView.adapter = staffAdapter
+
+    var selectedStaff: StaffEntity? = null
+    staffAdapter.onStaffSelected = { staff ->
+        selectedStaff = staff
+    }
+
+    lifecycleScope.launch {
+        try {
+            val staffDao = AppDatabase.getDatabase(application).staffDao()
+            val currentStoreId = SessionManager.getCurrentUser()?.storeid ?: return@launch
+            val staffList = withContext(Dispatchers.IO) {
+                staffDao.getStaffByStore(currentStoreId)
+            }
+            staffAdapter.updateStaff(staffList)
+        } catch (e: Exception) {
+            Log.e("Window1", "Error loading staff", e)
+            Toast.makeText(this@Window1, "Error loading staff data", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    val titleView = TextView(this@Window1)
+//    titleView.text = "Select Staff"
+    titleView.textSize = if (isMobileLayout) 16f else 18f
+    titleView.setTextColor(ContextCompat.getColor(this@Window1, android.R.color.black))
+    titleView.setPadding(
+        if (isMobileLayout) 50 else 24,  // left
+        if (isMobileLayout) 50 else 20,  // top
+        if (isMobileLayout) 16 else 24,  // right
+        if (isMobileLayout) 8 else 12    // bottom
+    )
+    titleView.gravity = Gravity.CENTER_VERTICAL
+    titleView.setTypeface(null, Typeface.BOLD)
+
+    val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle3)
+//        .setCustomTitle(titleView)
+        .setView(dialogView)
+        .create()
+
+    dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+
+    // Set up custom button click listeners
+    confirmButton.setOnClickListener {
+        handleStaffLogin(selectedStaff, passcodeInput.text.toString(), dialog)
+    }
+
+    cancelButton.setOnClickListener {
+        dialog.dismiss()
+    }
+
+    dialog.show()
+
+    // Apply mobile styling after dialog is shown
+    applyMobileDialogStyling(dialog)
+}
 
     private fun handleStaffLogin(selectedStaff: StaffEntity?, passcode: String, dialog: AlertDialog) {
         when {
@@ -11714,49 +12600,116 @@ private fun initializeSequences() {
 
     private fun showImageConfirmationDialog(bitmap: Bitmap) {
         val dialogView = layoutInflater.inflate(R.layout.dialog_image_confirmation, null)
+
+        // Get references to views
         val previewImageView = dialogView.findViewById<ImageView>(R.id.previewImageView)
+        val backButton = dialogView.findViewById<ImageButton>(R.id.backButton)
+        val confirmButton = dialogView.findViewById<Button>(R.id.confirmButton)
+        val retakeButton = dialogView.findViewById<Button>(R.id.retakeButton)
+
+        // Apply mobile-specific styling if needed
+        if (isMobileLayout) {
+            confirmButton.textSize = 12f
+            retakeButton.textSize = 12f
+        }
 
         // Show the captured/selected image
         previewImageView.setImageBitmap(bitmap)
 
-        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle3)
-            .setTitle("Confirm Profile Picture")
+        val titleView = TextView(this@Window1)
+//        titleView.text = "Confirm Profile Picture"
+        titleView.textSize = if (isMobileLayout) 16f else 18f
+        titleView.setTextColor(ContextCompat.getColor(this@Window1, android.R.color.black))
+        titleView.setPadding(
+            if (isMobileLayout) 50 else 24,  // left
+            if (isMobileLayout) 50 else 20,  // top
+            if (isMobileLayout) 16 else 24,  // right
+            if (isMobileLayout) 8 else 12    // bottom
+        )
+        titleView.gravity = Gravity.CENTER_VERTICAL
+        titleView.setTypeface(null, Typeface.BOLD)
+
+        // Create dialog without default buttons since we're using custom ones
+        val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle3)
+//            .setCustomTitle(titleView)
             .setView(dialogView)
-            .setPositiveButton("Confirm") { _, _ ->
-                handleCapturedImage(bitmap, currentImageView) { base64String ->
-                    currentStaff?.let { staff ->
-                        currentDialog?.let { dialog ->
-                            currentProfileSetCallback?.let { callback ->
-                                updateStaffProfile(staff, base64String, dialog, callback)
-                            }
-                        }
-                    }
-                }
-            }
-            .setNegativeButton("Retake", null)
+            .setCancelable(false)
             .create()
 
         // Apply the custom background
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+
+        // Set up button click listeners
+        confirmButton.setOnClickListener {
+            handleCapturedImage(bitmap, currentImageView) { base64String ->
+                currentStaff?.let { staff ->
+                    currentDialog?.let { dialog ->
+                        currentProfileSetCallback?.let { callback ->
+                            updateStaffProfile(staff, base64String, dialog, callback)
+                        }
+                    }
+                }
+            }
+            dialog.dismiss()
+        }
+
+        retakeButton.setOnClickListener {
+            dialog.dismiss()
+            // Reopen the camera to retake the photo
+            requestCameraPermission()
+        }
+
+        backButton.setOnClickListener {
+            dialog.dismiss()
+        }
+
         dialog.show()
+
+        // Apply mobile styling after dialog is shown
+        applyMobileDialogStyling(dialog)
     }
 
     private fun showProfilePictureDialog(staff: StaffEntity, onProfileSet: (StaffEntity) -> Unit) {
         val dialogView = layoutInflater.inflate(R.layout.dialog_profile_picture, null)
+
+        // Get references to views
         val imageView = dialogView.findViewById<ImageView>(R.id.profileImageView)
+        val backButton = dialogView.findViewById<ImageButton>(R.id.backButton)
+        val takePhotoButton = dialogView.findViewById<Button>(R.id.takePhotoButton)
+        val chooseGalleryButton = dialogView.findViewById<Button>(R.id.chooseGalleryButton)
+        val cancelButton = dialogView.findViewById<Button>(R.id.cancelButton)
+        val cancelButtonContainer = dialogView.findViewById<androidx.cardview.widget.CardView>(R.id.cancelButtonContainer)
+
+        // Apply mobile-specific styling if needed
+        if (isMobileLayout) {
+            takePhotoButton.textSize = 12f
+            chooseGalleryButton.textSize = 12f
+            cancelButton.textSize = 12f
+        }
 
         // Store references for use in ActivityResultLaunchers
         currentImageView = imageView
         currentStaff = staff
         currentProfileSetCallback = onProfileSet
 
-        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle3)
-            .setTitle("Profile Picture Required")
-            .setMessage("Please set your profile picture to continue")
+        val titleView = TextView(this@Window1)
+//        titleView.text = "Set Profile Picture"
+        titleView.textSize = if (isMobileLayout) 16f else 18f
+        titleView.setTextColor(ContextCompat.getColor(this@Window1, android.R.color.black))
+        titleView.setPadding(
+            if (isMobileLayout) 50 else 24,  // left
+            if (isMobileLayout) 50 else 20,  // top
+            if (isMobileLayout) 16 else 24,  // right
+            if (isMobileLayout) 8 else 12    // bottom
+        )
+        titleView.gravity = Gravity.CENTER_VERTICAL
+        titleView.setTypeface(null, Typeface.BOLD)
+
+        // Create dialog without default buttons since we're using custom ones
+        val dialog = AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle3)
+//            .setCustomTitle(titleView)
             .setView(dialogView)
             .setCancelable(false)
-            .setPositiveButton("Take Photo", null)
-            .setNeutralButton("Choose from Gallery", null)
             .create()
 
         // Apply the custom background
@@ -11764,18 +12717,26 @@ private fun initializeSequences() {
 
         currentDialog = dialog
 
-        dialog.setOnShowListener {
-            val takePhotoButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-            val chooseGalleryButton = dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
-
-            takePhotoButton.setOnClickListener {
-                requestCameraPermission()
-            }
-
-            chooseGalleryButton.setOnClickListener {
-                pickImage.launch("image/*")
-            }
+        // Set up button click listeners
+        takePhotoButton.setOnClickListener {
+            requestCameraPermission()
         }
+
+        chooseGalleryButton.setOnClickListener {
+            pickImage.launch("image/*")
+        }
+
+        backButton.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        // Show cancel button if needed (optional - you can make this visible if required)
+        cancelButton.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        // Optional: Make cancel button visible if you want it
+        // cancelButtonContainer.visibility = View.VISIBLE
 
         dialog.setOnDismissListener {
             currentDialog = null
@@ -11785,28 +12746,73 @@ private fun initializeSequences() {
         }
 
         dialog.show()
+
+        // Apply mobile styling after dialog is shown
+        applyMobileDialogStyling(dialog)
     }
 
-    private fun requestCameraPermission() {
-        when {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED -> {
-                takePicture.launch(null)
-            }
-            shouldShowRequestPermissionRationale(Manifest.permission.CAMERA) -> {
-                AlertDialog.Builder(this)
-                    .setTitle("Camera Permission Required")
-                    .setMessage("We need camera permission to take profile pictures")
-                    .setPositiveButton("Grant") { _, _ ->
-                        requestPermissionLauncher.launch(Manifest.permission.CAMERA)
-                    }
-                    .setNegativeButton("Cancel", null)
-                    .show()
-            }
-            else -> {
-                requestPermissionLauncher.launch(Manifest.permission.CAMERA)
-            }
+//    private fun requestCameraPermission() {
+//        when {
+//            ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED -> {
+//                takePicture.launch(null)
+//            }
+//            shouldShowRequestPermissionRationale(Manifest.permission.CAMERA) -> {
+//                AlertDialog.Builder(this)
+//                    .setTitle("Camera Permission Required")
+//                    .setMessage("We need camera permission to take profile pictures")
+//                    .setPositiveButton("Grant") { _, _ ->
+//                        requestPermissionLauncher.launch(Manifest.permission.CAMERA)
+//                    }
+//                    .setNegativeButton("Cancel", null)
+//                    .show()
+//            }
+//            else -> {
+//                requestPermissionLauncher.launch(Manifest.permission.CAMERA)
+//            }
+//        }
+//    }
+private fun requestCameraPermission() {
+    when {
+        ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                == PackageManager.PERMISSION_GRANTED -> {
+            // Launch camera to take picture
+            takePicture.launch(null)
+        }
+        shouldShowRequestPermissionRationale(Manifest.permission.CAMERA) -> {
+            val titleView = TextView(this@Window1)
+//            titleView.text = "Camera Permission Required"
+            titleView.textSize = if (isMobileLayout) 16f else 18f
+            titleView.setTextColor(ContextCompat.getColor(this@Window1, android.R.color.black))
+            titleView.setPadding(
+                if (isMobileLayout) 50 else 24,  // left
+                if (isMobileLayout) 50 else 20,  // top
+                if (isMobileLayout) 16 else 24,  // right
+                if (isMobileLayout) 8 else 12    // bottom
+            )
+            titleView.gravity = Gravity.CENTER_VERTICAL
+            titleView.setTypeface(null, Typeface.BOLD)
+
+            AlertDialog.Builder(this@Window1, R.style.CustomDialogStyle3)
+//                .setCustomTitle(titleView)
+                .setMessage("Camera access is needed to take profile pictures for staff members")
+                .setPositiveButton("Grant Permission") { _, _ ->
+                    requestPermissionLauncher.launch(Manifest.permission.CAMERA)
+                }
+                .setNegativeButton("Cancel") { dialog, _ ->
+                    dialog.dismiss()
+                }
+                .create()
+                .apply {
+                    window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+                    show()
+                    applyMobileDialogStyling(this)
+                }
+        }
+        else -> {
+            requestPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
+}
 
     private fun handleCapturedImage(bitmap: Bitmap, imageView: ImageView?, onProcessed: (String) -> Unit) {
         lifecycleScope.launch(Dispatchers.Default) {
@@ -13219,52 +14225,52 @@ private fun initializeSequences() {
     }
 
     // Add this helper function to calculate summary values from transaction records
-    private fun calculateSummaryFromRecords(
-        transactionRecords: List<TransactionRecord>,
-        cartItems: List<CartItem>
-    ): SummaryCalculation {
-        var grossAmount = 0.0
-        var netAmount = 0.0
-        var discountAmount = 0.0
-        var vatAmount = 0.0
-        var costAmount = 0.0
-        var partialPayment = 0.0
-        var numberOfItems = 0.0
-        var priceOverride = 0.0
-
-        // Sum up values from transaction records with 2 decimal precision
-        transactionRecords.forEach { record ->
-            grossAmount += (record.grossAmount ?: 0.0).roundToTwoDecimals()
-            netAmount += (record.netAmount ?: 0.0).roundToTwoDecimals()
-            discountAmount += (record.discountAmount ?: 0.0).roundToTwoDecimals()
-            vatAmount += (record.vatAmount ?: 0.0).roundToTwoDecimals()
-            costAmount += (record.costAmount ?: 0.0).roundToTwoDecimals()
-            numberOfItems += record.quantity.toDouble()
-
-            // Handle price override
-            if (record.priceOverride != null && record.priceOverride!! > 0) {
-                priceOverride += ((record.priceOverride ?: 0.0) * record.quantity).roundToTwoDecimals()
-            }
-        }
-
-        // Get partial payment from cart items (only from first item to avoid duplication)
-        partialPayment = (cartItems.firstOrNull()?.partialPayment ?: 0.0).roundToTwoDecimals()
-
-        // Calculate VATable sales (net amount without VAT)
-        val vatableSales = (netAmount / 1.12).roundToTwoDecimals()
-
-        return SummaryCalculation(
-            grossAmount = grossAmount.roundToTwoDecimals(),
-            netAmount = netAmount.roundToTwoDecimals(),
-            discountAmount = discountAmount.roundToTwoDecimals(),
-            vatAmount = vatAmount.roundToTwoDecimals(),
-            vatableSales = vatableSales,
-            costAmount = costAmount.roundToTwoDecimals(),
-            partialPayment = partialPayment,
-            numberOfItems = numberOfItems,
-            priceOverride = priceOverride.roundToTwoDecimals()
-        )
-    }
+//    private fun calculateSummaryFromRecords(
+//        transactionRecords: List<TransactionRecord>,
+//        cartItems: List<CartItem>
+//    ): SummaryCalculation {
+//        var grossAmount = 0.0
+//        var netAmount = 0.0
+//        var discountAmount = 0.0
+//        var vatAmount = 0.0
+//        var costAmount = 0.0
+//        var partialPayment = 0.0
+//        var numberOfItems = 0.0
+//        var priceOverride = 0.0
+//
+//        // Sum up values from transaction records with 2 decimal precision
+//        transactionRecords.forEach { record ->
+//            grossAmount += (record.grossAmount ?: 0.0).roundToTwoDecimals()
+//            netAmount += (record.netAmount ?: 0.0).roundToTwoDecimals()
+//            discountAmount += (record.discountAmount ?: 0.0).roundToTwoDecimals()
+//            vatAmount += (record.vatAmount ?: 0.0).roundToTwoDecimals()
+//            costAmount += (record.costAmount ?: 0.0).roundToTwoDecimals()
+//            numberOfItems += record.quantity.toDouble()
+//
+//            // Handle price override
+//            if (record.priceOverride != null && record.priceOverride!! > 0) {
+//                priceOverride += ((record.priceOverride ?: 0.0) * record.quantity).roundToTwoDecimals()
+//            }
+//        }
+//
+//        // Get partial payment from cart items (only from first item to avoid duplication)
+//        partialPayment = (cartItems.firstOrNull()?.partialPayment ?: 0.0).roundToTwoDecimals()
+//
+//        // Calculate VATable sales (net amount without VAT)
+//        val vatableSales = (netAmount / 1.12).roundToTwoDecimals()
+//
+//        return SummaryCalculation(
+//            grossAmount = grossAmount.roundToTwoDecimals(),
+//            netAmount = netAmount.roundToTwoDecimals(),
+//            discountAmount = discountAmount.roundToTwoDecimals(),
+//            vatAmount = vatAmount.roundToTwoDecimals(),
+//            vatableSales = vatableSales,
+//            costAmount = costAmount.roundToTwoDecimals(),
+//            partialPayment = partialPayment,
+//            numberOfItems = numberOfItems,
+//            priceOverride = priceOverride.roundToTwoDecimals()
+//        )
+//    }
     private suspend fun handleLoyaltyPoints(
         selectedCustomer: Customer,
         paymentMethod: String,
@@ -13531,200 +14537,433 @@ private fun initializeSequences() {
         }
     }
 
-    private suspend fun getTransactionRecords(
-        transactionId: String,
-        cartItems: List<CartItem>,
-        paymentMethod: String,
-        ar: Double,
-        vatRate: Double,
-        discountType: String,
-        otherPaymentMethods: List<String> = emptyList(),
-        otherPaymentAmounts: List<Double> = emptyList()
-    ): List<TransactionRecord> {
-        val currentStore = SessionManager.getCurrentUser()?.storeid
-            ?: throw IllegalStateException("No store ID found in current session")
+//    private suspend fun getTransactionRecords(
+//        transactionId: String,
+//        cartItems: List<CartItem>,
+//        paymentMethod: String,
+//        ar: Double,
+//        vatRate: Double,
+//        discountType: String,
+//        otherPaymentMethods: List<String> = emptyList(),
+//        otherPaymentAmounts: List<Double> = emptyList()
+//    ): List<TransactionRecord> {
+//        val currentStore = SessionManager.getCurrentUser()?.storeid
+//            ?: throw IllegalStateException("No store ID found in current session")
+//
+//        val storeKey = numberSequenceRemoteRepository.getCurrentStoreKey(currentStore)
+//        val storeSequence = "$currentStore-${transactionId.split("-").last()}"
+//
+//        val existingPartialPayment = (cartItems.firstOrNull()?.partialPayment ?: 0.0).roundToTwoDecimals()
+//        val existingDiscount = if (existingPartialPayment > 0) {
+//            (cartItems.firstOrNull()?.discountAmount ?: 0.0).roundToTwoDecimals()
+//        } else null
+//
+//        // Group items by bundleId for bundle discount calculation
+//        val bundledItems = cartItems.groupBy { it.bundleId?.toString() }
+//
+//        // Calculate bundle discounts with 2 decimal precision
+//        val bundleDiscounts = mutableMapOf<String?, Double>()
+//        cartItems.forEach { cartItem ->
+//            if (cartItem.bundleId != null) {
+//                val bundleIdStr = cartItem.bundleId.toString()
+//                val bundle = bundledItems[bundleIdStr]
+//                if (bundle != null) {
+//                    when (cartItem.discountType.uppercase()) {
+//                        "DEAL" -> bundleDiscounts[bundleIdStr] = ((bundleDiscounts[bundleIdStr] ?: 0.0) + cartItem.discount).roundToTwoDecimals()
+//                        "PERCENTAGE" -> {
+//                            val itemTotal = ((cartItem.overriddenPrice ?: cartItem.price) * cartItem.quantity).roundToTwoDecimals()
+//                            val discountAmount = (itemTotal * (cartItem.discount / 100)).roundToTwoDecimals()
+//                            bundleDiscounts[bundleIdStr] = ((bundleDiscounts[bundleIdStr] ?: 0.0) + discountAmount).roundToTwoDecimals()
+//                        }
+//                        "FIXEDTOTAL" -> bundleDiscounts[bundleIdStr] = ((bundleDiscounts[bundleIdStr] ?: 0.0) + cartItem.discount).roundToTwoDecimals()
+//                    }
+//                }
+//            }
+//        }
+//
+//        // Calculate the total net amount after all discounts with 2 decimal precision
+//        var totalAmount = 0.0
+//        cartItems.forEach { item ->
+//            val itemTotal = ((item.overriddenPrice ?: item.price) * item.quantity).roundToTwoDecimals()
+//            totalAmount = (totalAmount + itemTotal).roundToTwoDecimals()
+//        }
+//
+//        // Subtract bundle discounts
+//        totalAmount = (totalAmount - bundleDiscounts.values.sum()).roundToTwoDecimals()
+//
+//        // Subtract regular discounts for non-bundled items
+//        cartItems.forEach { item ->
+//            if (item.bundleId == null) {
+//                val itemTotal = ((item.overriddenPrice ?: item.price) * item.quantity).roundToTwoDecimals()
+//                val itemDiscount = when (item.discountType.uppercase()) {
+//                    "PERCENTAGE", "PWD", "SC" -> (itemTotal * (item.discount / 100)).roundToTwoDecimals()
+//                    "FIXED" -> (item.discount * item.quantity).roundToTwoDecimals()
+//                    "FIXEDTOTAL" -> item.discountAmount.roundToTwoDecimals()
+//                    else -> 0.0
+//                }
+//                totalAmount = (totalAmount - itemDiscount).roundToTwoDecimals()
+//            }
+//        }
+//
+//        // If there's an existing discount from partial payment, use that instead
+//        if (existingDiscount != null) {
+//            totalAmount = (cartItems.sumOf { ((it.overriddenPrice ?: it.price) * it.quantity).roundToTwoDecimals() } - existingDiscount).roundToTwoDecimals()
+//        }
+//
+//        // Combine all payment methods and amounts with 2 decimal precision
+//        val allPaymentMethods = listOf(paymentMethod) + otherPaymentMethods
+//        val allPaymentAmounts = listOf(totalAmount) + otherPaymentAmounts.map { it.roundToTwoDecimals() }
+//
+//        val transactionRecords = mutableListOf<TransactionRecord>()
+//        val currentDateString = formatDateToString(Date())
+//
+//        cartItems.forEachIndexed { index, cartItem ->
+//            val effectivePrice = (cartItem.overriddenPrice ?: cartItem.price).roundToTwoDecimals()
+//            val itemTotal = (effectivePrice * cartItem.quantity).roundToTwoDecimals()
+//
+//            // Calculate the individual item discount with 2 decimal precision
+//            var itemDiscount = 0.0
+//
+//            // Use existing discount if partial payment exists
+//            if (existingDiscount != null) {
+//                itemDiscount = if (index == 0) existingDiscount else 0.0 // Apply discount only to first item
+//            } else if (cartItem.bundleId == null) {
+//                // Regular individual discount calculation
+//                itemDiscount = when (cartItem.discountType.uppercase()) {
+//                    "PERCENTAGE", "PWD", "SC" -> (itemTotal * (cartItem.discount / 100)).roundToTwoDecimals()
+//                    "FIXED" -> (cartItem.discount * cartItem.quantity).roundToTwoDecimals()
+//                    "FIXEDTOTAL" -> cartItem.discountAmount.roundToTwoDecimals()
+//                    else -> 0.0
+//                }
+//            } else {
+//                // For bundled items, apply the bundle discount proportionally
+//                val bundleIdStr = cartItem.bundleId.toString()
+//                val bundleTotal = bundledItems[bundleIdStr]?.sumOf {
+//                    ((it.overriddenPrice ?: it.price) * it.quantity).roundToTwoDecimals()
+//                } ?: itemTotal
+//
+//                val bundleDiscount = bundleDiscounts[bundleIdStr] ?: 0.0
+//
+//                // Apply discount proportionally based on this item's value relative to total bundle value
+//                itemDiscount = if (bundleTotal > 0) {
+//                    (bundleDiscount * (itemTotal / bundleTotal)).roundToTwoDecimals()
+//                } else 0.0
+//            }
+//
+//            val itemAfterDiscount = (itemTotal - itemDiscount).roundToTwoDecimals()
+//            val itemVat = (itemAfterDiscount * 0.12 / 1.12).roundToTwoDecimals()
+//            val netAmountNotIncludingTax = (itemAfterDiscount / 1.12).roundToTwoDecimals()
+//
+//            // Create split transaction records for each payment method
+//            val splitRecords = allPaymentMethods.mapIndexed { paymentIndex, method ->
+//                val totalNetSales = allPaymentAmounts.sum()
+//                val paymentProportion = if (totalNetSales > 0) (allPaymentAmounts[paymentIndex] / totalNetSales).roundToTwoDecimals() else 1.0
+//                val splitItemTotal = (itemTotal * paymentProportion).roundToTwoDecimals()
+//                val splitItemDiscount = (itemDiscount * paymentProportion).roundToTwoDecimals()
+//                val splitItemAfterDiscount = (splitItemTotal - splitItemDiscount).roundToTwoDecimals()
+//                val splitItemVat = (splitItemAfterDiscount * 0.12 / 1.12).roundToTwoDecimals()
+//                val splitCostAmount = (splitItemTotal / vatRate).roundToTwoDecimals()
+//                val splitNetAmountNotIncludingTax = (splitItemAfterDiscount / 1.12).roundToTwoDecimals()
+//
+//                TransactionRecord(
+//                    transactionId = transactionId,
+//                    name = cartItem.productName,
+//                    price = cartItem.price.roundToTwoDecimals(),
+//                    quantity = cartItem.quantity,
+//                    subtotal = splitItemTotal,
+//                    vatRate = (vatRate - 1).roundToTwoDecimals(),
+//                    vatAmount = splitItemVat,
+//                    discountRate = if (splitItemTotal > 0) (splitItemDiscount / splitItemTotal).roundToTwoDecimals() else 0.0,
+//                    discountAmount = splitItemDiscount,
+//                    total = splitItemAfterDiscount,
+//                    receiptNumber = transactionId,
+//                    timestamp = System.currentTimeMillis(),
+//                    paymentMethod = method.uppercase(),
+//                    ar = if (ar > 0.0) ((effectivePrice * cartItem.quantity) * paymentProportion).roundToTwoDecimals() else 0.0,
+//                    windowNumber = windowId,
+//                    partialPaymentAmount = if (index == 0) (cartItem.partialPayment * paymentProportion).roundToTwoDecimals() else 0.0,
+//                    comment = cartItem.cartComment ?: "",
+//                    lineNum = index + 1,
+//                    receiptId = transactionId,
+//                    itemId = cartItem.itemId.toString(),
+//                    itemGroup = cartItem.itemGroup.toString(),
+//                    netPrice = cartItem.price.roundToTwoDecimals(),
+//                    costAmount = splitCostAmount,
+//                    netAmount = splitItemAfterDiscount,
+//                    grossAmount = splitItemTotal,
+//                    customerAccount = selectedCustomer.name,
+//                    store = getCurrentStore(),
+//                    priceOverride = (cartItem.overriddenPrice ?: 0.0).roundToTwoDecimals(),
+//                    staff = getCurrentStaff(),
+//                    discountOfferId = if (cartItem.mixMatchId != null && cartItem.mixMatchId.isNotEmpty())
+//                        cartItem.mixMatchId
+//                    else if (cartItem.discountName != null && cartItem.discountName.isNotEmpty())
+//                        cartItem.discountName
+//                    else "",
+//                    lineDiscountAmount = splitItemDiscount,
+//                    lineDiscountPercentage = if (splitItemTotal > 0) ((splitItemDiscount / splitItemTotal) * 100).roundToTwoDecimals() else 0.0,
+//                    customerDiscountAmount = splitItemDiscount,
+//                    unit = "PCS",
+//                    unitQuantity = cartItem.quantity.toDouble(),
+//                    unitPrice = cartItem.price.roundToTwoDecimals(),
+//                    taxAmount = splitItemVat,
+//                    createdDate = currentDateString,
+//                    discountType = when (cartItem.discountType.uppercase()) {
+//                        "PWD" -> "PWD"
+//                        "SC" -> "SC"
+//                        "PERCENTAGE" -> "PERCENTAGE"
+//                        "FIXED" -> "FIXED"
+//                        "FIXED TOTAL", "FIXEDTOTAL" -> "FIXEDTOTAL"
+//                        "DEAL" -> "DEAL"
+//                        else -> "No Discount"
+//                    },
+//                    netAmountNotIncludingTax = splitNetAmountNotIncludingTax,
+//                    storeTaxGroup = null,
+//                    currency = "PHP",
+//                    taxExempt = 0.0,
+//                    storeKey = storeKey,
+//                    storeSequence = storeSequence,
+//                    taxIncludedInPrice = splitItemVat
+//                )
+//            }
+//
+//            transactionRecords.addAll(splitRecords)
+//        }
+//
+//        return transactionRecords
+//    }
+private suspend fun getTransactionRecords(
+    transactionId: String,
+    cartItems: List<CartItem>,
+    paymentMethod: String,
+    ar: Double,
+    vatRate: Double,
+    discountType: String,
+    otherPaymentMethods: List<String> = emptyList(),
+    otherPaymentAmounts: List<Double> = emptyList()
+): List<TransactionRecord> {
+    val currentStore = SessionManager.getCurrentUser()?.storeid
+        ?: throw IllegalStateException("No store ID found in current session")
 
-        val storeKey = numberSequenceRemoteRepository.getCurrentStoreKey(currentStore)
-        val storeSequence = "$currentStore-${transactionId.split("-").last()}"
+    val storeKey = numberSequenceRemoteRepository.getCurrentStoreKey(currentStore)
+    val storeSequence = "$currentStore-${transactionId.split("-").last()}"
 
-        val existingPartialPayment = (cartItems.firstOrNull()?.partialPayment ?: 0.0).roundToTwoDecimals()
-        val existingDiscount = if (existingPartialPayment > 0) {
-            (cartItems.firstOrNull()?.discountAmount ?: 0.0).roundToTwoDecimals()
-        } else null
+    val transactionRecords = mutableListOf<TransactionRecord>()
+    val currentDateString = formatDateToString(Date())
 
-        // Group items by bundleId for bundle discount calculation
-        val bundledItems = cartItems.groupBy { it.bundleId?.toString() }
+    cartItems.forEachIndexed { index, cartItem ->
+        // FIXED: Use roundToTwoDecimals for ALL price calculations
+        val effectivePrice = (cartItem.overriddenPrice ?: cartItem.price)
+        val itemTotal = (effectivePrice * cartItem.quantity)
 
-        // Calculate bundle discounts with 2 decimal precision
-        val bundleDiscounts = mutableMapOf<String?, Double>()
-        cartItems.forEach { cartItem ->
-            if (cartItem.bundleId != null) {
-                val bundleIdStr = cartItem.bundleId.toString()
-                val bundle = bundledItems[bundleIdStr]
-                if (bundle != null) {
-                    when (cartItem.discountType.uppercase()) {
-                        "DEAL" -> bundleDiscounts[bundleIdStr] = ((bundleDiscounts[bundleIdStr] ?: 0.0) + cartItem.discount).roundToTwoDecimals()
-                        "PERCENTAGE" -> {
-                            val itemTotal = ((cartItem.overriddenPrice ?: cartItem.price) * cartItem.quantity).roundToTwoDecimals()
-                            val discountAmount = (itemTotal * (cartItem.discount / 100)).roundToTwoDecimals()
-                            bundleDiscounts[bundleIdStr] = ((bundleDiscounts[bundleIdStr] ?: 0.0) + discountAmount).roundToTwoDecimals()
+        Log.d("TransactionRecord", "=== ITEM: ${cartItem.productName} ===")
+        Log.d("TransactionRecord", "Original Price: ${cartItem.price}")
+        Log.d("TransactionRecord", "Overridden Price: ${cartItem.overriddenPrice}")
+        Log.d("TransactionRecord", "Effective Price: $effectivePrice")
+        Log.d("TransactionRecord", "Quantity: ${cartItem.quantity}")
+        Log.d("TransactionRecord", "Item Total: $itemTotal")
+
+        // Calculate discount (unchanged from your logic)
+        var itemDiscount = 0.0
+        when (cartItem.discountType.uppercase()) {
+            "PERCENTAGE", "PWD", "SC" -> itemDiscount = (itemTotal * (cartItem.discount / 100))
+            "FIXED" -> itemDiscount = (cartItem.discount * cartItem.quantity)
+            "FIXEDTOTAL" -> itemDiscount = cartItem.discountAmount
+            else -> itemDiscount = 0.0
+        }
+
+        val itemAfterDiscount = (itemTotal - itemDiscount)
+        val itemVat = (itemAfterDiscount * 0.12 / 1.12)
+        val netAmountNotIncludingTax = (itemAfterDiscount / 1.12)
+
+        // FIXED: Store price override with full decimal precision
+        val priceOverrideValue = if (cartItem.overriddenPrice != null && cartItem.overriddenPrice > 0.0) {
+            cartItem.overriddenPrice // Keep full precision
+        } else {
+            0.0
+        }
+
+        Log.d("TransactionRecord", "Price Override Value: $priceOverrideValue")
+        Log.d("TransactionRecord", "Gross Amount: $itemTotal")
+        Log.d("TransactionRecord", "Net Amount: $itemAfterDiscount")
+
+        val record = TransactionRecord(
+            transactionId = transactionId,
+            name = cartItem.productName,
+            price = cartItem.price, // Keep original precision
+            quantity = cartItem.quantity,
+            subtotal = itemTotal, // Keep full precision
+            vatRate = (vatRate - 1),
+            vatAmount = itemVat,
+            discountRate = if (itemTotal > 0) (itemDiscount / itemTotal) else 0.0,
+            discountAmount = itemDiscount,
+            total = itemAfterDiscount,
+            receiptNumber = transactionId,
+            timestamp = System.currentTimeMillis(),
+            paymentMethod = paymentMethod.uppercase(),
+            ar = if (ar > 0.0) (effectivePrice * cartItem.quantity) else 0.0,
+            windowNumber = windowId,
+            partialPaymentAmount = if (index == 0) cartItem.partialPayment else 0.0,
+            comment = cartItem.cartComment ?: "",
+            lineNum = index + 1,
+            receiptId = transactionId,
+            itemId = cartItem.itemId.toString(),
+            itemGroup = cartItem.itemGroup.toString(),
+            netPrice = cartItem.price,
+            costAmount = (itemTotal / vatRate),
+            netAmount = itemAfterDiscount, // Keep full precision
+            grossAmount = itemTotal, // Keep full precision
+            customerAccount = selectedCustomer.name,
+            store = getCurrentStore(),
+            priceOverride = priceOverrideValue, // FIXED: Store with full precision
+            staff = getCurrentStaff(),
+            discountOfferId = if (cartItem.mixMatchId != null && cartItem.mixMatchId.isNotEmpty())
+                cartItem.mixMatchId
+            else if (cartItem.discountName != null && cartItem.discountName.isNotEmpty())
+                cartItem.discountName
+            else "",
+            lineDiscountAmount = itemDiscount,
+            lineDiscountPercentage = if (itemTotal > 0) ((itemDiscount / itemTotal) * 100) else 0.0,
+            customerDiscountAmount = itemDiscount,
+            unit = "PCS",
+            unitQuantity = cartItem.quantity.toDouble(),
+            unitPrice = cartItem.price,
+            taxAmount = itemVat,
+            createdDate = currentDateString,
+            discountType = when (cartItem.discountType.uppercase()) {
+                "PWD" -> "PWD"
+                "SC" -> "SC"
+                "PERCENTAGE" -> "PERCENTAGE"
+                "FIXED" -> "FIXED"
+                "FIXEDTOTAL", "FIXED TOTAL" -> "FIXEDTOTAL"
+                "DEAL" -> "DEAL"
+                else -> "No Discount"
+            },
+            netAmountNotIncludingTax = netAmountNotIncludingTax,
+            storeTaxGroup = null,
+            currency = "PHP",
+            taxExempt = 0.0,
+            storeKey = storeKey,
+            storeSequence = storeSequence,
+            taxIncludedInPrice = itemVat
+        )
+
+        transactionRecords.add(record)
+    }
+
+    return transactionRecords
+}
+    private fun calculateSummaryFromRecords(
+        transactionRecords: List<TransactionRecord>,
+        cartItems: List<CartItem>
+    ): SummaryCalculation {
+        var grossAmount = 0.0
+        var netAmount = 0.0
+        var discountAmount = 0.0
+        var vatAmount = 0.0
+        var costAmount = 0.0
+        var partialPayment = 0.0
+        var numberOfItems = 0.0
+        var priceOverride = 0.0
+
+        Log.d("SummaryCalc", "=== CALCULATING SUMMARY FROM RECORDS ===")
+
+        // Sum up values from transaction records
+        transactionRecords.forEach { record ->
+            Log.d("SummaryCalc", "Record: ${record.name}")
+            Log.d("SummaryCalc", "  Gross: ${record.grossAmount}")
+            Log.d("SummaryCalc", "  Net: ${record.netAmount}")
+            Log.d("SummaryCalc", "  Price Override: ${record.priceOverride}")
+
+            grossAmount += (record.grossAmount ?: 0.0)
+            netAmount += (record.netAmount ?: 0.0)
+            discountAmount += (record.discountAmount ?: 0.0)
+            vatAmount += (record.vatAmount ?: 0.0)
+            costAmount += (record.costAmount ?: 0.0)
+            numberOfItems += record.quantity.toDouble()
+
+            // FIXED: Only count price override if it was actually used
+            if (record.priceOverride != null && record.priceOverride!! > 0) {
+                priceOverride += (record.priceOverride!! * record.quantity)
+            }
+        }
+
+        // Get partial payment from cart items (only from first item to avoid duplication)
+        partialPayment = cartItems.firstOrNull()?.partialPayment ?: 0.0
+
+        // Calculate VATable sales (net amount without VAT)
+        val vatableSales = (netAmount / 1.12)
+
+        Log.d("SummaryCalc", "=== SUMMARY TOTALS ===")
+        Log.d("SummaryCalc", "Gross Amount: $grossAmount")
+        Log.d("SummaryCalc", "Net Amount: $netAmount")
+        Log.d("SummaryCalc", "Discount Amount: $discountAmount")
+        Log.d("SummaryCalc", "Price Override Total: $priceOverride")
+
+        return SummaryCalculation(
+            grossAmount = grossAmount,
+            netAmount = netAmount,
+            discountAmount = discountAmount,
+            vatAmount = vatAmount,
+            vatableSales = vatableSales,
+            costAmount = costAmount,
+            partialPayment = partialPayment,
+            numberOfItems = numberOfItems,
+            priceOverride = priceOverride
+        )
+    }
+
+    // FIXED: Update the debug to show exact calculations
+    private fun debugRNDSampleCalculations() {
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    Log.d("RNDCalc", "=== RND SAMPLE CALCULATION VERIFICATION ===")
+
+                    // Get all RND SAMPLE records
+                    val allRecords = transactionDao.getAllTransactionRecords()
+                    val rndRecords = allRecords.filter { it.name.contains("RND SAMPLE", ignoreCase = true) }
+
+                    var totalQuantity = 0
+                    var totalGrossAmount = 0.0
+                    var totalNetAmount = 0.0
+
+                    rndRecords.forEach { record ->
+                        Log.d("RNDCalc", "=== RECORD: ${record.transactionId} ===")
+                        Log.d("RNDCalc", "Price: ${record.price}")
+                        Log.d("RNDCalc", "Price Override: ${record.priceOverride}")
+                        Log.d("RNDCalc", "Quantity: ${record.quantity}")
+                        Log.d("RNDCalc", "Gross Amount: ${record.grossAmount}")
+                        Log.d("RNDCalc", "Net Amount: ${record.netAmount}")
+
+                        // Manual calculation check
+                        val expectedGross = if (record.priceOverride != null && record.priceOverride!! > 0) {
+                            record.priceOverride!! * record.quantity
+                        } else {
+                            record.price * record.quantity
                         }
-                        "FIXEDTOTAL" -> bundleDiscounts[bundleIdStr] = ((bundleDiscounts[bundleIdStr] ?: 0.0) + cartItem.discount).roundToTwoDecimals()
+
+                        Log.d("RNDCalc", "Expected Gross: $expectedGross")
+                        Log.d("RNDCalc", "Actual Gross: ${record.grossAmount}")
+                        Log.d("RNDCalc", "Match: ${expectedGross == record.grossAmount}")
+
+                        totalQuantity += record.quantity
+                        totalGrossAmount += record.grossAmount ?: 0.0
+                        totalNetAmount += record.netAmount ?: 0.0
                     }
+
+                    Log.d("RNDCalc", "=== TOTALS ===")
+                    Log.d("RNDCalc", "Total Quantity: $totalQuantity")
+                    Log.d("RNDCalc", "Total Gross: $totalGrossAmount")
+                    Log.d("RNDCalc", "Total Net: $totalNetAmount")
+                    Log.d("RNDCalc", "Expected from print: 7 x 249.00 = 1743.00")
+                    Log.d("RNDCalc", "Expected from data: 7 x ~260.61 = ~1824.27")
+                    Log.d("RNDCalc", "========================")
                 }
+            } catch (e: Exception) {
+                Log.e("RNDCalc", "Error in calculation debug", e)
             }
         }
-
-        // Calculate the total net amount after all discounts with 2 decimal precision
-        var totalAmount = 0.0
-        cartItems.forEach { item ->
-            val itemTotal = ((item.overriddenPrice ?: item.price) * item.quantity).roundToTwoDecimals()
-            totalAmount = (totalAmount + itemTotal).roundToTwoDecimals()
-        }
-
-        // Subtract bundle discounts
-        totalAmount = (totalAmount - bundleDiscounts.values.sum()).roundToTwoDecimals()
-
-        // Subtract regular discounts for non-bundled items
-        cartItems.forEach { item ->
-            if (item.bundleId == null) {
-                val itemTotal = ((item.overriddenPrice ?: item.price) * item.quantity).roundToTwoDecimals()
-                val itemDiscount = when (item.discountType.uppercase()) {
-                    "PERCENTAGE", "PWD", "SC" -> (itemTotal * (item.discount / 100)).roundToTwoDecimals()
-                    "FIXED" -> (item.discount * item.quantity).roundToTwoDecimals()
-                    "FIXEDTOTAL" -> item.discountAmount.roundToTwoDecimals()
-                    else -> 0.0
-                }
-                totalAmount = (totalAmount - itemDiscount).roundToTwoDecimals()
-            }
-        }
-
-        // If there's an existing discount from partial payment, use that instead
-        if (existingDiscount != null) {
-            totalAmount = (cartItems.sumOf { ((it.overriddenPrice ?: it.price) * it.quantity).roundToTwoDecimals() } - existingDiscount).roundToTwoDecimals()
-        }
-
-        // Combine all payment methods and amounts with 2 decimal precision
-        val allPaymentMethods = listOf(paymentMethod) + otherPaymentMethods
-        val allPaymentAmounts = listOf(totalAmount) + otherPaymentAmounts.map { it.roundToTwoDecimals() }
-
-        val transactionRecords = mutableListOf<TransactionRecord>()
-        val currentDateString = formatDateToString(Date())
-
-        cartItems.forEachIndexed { index, cartItem ->
-            val effectivePrice = (cartItem.overriddenPrice ?: cartItem.price).roundToTwoDecimals()
-            val itemTotal = (effectivePrice * cartItem.quantity).roundToTwoDecimals()
-
-            // Calculate the individual item discount with 2 decimal precision
-            var itemDiscount = 0.0
-
-            // Use existing discount if partial payment exists
-            if (existingDiscount != null) {
-                itemDiscount = if (index == 0) existingDiscount else 0.0 // Apply discount only to first item
-            } else if (cartItem.bundleId == null) {
-                // Regular individual discount calculation
-                itemDiscount = when (cartItem.discountType.uppercase()) {
-                    "PERCENTAGE", "PWD", "SC" -> (itemTotal * (cartItem.discount / 100)).roundToTwoDecimals()
-                    "FIXED" -> (cartItem.discount * cartItem.quantity).roundToTwoDecimals()
-                    "FIXEDTOTAL" -> cartItem.discountAmount.roundToTwoDecimals()
-                    else -> 0.0
-                }
-            } else {
-                // For bundled items, apply the bundle discount proportionally
-                val bundleIdStr = cartItem.bundleId.toString()
-                val bundleTotal = bundledItems[bundleIdStr]?.sumOf {
-                    ((it.overriddenPrice ?: it.price) * it.quantity).roundToTwoDecimals()
-                } ?: itemTotal
-
-                val bundleDiscount = bundleDiscounts[bundleIdStr] ?: 0.0
-
-                // Apply discount proportionally based on this item's value relative to total bundle value
-                itemDiscount = if (bundleTotal > 0) {
-                    (bundleDiscount * (itemTotal / bundleTotal)).roundToTwoDecimals()
-                } else 0.0
-            }
-
-            val itemAfterDiscount = (itemTotal - itemDiscount).roundToTwoDecimals()
-            val itemVat = (itemAfterDiscount * 0.12 / 1.12).roundToTwoDecimals()
-            val netAmountNotIncludingTax = (itemAfterDiscount / 1.12).roundToTwoDecimals()
-
-            // Create split transaction records for each payment method
-            val splitRecords = allPaymentMethods.mapIndexed { paymentIndex, method ->
-                val totalNetSales = allPaymentAmounts.sum()
-                val paymentProportion = if (totalNetSales > 0) (allPaymentAmounts[paymentIndex] / totalNetSales).roundToTwoDecimals() else 1.0
-                val splitItemTotal = (itemTotal * paymentProportion).roundToTwoDecimals()
-                val splitItemDiscount = (itemDiscount * paymentProportion).roundToTwoDecimals()
-                val splitItemAfterDiscount = (splitItemTotal - splitItemDiscount).roundToTwoDecimals()
-                val splitItemVat = (splitItemAfterDiscount * 0.12 / 1.12).roundToTwoDecimals()
-                val splitCostAmount = (splitItemTotal / vatRate).roundToTwoDecimals()
-                val splitNetAmountNotIncludingTax = (splitItemAfterDiscount / 1.12).roundToTwoDecimals()
-
-                TransactionRecord(
-                    transactionId = transactionId,
-                    name = cartItem.productName,
-                    price = cartItem.price.roundToTwoDecimals(),
-                    quantity = cartItem.quantity,
-                    subtotal = splitItemTotal,
-                    vatRate = (vatRate - 1).roundToTwoDecimals(),
-                    vatAmount = splitItemVat,
-                    discountRate = if (splitItemTotal > 0) (splitItemDiscount / splitItemTotal).roundToTwoDecimals() else 0.0,
-                    discountAmount = splitItemDiscount,
-                    total = splitItemAfterDiscount,
-                    receiptNumber = transactionId,
-                    timestamp = System.currentTimeMillis(),
-                    paymentMethod = method.uppercase(),
-                    ar = if (ar > 0.0) ((effectivePrice * cartItem.quantity) * paymentProportion).roundToTwoDecimals() else 0.0,
-                    windowNumber = windowId,
-                    partialPaymentAmount = if (index == 0) (cartItem.partialPayment * paymentProportion).roundToTwoDecimals() else 0.0,
-                    comment = cartItem.cartComment ?: "",
-                    lineNum = index + 1,
-                    receiptId = transactionId,
-                    itemId = cartItem.itemId.toString(),
-                    itemGroup = cartItem.itemGroup.toString(),
-                    netPrice = cartItem.price.roundToTwoDecimals(),
-                    costAmount = splitCostAmount,
-                    netAmount = splitItemAfterDiscount,
-                    grossAmount = splitItemTotal,
-                    customerAccount = selectedCustomer.name,
-                    store = getCurrentStore(),
-                    priceOverride = (cartItem.overriddenPrice ?: 0.0).roundToTwoDecimals(),
-                    staff = getCurrentStaff(),
-                    discountOfferId = if (cartItem.mixMatchId != null && cartItem.mixMatchId.isNotEmpty())
-                        cartItem.mixMatchId
-                    else if (cartItem.discountName != null && cartItem.discountName.isNotEmpty())
-                        cartItem.discountName
-                    else "",
-                    lineDiscountAmount = splitItemDiscount,
-                    lineDiscountPercentage = if (splitItemTotal > 0) ((splitItemDiscount / splitItemTotal) * 100).roundToTwoDecimals() else 0.0,
-                    customerDiscountAmount = splitItemDiscount,
-                    unit = "PCS",
-                    unitQuantity = cartItem.quantity.toDouble(),
-                    unitPrice = cartItem.price.roundToTwoDecimals(),
-                    taxAmount = splitItemVat,
-                    createdDate = currentDateString,
-                    discountType = when (cartItem.discountType.uppercase()) {
-                        "PWD" -> "PWD"
-                        "SC" -> "SC"
-                        "PERCENTAGE" -> "PERCENTAGE"
-                        "FIXED" -> "FIXED"
-                        "FIXED TOTAL", "FIXEDTOTAL" -> "FIXEDTOTAL"
-                        "DEAL" -> "DEAL"
-                        else -> "No Discount"
-                    },
-                    netAmountNotIncludingTax = splitNetAmountNotIncludingTax,
-                    storeTaxGroup = null,
-                    currency = "PHP",
-                    taxExempt = 0.0,
-                    storeKey = storeKey,
-                    storeSequence = storeSequence,
-                    taxIncludedInPrice = splitItemVat
-                )
-            }
-
-            transactionRecords.addAll(splitRecords)
-        }
-
-        return transactionRecords
     }
     private fun showChangeAndReceiptDialog(
         change: Double,

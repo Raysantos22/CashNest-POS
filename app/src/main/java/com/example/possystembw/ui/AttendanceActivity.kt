@@ -24,7 +24,10 @@ import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.Gravity
+import android.view.MenuItem
 import android.view.View
+import android.view.ViewGroup
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.Button
 import android.widget.EditText
@@ -41,9 +44,13 @@ import androidx.cardview.widget.CardView
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.GravityCompat
+import androidx.drawerlayout.widget.DrawerLayout
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.bumptech.glide.Glide
+import com.example.possystembw.DeviceUtils
 import com.example.possystembw.R
 import com.example.possystembw.DAO.AttendanceDao
 import com.example.possystembw.DAO.NoInternetException
@@ -56,7 +63,8 @@ import com.example.possystembw.data.AppDatabase
 import com.example.possystembw.database.AttendanceRecord
 import com.example.possystembw.database.StaffEntity
 import com.example.possystembw.databinding.ActivityAttendanceBinding
-import com.google.android.material.chip.Chip
+import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.google.android.material.navigation.NavigationView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -71,7 +79,7 @@ import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-class AttendanceActivity : AppCompatActivity() {
+class AttendanceActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
     private lateinit var binding: ActivityAttendanceBinding
     private lateinit var attendanceDao: AttendanceDao
     private var imageCapture: ImageCapture? = null
@@ -94,6 +102,14 @@ class AttendanceActivity : AppCompatActivity() {
     // Server attendance data
     private var serverAttendanceData: Map<String, com.example.possystembw.DAO.ServerAttendanceRecord> = emptyMap()
 
+    // Mobile layout components
+    private var drawerLayout: DrawerLayout? = null
+    private var navigationView: NavigationView? = null
+    private var hamburgerButton: ImageButton? = null
+    private var optionsButton: ImageButton? = null
+    private var isMobileLayout = false
+
+    // Tablet layout components
     private lateinit var sidebarLayout: ConstraintLayout
     private lateinit var toggleButton: ImageButton
     private lateinit var buttonContainer: LinearLayout
@@ -101,32 +117,371 @@ class AttendanceActivity : AppCompatActivity() {
     private var isSidebarExpanded = true
     private var isAnimating = false
 
+    private lateinit var swipeRefreshLayout: SwipeRefreshLayout
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Set orientation based on device
+        DeviceUtils.setOrientationBasedOnDevice(this)
+
         binding = ActivityAttendanceBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        attendanceManager = AttendanceManager(this)
 
-        // Initialize Handler and Runnable first
-        initializeTimeUpdate()
-        initializeSidebarComponents()
-        setupSidebar()
+        try {
+            DeviceUtils.setOrientationBasedOnDevice(this)
 
-        // Show loading state
-        showLoading("Initializing...")
+            // Detect layout type
+            detectLayoutType()
 
-        // Initialize basic components
-        attendanceDao = AppDatabase.getDatabase(application).attendanceDao()
-        cameraExecutor = Executors.newSingleThreadExecutor()
+            // Initialize layout-specific views
+            initializeLayoutSpecificViews()
 
-        // Start initialization process
-        lifecycleScope.launch {
-            try {
-                initializeAttendanceSystem()
-            } catch (e: Exception) {
-                handleInitializationError(e)
+            attendanceManager = AttendanceManager(this)
+
+            // Initialize Handler and Runnable first
+            initializeTimeUpdate()
+
+            // Setup layout-specific components
+            if (isMobileLayout) {
+                setupMobileSpecificFeatures()
+            } else {
+                initializeSidebarComponents()
+                setupSidebar()
+            }
+
+            swipeRefreshLayout = binding.swipeRefreshLayout
+            setupSwipeRefresh()
+
+            // Show loading state
+            showLoading("Initializing...")
+
+            // Initialize basic components
+            attendanceDao = AppDatabase.getDatabase(application).attendanceDao()
+            cameraExecutor = Executors.newSingleThreadExecutor()
+
+            // Start initialization process
+            lifecycleScope.launch {
+                try {
+                    initializeAttendanceSystem()
+                } catch (e: Exception) {
+                    handleInitializationError(e)
+                }
+            }
+
+            Log.d(TAG, "✅ onCreate completed successfully for ${if (isMobileLayout) "mobile" else "tablet"} mode")
+
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error during onCreate", e)
+            Toast.makeText(this, "Initialization Error: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun detectLayoutType() {
+        // Check what views actually exist in the loaded layout
+        val drawerLayoutView = findViewById<DrawerLayout>(R.id.drawer_layout)
+        val sidebarLayoutView = findViewById<ConstraintLayout>(R.id.sidebarLayout)
+
+        val isTabletDevice = DeviceUtils.isTablet(this)
+        val hasDrawer = drawerLayoutView != null
+        val hasSidebar = sidebarLayoutView != null
+
+        Log.d(TAG, "=== LAYOUT DETECTION ===")
+        Log.d(TAG, "Device type: ${if (isTabletDevice) "Tablet" else "Phone"}")
+        Log.d(TAG, "Has DrawerLayout: $hasDrawer")
+        Log.d(TAG, "Has SidebarLayout: $hasSidebar")
+
+        // Determine layout type based on actual layout loaded
+        isMobileLayout = hasDrawer && !hasSidebar
+
+        Log.d(TAG, "Final decision: ${if (isMobileLayout) "Mobile" else "Tablet"} mode")
+    }
+
+    private fun initializeLayoutSpecificViews() {
+        if (isMobileLayout) {
+            // Mobile-specific views
+            drawerLayout = findViewById(R.id.drawer_layout)
+            navigationView = findViewById(R.id.nav_view)
+            hamburgerButton = findViewById(R.id.hamburgerButton)
+            optionsButton = findViewById(R.id.optionsButton)
+
+            Log.d(TAG, "✅ Mobile views initialized")
+            Log.d(TAG, "DrawerLayout: ${drawerLayout != null}")
+            Log.d(TAG, "NavigationView: ${navigationView != null}")
+            Log.d(TAG, "HamburgerButton: ${hamburgerButton != null}")
+            Log.d(TAG, "OptionsButton: ${optionsButton != null}")
+        } else {
+            // Tablet-specific views will be initialized in existing methods
+            Log.d(TAG, "✅ Tablet layout detected")
+        }
+    }
+
+    private fun setupMobileSpecificFeatures() {
+        try {
+            // Setup navigation drawer
+            navigationView?.setNavigationItemSelectedListener(this)
+
+            // Update store name in navigation header
+            navigationView?.getHeaderView(0)?.let { headerView ->
+                val navStoreName = headerView.findViewById<TextView>(R.id.nav_store_name)
+                val currentStore = SessionManager.getCurrentUser()?.storeid ?: "Unknown Store"
+                navStoreName?.text = "Store: $currentStore"
+            }
+
+            // Setup hamburger button
+            hamburgerButton?.setOnClickListener {
+                drawerLayout?.openDrawer(GravityCompat.START)
+            }
+
+            // Setup options button
+            optionsButton?.setOnClickListener {
+                showMobileOptionsDialog()
+            }
+
+            Log.d(TAG, "✅ Mobile features setup complete")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Mobile features setup failed", e)
+        }
+    }
+
+    private fun showMobileOptionsDialog() {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_attendance_options, null)
+
+        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle4)
+            .setView(dialogView)
+            .create()
+
+        // Apply custom background
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+
+        // Set up click listeners for each option card
+        setupAttendanceOptionClickListeners(dialogView, dialog)
+
+        // Cancel button
+        dialogView.findViewById<ImageButton>(R.id.cancelButton).setOnClickListener {
+            dialog.dismiss()
+        }
+
+        dialog.show()
+
+        // Add entrance animation
+        dialogView.alpha = 0f
+        dialogView.scaleX = 0.8f
+        dialogView.scaleY = 0.8f
+        dialogView.animate()
+            .alpha(1f)
+            .scaleX(1f)
+            .scaleY(1f)
+            .setDuration(300)
+            .setInterpolator(AccelerateDecelerateInterpolator())
+            .start()
+    }
+
+    private fun setupAttendanceOptionClickListeners(dialogView: View, dialog: AlertDialog) {
+        // Refresh Data option
+        dialogView.findViewById<CardView>(R.id.refreshCard)?.setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                refreshAttendanceData()
             }
         }
+
+        // Attendance History option
+        dialogView.findViewById<CardView>(R.id.historyCard)?.setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                // Show staff selection for history
+                showStaffSelectionForHistory()
+            }
+        }
+
+        // Settings option
+        dialogView.findViewById<CardView>(R.id.settingsCard)?.setOnClickListener {
+            animateCardClick(it) {
+                dialog.dismiss()
+                val intent = Intent(this, PrinterSettingsActivity::class.java)
+                startActivity(intent)
+            }
+        }
+    }
+
+    private fun showStaffSelectionForHistory() {
+        lifecycleScope.launch {
+            try {
+                val storeId = SessionManager.getCurrentUser()?.storeid ?: return@launch
+                val staffList = withContext(Dispatchers.IO) {
+                    AppDatabase.getDatabase(application).staffDao().getStaffByStore(storeId)
+                }
+
+                val staffNames = staffList.map { it.name }.toTypedArray()
+
+                val builder = AlertDialog.Builder(this@AttendanceActivity, R.style.CustomDialogStyle3)
+                    .setTitle("Select Staff for History")
+                    .setItems(staffNames) { _, which ->
+                        val selectedStaff = staffList[which]
+                        openAttendanceHistory(selectedStaff)
+                    }
+                    .setNegativeButton("Cancel", null)
+
+                val dialog = builder.create()
+                dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+                dialog.show()
+
+                // Apply mobile styling
+                applyMobileDialogStyling(dialog)
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error showing staff selection", e)
+                showToast("Error loading staff list")
+            }
+        }
+    }
+
+    private fun animateCardClick(view: View, action: () -> Unit) {
+        view.animate()
+            .scaleX(0.95f)
+            .scaleY(0.95f)
+            .setDuration(100)
+            .withEndAction {
+                view.animate()
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setDuration(100)
+                    .withEndAction {
+                        action()
+                    }
+                    .start()
+            }
+            .start()
+    }
+
+    override fun onNavigationItemSelected(item: MenuItem): Boolean {
+        when (item.itemId) {
+            R.id.nav_pos_system -> {
+                val intent = Intent(this, MainActivity::class.java)
+                startActivity(intent)
+            }
+            R.id.nav_reports -> {
+                val intent = Intent(this, ReportsActivity::class.java)
+                startActivity(intent)
+            }
+            R.id.nav_stock_counting -> {
+                val intent = Intent(this, StockCountingActivity::class.java)
+                startActivity(intent)
+            }
+            R.id.nav_web_reports -> {
+                navigateToMainWithUrl("https://eljin.org/reports", "REPORTS")
+            }
+            R.id.nav_customers -> {
+                navigateToMainWithUrl("https://eljin.org/customers", "CUSTOMER")
+            }
+            R.id.nav_loyalty_card -> {
+                navigateToMainWithUrl("https://eljin.org/loyalty-cards", "Loyalty Card")
+            }
+            R.id.nav_stock_transfer -> {
+                navigateToMainWithUrl("https://eljin.org/StockTransfer", "Stock Transfer")
+            }
+            R.id.nav_printer_settings -> {
+                val intent = Intent(this, PrinterSettingsActivity::class.java)
+                startActivity(intent)
+            }
+            R.id.nav_logout -> {
+                val intent = Intent(this, MainActivity::class.java)
+                startActivity(intent)
+                finish()
+            }
+        }
+
+        drawerLayout?.closeDrawer(GravityCompat.START)
+        return true
+    }
+
+    override fun onBackPressed() {
+        when {
+            isMobileLayout && drawerLayout?.isDrawerOpen(GravityCompat.START) == true -> {
+                drawerLayout?.closeDrawer(GravityCompat.START)
+            }
+            else -> {
+                super.onBackPressed()
+            }
+        }
+    }
+
+    private fun navigateToMainWithUrl(url: String?, message: String?) {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            url?.let { putExtra("web_url", it) }
+        }
+        message?.let { showToast(it) }
+        startActivity(intent)
+    }
+
+    private fun applyMobileDialogStyling(dialog: AlertDialog) {
+        if (!isMobileLayout) return
+
+        try {
+            // Adjust button text sizes and padding
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.let { button ->
+                button.textSize = 12f
+                button.setPadding(12, 8, 12, 8)
+            }
+
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.let { button ->
+                button.textSize = 12f
+                button.setPadding(12, 8, 12, 8)
+                button.text = "Cancel"
+            }
+
+            // Adjust dialog title
+            val titleView = dialog.findViewById<TextView>(android.R.id.title)
+            titleView?.let { title ->
+                title.textSize = 14f
+                title.setPadding(16, 12, 16, 8)
+            }
+
+            // Adjust dialog width for mobile
+            dialog.window?.let { window ->
+                val layoutParams = window.attributes
+                val displayMetrics = resources.displayMetrics
+                layoutParams.width = (displayMetrics.widthPixels * 0.9).toInt()
+                window.attributes = layoutParams
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error applying mobile dialog styling", e)
+        }
+    }
+
+    private fun createMobileDialog(title: String, content: View): AlertDialog {
+        val titleView = TextView(this@AttendanceActivity).apply {
+            text = title
+            textSize = if (isMobileLayout) 16f else 18f
+            setTextColor(ContextCompat.getColor(this@AttendanceActivity, android.R.color.black))
+            setPadding(
+                if (isMobileLayout) 20 else 24,  // left
+                if (isMobileLayout) 16 else 20,  // top
+                if (isMobileLayout) 20 else 24,  // right
+                if (isMobileLayout) 8 else 12    // bottom
+            )
+            gravity = Gravity.CENTER_VERTICAL
+            setTypeface(null, Typeface.BOLD)
+        }
+
+        val dialog = AlertDialog.Builder(this@AttendanceActivity, R.style.CustomDialogStyle3)
+            .setCustomTitle(titleView)
+            .setView(content)
+            .create()
+
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+
+        // Apply mobile-specific sizing
+        if (isMobileLayout) {
+            dialog.setOnShowListener {
+                applyMobileDialogStyling(dialog)
+            }
+        }
+
+        return dialog
     }
 
     private fun openAttendanceHistory(staff: StaffEntity) {
@@ -189,20 +544,95 @@ class AttendanceActivity : AppCompatActivity() {
         loadStaffList()
     }
 
+    // Continue with all your existing methods but update dialogs to use mobile styling...
+
+    private fun verifyPasscode(
+        staff: StaffEntity,
+        action: AttendanceAction,
+        onSuccess: () -> Unit
+    ) {
+        val dialogView = layoutInflater.inflate(R.layout.passcode_dialog, null)
+        val titleText = dialogView.findViewById<TextView>(R.id.titleText)
+        val passcodeInput = dialogView.findViewById<EditText>(R.id.passcodeInput)
+        val confirmButton = dialogView.findViewById<Button>(R.id.confirmButton)
+        val cancelButton = dialogView.findViewById<Button>(R.id.cancelButton)
+
+        // Apply mobile-specific styling
+        if (isMobileLayout) {
+            passcodeInput.textSize = 16f
+            confirmButton.textSize = 14f
+            cancelButton.textSize = 14f
+            titleText.textSize = 16f
+        }
+
+        // Set title based on action
+        titleText.text = when (action) {
+            AttendanceAction.TIME_IN -> "Enter Passcode to Time In"
+            AttendanceAction.TIME_OUT -> "Enter Passcode to Time Out"
+            AttendanceAction.BREAK -> "Enter Passcode for Break"
+        }
+
+        val dialog = createMobileDialog("Passcode Verification", dialogView)
+
+        confirmButton.setOnClickListener {
+            val enteredPasscode = passcodeInput.text.toString()
+            if (enteredPasscode == staff.passcode) {
+                dialog.dismiss()
+                onSuccess()
+            } else {
+                passcodeInput.error = "Invalid passcode"
+                passcodeInput.setText("")
+            }
+        }
+
+        cancelButton.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        dialog.show()
+    }
+
+    private fun showAttendanceInfoDialog(title: String, message: String, note: String) {
+        val builder = AlertDialog.Builder(this, R.style.CustomDialogStyle3)
+            .setTitle(title)
+            .setMessage("$message\n\n$note")
+            .setPositiveButton("OK") { dialog, _ -> dialog.dismiss() }
+            .setIcon(R.drawable.baseline_person_24)
+
+        val dialog = builder.create()
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+        dialog.show()
+
+        // Apply mobile styling
+        applyMobileDialogStyling(dialog)
+    }
+
+    // Include all your existing methods here, but make sure to apply mobile dialog styling
+    // to any AlertDialog.Builder calls by adding:
+    // dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+    // dialog.show()
+    // applyMobileDialogStyling(dialog)
+
     private suspend fun loadServerAttendanceData() {
         try {
             val storeId = SessionManager.getCurrentUser()?.storeid ?: return
 
-            // Try to get cached data first
-            val cachedData = SessionManager.getAttendanceData()
-            if (cachedData.isNotEmpty() && SessionManager.isAttendanceDataFresh()) {
-                Log.d(TAG, "Using cached attendance data: ${cachedData.size} records")
-                serverAttendanceData = cachedData.associateBy { "${it.staffId}_${it.date}" }
-                syncToLocalDatabase(cachedData)
-                return
+            // During swipe refresh, always fetch from server (skip cache)
+            val isSwipeRefresh = swipeRefreshLayout.isRefreshing
+
+            if (!isSwipeRefresh) {
+                // Try to get cached data first (only when not doing swipe refresh)
+                val cachedData = SessionManager.getAttendanceData()
+                if (cachedData.isNotEmpty() && SessionManager.isAttendanceDataFresh()) {
+                    Log.d(TAG, "Using cached attendance data: ${cachedData.size} records")
+                    serverAttendanceData = cachedData.associateBy { "${it.staffId}_${it.date}" }
+                    syncToLocalDatabase(cachedData)
+                    return
+                }
             }
 
             // Fetch from server
+            Log.d(TAG, "Fetching fresh attendance data from server...")
             val result = RetrofitClient.attendanceService.getStoreAttendanceRecords(storeId)
 
             if (result.isSuccess) {
@@ -220,14 +650,18 @@ class AttendanceActivity : AppCompatActivity() {
 
             } else {
                 Log.e(TAG, "Failed to load attendance data: ${result.exceptionOrNull()?.message}")
-                withContext(Dispatchers.Main) {
-                    showToast("Failed to load attendance data from server")
+                if (!isSwipeRefresh) {
+                    withContext(Dispatchers.Main) {
+                        showToast("Failed to load attendance data from server")
+                    }
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading server attendance data", e)
-            withContext(Dispatchers.Main) {
-                showToast("Error loading attendance data: ${e.message}")
+            if (!swipeRefreshLayout.isRefreshing) {
+                withContext(Dispatchers.Main) {
+                    showToast("Error loading attendance data: ${e.message}")
+                }
             }
         }
     }
@@ -272,7 +706,6 @@ class AttendanceActivity : AppCompatActivity() {
         }
     }
 
-    // Update this method to use server data
     private fun loadAttendanceForDate(date: Calendar) {
         lifecycleScope.launch {
             try {
@@ -298,350 +731,63 @@ class AttendanceActivity : AppCompatActivity() {
         }
     }
 
-    // Add method to refresh server data
+    private fun setupSwipeRefresh() {
+        swipeRefreshLayout.setOnRefreshListener {
+            refreshAttendanceData()
+        }
+
+        // Customize colors
+        swipeRefreshLayout.setColorSchemeResources(
+            android.R.color.holo_blue_bright,
+            android.R.color.holo_green_light,
+            android.R.color.holo_orange_light,
+            android.R.color.holo_red_light
+        )
+
+        // Set background color
+        swipeRefreshLayout.setProgressBackgroundColorSchemeResource(android.R.color.white)
+    }
+
     private fun refreshAttendanceData() {
         lifecycleScope.launch {
-            showLoading("Refreshing attendance data...")
-            loadServerAttendanceData()
-
-            // Refresh the current view
-            loadAttendanceForDate(selectedDate)
-
-            hideLoading()
-        }
-    }
-
-    // Update cleanupAndRefresh to refresh server data
-    private fun cleanupAndRefresh() {
-        binding.progressIndicator.visibility = View.GONE
-        binding.viewFinder.visibility = View.GONE
-
-        // Only cleanup camera if it's a photo-requiring action
-        if (selectedAttendanceType == StaffAttendanceAdapter.AttendanceType.TIME_IN ||
-            selectedAttendanceType == StaffAttendanceAdapter.AttendanceType.TIME_OUT
-        ) {
-            cleanupCamera()
-        }
-
-        // FIXED: Don't reload server data, just refresh the current view
-        val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(selectedDate.time)
-        adapter.updateDate(dateStr)
-        adapter.notifyDataSetChanged()
-    }
-
-    // Update the attendance submission methods to refresh data after success
-    private fun handleTimeIn(photoFile: File) {
-        lifecycleScope.launch {
             try {
-                withContext(Dispatchers.Main) {
-                    showLoading("Recording Time In...")
-                }
+                // Don't show the main loading dialog during swipe refresh
+                Log.d(TAG, "Starting swipe refresh...")
 
-                val currentTime = PhilippinesServerTime.formatDatabaseTime()
-                val today = PhilippinesServerTime.formatDatabaseDate()
-                val storeId = SessionManager.getCurrentUser()?.storeid ?: return@launch
-                val staffId = "${selectedStaff?.name}_$storeId"
-
-                // Save to local database FIRST
-                val attendance = AttendanceRecord(
-                    staffId = staffId,
-                    storeId = storeId,
-                    date = today,
-                    timeIn = currentTime,
-                    timeInPhoto = photoFile.absolutePath
-                )
-
-                withContext(Dispatchers.IO) {
-                    val existing = attendanceDao.getAttendanceForStaffOnDate(staffId, today)
-                    if (existing != null) {
-                        val updated = existing.copy(
-                            timeIn = currentTime,
-                            timeInPhoto = photoFile.absolutePath
-                        )
-                        attendanceDao.updateAttendance(updated)
-                    } else {
-                        attendanceDao.insertAttendance(attendance)
-                    }
-                }
-
-                // Create server record format for immediate UI update
-                val serverRecord = com.example.possystembw.DAO.ServerAttendanceRecord(
-                    id = System.currentTimeMillis().toInt(),
-                    staffId = staffId,
-                    storeId = storeId,
-                    date = today,
-                    timeIn = currentTime,
-                    timeInPhoto = photoFile.absolutePath, // Local path for immediate display
-                    breakIn = null,
-                    breakInPhoto = null,
-                    breakOut = null,
-                    breakOutPhoto = null,
-                    timeOut = null,
-                    timeOutPhoto = null,
-                    status = "ACTIVE",
-                    created_at = "",
-                    updated_at = ""
-                )
-
-                withContext(Dispatchers.Main) {
-                    // CRITICAL: Update adapter immediately with new data
-                    adapter.updateStaffAttendanceImmediately(staffId, serverRecord)
-
-                    showToast("Time In recorded successfully!")
-                    hideLoading()
-                    cleanupCamera()
-                }
-
-                // Background server upload (don't block UI)
-                try {
-                    val result = RetrofitClient.attendanceService.uploadAttendanceRecord(
-                        staffId = staffId,
-                        storeId = storeId,
-                        date = today,
-                        time = currentTime,
-                        type = "TIME_IN",
-                        photoFile = photoFile
-                    )
-
-                    if (result.isFailure) {
-                        Log.e(TAG, "Failed to upload to server: ${result.exceptionOrNull()?.message}")
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Server upload error", e)
-                }
-
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    hideLoading()
-                    showToast("Failed to record Time In: ${e.message}")
-                    cleanupCamera()
-                }
-                Log.e(TAG, "Error during time in", e)
-            }
-        }
-    }
-
-
-
-    private fun handleTimeOut(photoFile: File) {
-        lifecycleScope.launch {
-            try {
-                withContext(Dispatchers.Main) {
-                    showLoading("Recording Time Out...")
-                }
-
-                val currentTime = PhilippinesServerTime.formatDatabaseTime()
-                val today = PhilippinesServerTime.formatDatabaseDate()
-                val storeId = SessionManager.getCurrentUser()?.storeid ?: return@launch
-                val staffId = "${selectedStaff?.name}_$storeId"
-
-                // Get existing attendance
-                val existingAttendance = withContext(Dispatchers.IO) {
-                    attendanceDao.getAttendanceForStaffOnDate(staffId, today)
-                }
-
-                if (existingAttendance == null || existingAttendance.timeIn.isNullOrEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        showToast("Please time in first")
-                        hideLoading()
-                        cleanupCamera()
-                    }
-                    return@launch
-                }
-
-                // Update local database
-                val updatedAttendance = existingAttendance.copy(
-                    timeOut = currentTime,
-                    timeOutPhoto = photoFile.absolutePath,
-                    status = "COMPLETED"
-                )
-
-                withContext(Dispatchers.IO) {
-                    attendanceDao.updateAttendance(updatedAttendance)
-                }
-
-                // Create complete server record for immediate UI update
-                val serverRecord = com.example.possystembw.DAO.ServerAttendanceRecord(
-                    id = existingAttendance.id.toInt(),
-                    staffId = staffId,
-                    storeId = storeId,
-                    date = today,
-                    timeIn = existingAttendance.timeIn,
-                    timeInPhoto = existingAttendance.timeInPhoto,
-                    breakIn = existingAttendance.breakIn,
-                    breakInPhoto = existingAttendance.breakInPhoto,
-                    breakOut = existingAttendance.breakOut,
-                    breakOutPhoto = existingAttendance.breakOutPhoto,
-                    timeOut = currentTime,
-                    timeOutPhoto = photoFile.absolutePath, // Local path for immediate display
-                    status = "COMPLETED",
-                    created_at = "",
-                    updated_at = ""
-                )
-
-                withContext(Dispatchers.Main) {
-                    // CRITICAL: Update adapter immediately
-                    adapter.updateStaffAttendanceImmediately(staffId, serverRecord)
-
-                    showToast("Time Out recorded successfully!")
-                    hideLoading()
-                    cleanupCamera()
-                }
-
-                // Background server upload
-                try {
-                    val result = RetrofitClient.attendanceService.uploadAttendanceRecord(
-                        staffId = staffId,
-                        storeId = storeId,
-                        date = today,
-                        time = currentTime,
-                        type = "TIME_OUT",
-                        photoFile = photoFile
-                    )
-
-                    if (result.isFailure) {
-                        Log.e(TAG, "Failed to upload to server: ${result.exceptionOrNull()?.message}")
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Server upload error", e)
-                }
-
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    hideLoading()
-                    showToast("Failed to record Time Out: ${e.message}")
-                    cleanupCamera()
-                }
-                Log.e(TAG, "Error during time out", e)
-            }
-        }
-    }
-    private fun handleBreakStatus(staff: StaffEntity) {
-        lifecycleScope.launch {
-            try {
-                showLoading("Updating break status...")
-
+                // Check internet connection first
                 if (!PhilippinesServerTime.isInternetAvailable(this@AttendanceActivity)) {
-                    throw NoInternetException("Internet connection required to verify time")
-                }
-
-                val timeSync = PhilippinesServerTime.syncTimeWithRetry(this@AttendanceActivity)
-                if (!timeSync) {
-                    throw ServerTimeException("Failed to sync with server time")
-                }
-
-                val currentTime = PhilippinesServerTime.formatDatabaseTime()
-                val today = PhilippinesServerTime.formatDatabaseDate()
-                val storeId = SessionManager.getCurrentUser()?.storeid ?: return@launch
-                val staffId = "${staff.name}_$storeId"
-
-                val attendance = withContext(Dispatchers.IO) {
-                    attendanceDao.getAttendanceForStaffOnDate(staffId, today)
-                }
-
-                if (attendance == null || attendance.timeIn == null) {
-                    showToast("Please time in first")
-                    hideLoading()
+                    swipeRefreshLayout.isRefreshing = false
+                    showToast("No internet connection")
                     return@launch
                 }
 
-                val isStartingBreak = attendance.breakIn == null
+                // Clear cached attendance data to force fresh fetch
+                SessionManager.clearAttendanceData()
 
-                // Create a temp file from drawable resource
-                val defaultPhotoFile = File(cacheDir, "temp_break.jpg")
-                withContext(Dispatchers.IO) {
-                    try {
-                        val drawable = ContextCompat.getDrawable(
-                            this@AttendanceActivity,
-                            R.drawable.ic_camera_placeholder
-                        )
-                        val bitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
-                        val canvas = Canvas(bitmap)
-                        drawable?.setBounds(0, 0, canvas.width, canvas.height)
-                        drawable?.draw(canvas)
+                // Reload server attendance data
+                loadServerAttendanceData()
 
-                        FileOutputStream(defaultPhotoFile).use { out ->
-                            bitmap.compress(Bitmap.CompressFormat.JPEG, 50, out)
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error creating default photo", e)
-                    }
-                }
+                // Refresh the current view
+                loadAttendanceForDate(selectedDate)
 
-                try {
-                    val result = RetrofitClient.attendanceService.uploadAttendanceRecord(
-                        staffId = staffId,
-                        storeId = storeId,
-                        date = today,
-                        time = currentTime,
-                        type = if (isStartingBreak) "BREAK_IN" else "BREAK_OUT",
-                        photoFile = defaultPhotoFile
-                    )
+                // Stop the refresh animation
+                swipeRefreshLayout.isRefreshing = false
 
-                    if (result.isSuccess) {
-                        val updatedAttendance = if (isStartingBreak) {
-                            attendance.copy(
-                                breakIn = currentTime,
-                                breakInPhoto = ""
-                            )
-                        } else {
-                            attendance.copy(
-                                breakOut = currentTime,
-                                breakOutPhoto = ""
-                            )
-                        }
-
-                        withContext(Dispatchers.IO) {
-                            attendanceDao.updateAttendance(updatedAttendance)
-                        }
-
-                        withContext(Dispatchers.Main) {
-                            showToast(if (isStartingBreak) "Break started" else "Break ended")
-                            // Clear cached attendance data to force refresh
-                            SessionManager.clearAttendanceData()
-                        }
-                    } else {
-                        throw result.exceptionOrNull() ?: Exception("Failed to update break status")
-                    }
-                } finally {
-                    withContext(Dispatchers.IO) {
-                        if (defaultPhotoFile.exists()) {
-                            defaultPhotoFile.delete()
-                        }
-                    }
-                }
-
-                hideLoading()
-                refreshAttendanceData()
+                showToast("Attendance data refreshed")
+                Log.d(TAG, "Swipe refresh completed successfully")
 
             } catch (e: Exception) {
-                Log.e(TAG, "Error handling break status", e)
-                showToast("Failed to update break status: ${e.message}")
-                hideLoading()
-                refreshAttendanceData()
+                Log.e(TAG, "Error during swipe refresh", e)
+                swipeRefreshLayout.isRefreshing = false
+                showToast("Failed to refresh: ${e.message}")
             }
-        }
-    }
-
-    // ... (keep all your existing methods like setupRecyclerView, setupCamera, etc.)
-    // ... (include all the remaining methods from your original code)
-
-    private fun handleInitializationError(error: Exception) {
-        when (error) {
-            is NoInternetException -> showNoInternetDialog()
-            is ServerTimeException -> showErrorDialog(
-                "Time Sync Failed",
-                "Could not synchronize with server time. This is required to prevent attendance manipulation."
-            )
-            else -> showErrorDialog(
-                "Initialization Failed",
-                "Could not initialize attendance system: ${error.message}"
-            )
         }
     }
 
     private fun setupRecyclerView() {
         adapter = StaffAttendanceAdapter(this) { staff, attendanceType ->
+            swipeRefreshLayout.isEnabled = false
+
             selectedStaff = staff
             selectedAttendanceType = attendanceType
 
@@ -658,7 +804,8 @@ class AttendanceActivity : AppCompatActivity() {
 
                         when {
                             hasTimeIn -> {
-                                // Already has time in - show info, DO NOT allow override
+                                // Re-enable swipe refresh
+                                swipeRefreshLayout.isEnabled = true
                                 if (attendanceRecord != null) {
                                     showAttendanceInfoDialog(
                                         "Time In Already Recorded",
@@ -669,11 +816,11 @@ class AttendanceActivity : AppCompatActivity() {
                                 return@launch
                             }
                             !isToday -> {
+                                swipeRefreshLayout.isEnabled = true
                                 showToast("Can only record Time In for today")
                                 return@launch
                             }
                             else -> {
-                                // Can actually time in - verify passcode
                                 verifyPasscode(staff, AttendanceAction.TIME_IN) {
                                     if (allPermissionsGranted()) {
                                         binding.viewFinder.visibility = View.VISIBLE
@@ -779,7 +926,7 @@ class AttendanceActivity : AppCompatActivity() {
                                 val action = if (isOnBreak) "End Break" else "Start Break"
                                 val currentStatus = if (isOnBreak) "Currently on break since ${attendanceRecord?.breakIn}" else "Ready to start break"
 
-                                AlertDialog.Builder(this@AttendanceActivity)
+                                val builder = AlertDialog.Builder(this@AttendanceActivity, R.style.CustomDialogStyle3)
                                     .setTitle("Break Status")
                                     .setMessage("$currentStatus\n\nDo you want to $action?")
                                     .setPositiveButton("Yes") { _, _ ->
@@ -790,7 +937,11 @@ class AttendanceActivity : AppCompatActivity() {
                                     .setNegativeButton("No") { dialog, _ ->
                                         dialog.dismiss()
                                     }
-                                    .show()
+
+                                val dialog = builder.create()
+                                dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+                                dialog.show()
+                                applyMobileDialogStyling(dialog)
                             }
                         }
                     }
@@ -804,15 +955,6 @@ class AttendanceActivity : AppCompatActivity() {
             layoutManager = LinearLayoutManager(this@AttendanceActivity)
             adapter = this@AttendanceActivity.adapter
         }
-    }
-
-    private fun showAttendanceInfoDialog(title: String, message: String, note: String) {
-        AlertDialog.Builder(this)
-            .setTitle(title)
-            .setMessage("$message\n\n$note")
-            .setPositiveButton("OK") { dialog, _ -> dialog.dismiss() }
-            .setIcon(R.drawable.baseline_person_24) // Add info icon if available
-            .show()
     }
 
     private fun calculateBreakDuration(breakIn: String, breakOut: String): String {
@@ -879,42 +1021,22 @@ class AttendanceActivity : AppCompatActivity() {
         }
     }
 
-    // ... (include all your other existing methods)
-
-    companion object {
-        private const val TAG = "AttendanceActivity"
-        private const val REQUEST_CODE_PERMISSIONS = 10
-
-        private val REQUIRED_PERMISSIONS = if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
-            arrayOf(
-                Manifest.permission.CAMERA,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                Manifest.permission.READ_EXTERNAL_STORAGE
+    private fun handleInitializationError(error: Exception) {
+        when (error) {
+            is NoInternetException -> showNoInternetDialog()
+            is ServerTimeException -> showErrorDialog(
+                "Time Sync Failed",
+                "Could not synchronize with server time. This is required to prevent attendance manipulation."
             )
-        } else {
-            arrayOf(
-                Manifest.permission.CAMERA
+            else -> showErrorDialog(
+                "Initialization Failed",
+                "Could not initialize attendance system: ${error.message}"
             )
         }
-    }
-
-    private fun checkPermissions() {
-        if (!allPermissionsGranted()) {
-            ActivityCompat.requestPermissions(
-                this,
-                REQUIRED_PERMISSIONS,
-                REQUEST_CODE_PERMISSIONS
-            )
-        }
-    }
-
-    private fun setupTimeAndDate() {
-        binding.currentDate.text = SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault())
-            .format(Date())
     }
 
     private fun showNoInternetDialog() {
-        AlertDialog.Builder(this)
+        val builder = AlertDialog.Builder(this, R.style.CustomDialogStyle3)
             .setTitle("No Internet Connection")
             .setMessage("Internet connection is required to ensure accurate attendance timing. Please connect to the internet and try again.")
             .setPositiveButton("Retry") { _, _ ->
@@ -924,11 +1046,15 @@ class AttendanceActivity : AppCompatActivity() {
                 finish()
             }
             .setCancelable(false)
-            .show()
+
+        val dialog = builder.create()
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+        dialog.show()
+        applyMobileDialogStyling(dialog)
     }
 
     private fun showErrorDialog(title: String, message: String) {
-        AlertDialog.Builder(this)
+        val builder = AlertDialog.Builder(this, R.style.CustomDialogStyle3)
             .setTitle(title)
             .setMessage(message)
             .setPositiveButton("Retry") { _, _ ->
@@ -938,7 +1064,11 @@ class AttendanceActivity : AppCompatActivity() {
                 finish()
             }
             .setCancelable(false)
-            .show()
+
+        val dialog = builder.create()
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+        dialog.show()
+        applyMobileDialogStyling(dialog)
     }
 
     private fun setupInitialViews() {
@@ -992,6 +1122,12 @@ class AttendanceActivity : AppCompatActivity() {
                 ).apply {
                     marginStart = resources.getDimensionPixelSize(R.dimen.day_button_margin)
                     marginEnd = resources.getDimensionPixelSize(R.dimen.day_button_margin)
+                }
+
+                // Apply mobile-specific styling
+                if (isMobileLayout) {
+                    textSize = 10f
+                    setPadding(8, 4, 8, 4)
                 }
 
                 // Set initial selection for current day
@@ -1328,46 +1464,323 @@ class AttendanceActivity : AppCompatActivity() {
         }
     }
 
-    private fun verifyPasscode(
-        staff: StaffEntity,
-        action: AttendanceAction,
-        onSuccess: () -> Unit
-    ) {
-        val dialog = Dialog(this)
-        dialog.setContentView(R.layout.passcode_dialog)
+    private fun handleTimeIn(photoFile: File) {
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.Main) {
+                    showLoading("Recording Time In...")
+                    // Disable swipe refresh during upload
+                    swipeRefreshLayout.isEnabled = false
+                }
 
-        val titleText = dialog.findViewById<TextView>(R.id.titleText)
-        val passcodeInput = dialog.findViewById<EditText>(R.id.passcodeInput)
-        val confirmButton = dialog.findViewById<Button>(R.id.confirmButton)
-        val cancelButton = dialog.findViewById<Button>(R.id.cancelButton)
+                val currentTime = PhilippinesServerTime.formatDatabaseTime()
+                val today = PhilippinesServerTime.formatDatabaseDate()
+                val storeId = SessionManager.getCurrentUser()?.storeid ?: return@launch
+                val staffId = "${selectedStaff?.name}_$storeId"
 
-        // Set title based on action
-        titleText.text = when (action) {
-            AttendanceAction.TIME_IN -> "Enter Passcode to Time In"
-            AttendanceAction.TIME_OUT -> "Enter Passcode to Time Out"
-            AttendanceAction.BREAK -> "Enter Passcode for Break"
-        }
+                // Save to local database FIRST
+                val attendance = AttendanceRecord(
+                    staffId = staffId,
+                    storeId = storeId,
+                    date = today,
+                    timeIn = currentTime,
+                    timeInPhoto = photoFile.absolutePath
+                )
 
-        confirmButton.setOnClickListener {
-            val enteredPasscode = passcodeInput.text.toString()
-            if (enteredPasscode == staff.passcode) {
-                dialog.dismiss()
-                onSuccess()
-            } else {
-                passcodeInput.error = "Invalid passcode"
-                passcodeInput.setText("")
+                withContext(Dispatchers.IO) {
+                    val existing = attendanceDao.getAttendanceForStaffOnDate(staffId, today)
+                    if (existing != null) {
+                        val updated = existing.copy(
+                            timeIn = currentTime,
+                            timeInPhoto = photoFile.absolutePath
+                        )
+                        attendanceDao.updateAttendance(updated)
+                    } else {
+                        attendanceDao.insertAttendance(attendance)
+                    }
+                }
+
+                // Create server record format for immediate UI update
+                val serverRecord = com.example.possystembw.DAO.ServerAttendanceRecord(
+                    id = System.currentTimeMillis().toInt(),
+                    staffId = staffId,
+                    storeId = storeId,
+                    date = today,
+                    timeIn = currentTime,
+                    timeInPhoto = photoFile.absolutePath,
+                    breakIn = null,
+                    breakInPhoto = null,
+                    breakOut = null,
+                    breakOutPhoto = null,
+                    timeOut = null,
+                    timeOutPhoto = null,
+                    status = "ACTIVE",
+                    created_at = "",
+                    updated_at = ""
+                )
+
+                withContext(Dispatchers.Main) {
+                    // Update adapter immediately with new data
+                    adapter.updateStaffAttendanceImmediately(staffId, serverRecord)
+
+                    showToast("Time In recorded successfully!")
+                    hideLoading()
+                    cleanupCamera() // This will re-enable swipe refresh
+                }
+
+                // Clear cached data so next refresh gets fresh data
+                SessionManager.clearAttendanceData()
+
+                // Background server upload
+                try {
+                    val result = RetrofitClient.attendanceService.uploadAttendanceRecord(
+                        staffId = staffId,
+                        storeId = storeId,
+                        date = today,
+                        time = currentTime,
+                        type = "TIME_IN",
+                        photoFile = photoFile
+                    )
+
+                    if (result.isFailure) {
+                        Log.e(TAG, "Failed to upload to server: ${result.exceptionOrNull()?.message}")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Server upload error", e)
+                }
+
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    hideLoading()
+                    showToast("Failed to record Time In: ${e.message}")
+                    cleanupCamera() // This will re-enable swipe refresh
+                }
+                Log.e(TAG, "Error during time in", e)
             }
         }
-
-        cancelButton.setOnClickListener {
-            dialog.dismiss()
-        }
-
-        dialog.show()
     }
 
-    enum class AttendanceAction {
-        TIME_IN, TIME_OUT, BREAK
+    private fun handleTimeOut(photoFile: File) {
+        lifecycleScope.launch {
+            try {
+                withContext(Dispatchers.Main) {
+                    showLoading("Recording Time Out...")
+                    swipeRefreshLayout.isEnabled = false
+                }
+
+                val currentTime = PhilippinesServerTime.formatDatabaseTime()
+                val today = PhilippinesServerTime.formatDatabaseDate()
+                val storeId = SessionManager.getCurrentUser()?.storeid ?: return@launch
+                val staffId = "${selectedStaff?.name}_$storeId"
+
+                // Get existing attendance
+                val existingAttendance = withContext(Dispatchers.IO) {
+                    attendanceDao.getAttendanceForStaffOnDate(staffId, today)
+                }
+
+                if (existingAttendance == null || existingAttendance.timeIn.isNullOrEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        showToast("Please time in first")
+                        hideLoading()
+                        cleanupCamera()
+                    }
+                    return@launch
+                }
+
+                // Update local database
+                val updatedAttendance = existingAttendance.copy(
+                    timeOut = currentTime,
+                    timeOutPhoto = photoFile.absolutePath,
+                    status = "COMPLETED"
+                )
+
+                withContext(Dispatchers.IO) {
+                    attendanceDao.updateAttendance(updatedAttendance)
+                }
+
+                // Create complete server record for immediate UI update
+                val serverRecord = com.example.possystembw.DAO.ServerAttendanceRecord(
+                    id = existingAttendance.id.toInt(),
+                    staffId = staffId,
+                    storeId = storeId,
+                    date = today,
+                    timeIn = existingAttendance.timeIn,
+                    timeInPhoto = existingAttendance.timeInPhoto,
+                    breakIn = existingAttendance.breakIn,
+                    breakInPhoto = existingAttendance.breakInPhoto,
+                    breakOut = existingAttendance.breakOut,
+                    breakOutPhoto = existingAttendance.breakOutPhoto,
+                    timeOut = currentTime,
+                    timeOutPhoto = photoFile.absolutePath, // Local path for immediate display
+                    status = "COMPLETED",
+                    created_at = "",
+                    updated_at = ""
+                )
+
+                withContext(Dispatchers.Main) {
+                    // CRITICAL: Update adapter immediately
+                    adapter.updateStaffAttendanceImmediately(staffId, serverRecord)
+
+                    showToast("Time Out recorded successfully!")
+                    hideLoading()
+                    cleanupCamera()
+                }
+                SessionManager.clearAttendanceData()
+
+                // Background server upload
+                try {
+                    val result = RetrofitClient.attendanceService.uploadAttendanceRecord(
+                        staffId = staffId,
+                        storeId = storeId,
+                        date = today,
+                        time = currentTime,
+                        type = "TIME_OUT",
+                        photoFile = photoFile
+                    )
+
+                    if (result.isFailure) {
+                        Log.e(TAG, "Failed to upload to server: ${result.exceptionOrNull()?.message}")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Server upload error", e)
+                }
+
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    hideLoading()
+                    showToast("Failed to record Time Out: ${e.message}")
+                    cleanupCamera()
+                }
+                Log.e(TAG, "Error during time out", e)
+            }
+        }
+    }
+
+    private fun handleBreakStatus(staff: StaffEntity) {
+        lifecycleScope.launch {
+            try {
+                showLoading("Updating break status...")
+
+                if (!PhilippinesServerTime.isInternetAvailable(this@AttendanceActivity)) {
+                    throw NoInternetException("Internet connection required to verify time")
+                }
+
+                val timeSync = PhilippinesServerTime.syncTimeWithRetry(this@AttendanceActivity)
+                if (!timeSync) {
+                    throw ServerTimeException("Failed to sync with server time")
+                }
+
+                val currentTime = PhilippinesServerTime.formatDatabaseTime()
+                val today = PhilippinesServerTime.formatDatabaseDate()
+                val storeId = SessionManager.getCurrentUser()?.storeid ?: return@launch
+                val staffId = "${staff.name}_$storeId"
+
+                val attendance = withContext(Dispatchers.IO) {
+                    attendanceDao.getAttendanceForStaffOnDate(staffId, today)
+                }
+
+                if (attendance == null || attendance.timeIn == null) {
+                    showToast("Please time in first")
+                    hideLoading()
+                    return@launch
+                }
+
+                val isStartingBreak = attendance.breakIn == null
+
+                // Create a temp file from drawable resource
+                val defaultPhotoFile = File(cacheDir, "temp_break.jpg")
+                withContext(Dispatchers.IO) {
+                    try {
+                        val drawable = ContextCompat.getDrawable(
+                            this@AttendanceActivity,
+                            R.drawable.ic_camera_placeholder
+                        )
+                        val bitmap = Bitmap.createBitmap(100, 100, Bitmap.Config.ARGB_8888)
+                        val canvas = Canvas(bitmap)
+                        drawable?.setBounds(0, 0, canvas.width, canvas.height)
+                        drawable?.draw(canvas)
+
+                        FileOutputStream(defaultPhotoFile).use { out ->
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 50, out)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error creating default photo", e)
+                    }
+                }
+
+                try {
+                    val result = RetrofitClient.attendanceService.uploadAttendanceRecord(
+                        staffId = staffId,
+                        storeId = storeId,
+                        date = today,
+                        time = currentTime,
+                        type = if (isStartingBreak) "BREAK_IN" else "BREAK_OUT",
+                        photoFile = defaultPhotoFile
+                    )
+
+                    if (result.isSuccess) {
+                        val updatedAttendance = if (isStartingBreak) {
+                            attendance.copy(
+                                breakIn = currentTime,
+                                breakInPhoto = ""
+                            )
+                        } else {
+                            attendance.copy(
+                                breakOut = currentTime,
+                                breakOutPhoto = ""
+                            )
+                        }
+
+                        withContext(Dispatchers.IO) {
+                            attendanceDao.updateAttendance(updatedAttendance)
+                        }
+
+                        withContext(Dispatchers.Main) {
+                            showToast(if (isStartingBreak) "Break started" else "Break ended")
+                            // Clear cached attendance data to force refresh
+                            SessionManager.clearAttendanceData()
+                        }
+                    } else {
+                        throw result.exceptionOrNull() ?: Exception("Failed to update break status")
+                    }
+                } finally {
+                    withContext(Dispatchers.IO) {
+                        if (defaultPhotoFile.exists()) {
+                            defaultPhotoFile.delete()
+                        }
+                    }
+                }
+
+                hideLoading()
+                refreshAttendanceData()
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error handling break status", e)
+                showToast("Failed to update break status: ${e.message}")
+                hideLoading()
+                refreshAttendanceData()
+            }
+        }
+    }
+
+    private fun cleanupAndRefresh() {
+        binding.progressIndicator.visibility = View.GONE
+        binding.viewFinder.visibility = View.GONE
+
+        // Re-enable swipe refresh after camera actions
+        swipeRefreshLayout.isEnabled = true
+
+        // Only cleanup camera if it's a photo-requiring action
+        if (selectedAttendanceType == StaffAttendanceAdapter.AttendanceType.TIME_IN ||
+            selectedAttendanceType == StaffAttendanceAdapter.AttendanceType.TIME_OUT
+        ) {
+            cleanupCamera()
+        }
+
+        // Refresh the current view
+        val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(selectedDate.time)
+        adapter.updateDate(dateStr)
+        adapter.notifyDataSetChanged()
     }
 
     private fun loadStaffList() {
@@ -1398,6 +1811,9 @@ class AttendanceActivity : AppCompatActivity() {
             retakeButton.visibility = View.GONE
             progressIndicator.visibility = View.GONE
         }
+
+        // Re-enable swipe refresh
+        swipeRefreshLayout.isEnabled = true
 
         try {
             if (::cameraProvider.isInitialized) {
@@ -1431,6 +1847,21 @@ class AttendanceActivity : AppCompatActivity() {
 
     private fun showToast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun checkPermissions() {
+        if (!allPermissionsGranted()) {
+            ActivityCompat.requestPermissions(
+                this,
+                REQUIRED_PERMISSIONS,
+                REQUEST_CODE_PERMISSIONS
+            )
+        }
+    }
+
+    private fun setupTimeAndDate() {
+        binding.currentDate.text = SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.getDefault())
+            .format(Date())
     }
 
     override fun onRequestPermissionsResult(
@@ -1498,247 +1929,229 @@ class AttendanceActivity : AppCompatActivity() {
         }
     }
 
-    private fun recreateActivity() {
-        Handler(Looper.getMainLooper()).postDelayed({
-            val intent = Intent(this, AttendanceActivity::class.java)
-            intent.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)
-            finish()
-            startActivity(intent)
-            overridePendingTransition(0, 0)
-        }, 500) // Half second delay to ensure database operations are complete
-    }
-
-    private fun checkAndRequestPermissions() {
-        val permissionsToRequest = mutableListOf<String>()
-
-        for (permission in REQUIRED_PERMISSIONS) {
-            if (ContextCompat.checkSelfPermission(
-                    this,
-                    permission
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                permissionsToRequest.add(permission)
+    // Tablet-specific sidebar methods
+    private fun initializeSidebarComponents() {
+        if (!isMobileLayout) {
+            try {
+                sidebarLayout = findViewById(R.id.sidebarLayout)
+                toggleButton = findViewById(R.id.toggleButton)
+                buttonContainer = findViewById(R.id.buttonContainer)
+                ecposTitle = findViewById(R.id.ecposTitle)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error initializing sidebar components", e)
             }
         }
-
-        if (permissionsToRequest.isNotEmpty()) {
-            ActivityCompat.requestPermissions(
-                this,
-                permissionsToRequest.toTypedArray(),
-                REQUEST_CODE_PERMISSIONS
-            )
-        } else {
-            // All permissions are already granted
-            initializeCamera()
-        }
-    }
-
-    private fun initializeCamera() {
-        try {
-            binding.viewFinder.visibility = View.VISIBLE
-            setupCamera()
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize camera: ${e.message}", e)
-            showToast("Error initializing camera: ${e.message}")
-        }
-    }
-
-    private fun initializeSidebarComponents() {
-        sidebarLayout = findViewById(R.id.sidebarLayout)
-        toggleButton = findViewById(R.id.toggleButton)
-        buttonContainer = findViewById(R.id.buttonContainer)
-        ecposTitle = findViewById(R.id.ecposTitle)
     }
 
     private fun setupSidebar() {
-        toggleButton.setOnClickListener {
-            if (isSidebarExpanded) {
-                collapseSidebar()
-            } else {
-                expandSidebar()
+        if (!isMobileLayout) {
+            try {
+                toggleButton.setOnClickListener {
+                    if (isSidebarExpanded) {
+                        collapseSidebar()
+                    } else {
+                        expandSidebar()
+                    }
+                }
+                setupSidebarButtons()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error setting up sidebar", e)
             }
         }
-        setupSidebarButtons()
     }
 
     private fun setupSidebarButtons() {
-        findViewById<ImageButton>(R.id.button2).setOnClickListener {
-            val intent = Intent(this, ReportsActivity::class.java)
-            startActivity(intent)
-        }
+        if (!isMobileLayout) {
+            try {
+                findViewById<ImageButton>(R.id.button2)?.setOnClickListener {
+                    val intent = Intent(this, ReportsActivity::class.java)
+                    startActivity(intent)
+                }
 
-        findViewById<ImageButton>(R.id.button3).setOnClickListener {
-            val intent = Intent(this, MainActivity::class.java)
-            intent.putExtra("web_url", "https://eljin.org/order")
-            startActivity(intent)
-        }
+                findViewById<ImageButton>(R.id.button3)?.setOnClickListener {
+                    navigateToMainWithUrl("https://eljin.org/order", "ORDERING")
+                }
 
-        findViewById<ImageButton>(R.id.stockcounting).setOnClickListener {
-            val intent = Intent(this, StockCountingActivity::class.java)
-            startActivity(intent)
-            showToast("Stock Counting")
-        }
+                findViewById<ImageButton>(R.id.stockcounting)?.setOnClickListener {
+                    val intent = Intent(this, StockCountingActivity::class.java)
+                    startActivity(intent)
+                    showToast("Stock Counting")
+                }
 
-        findViewById<ImageButton>(R.id.button5).setOnClickListener {
-            val intent = Intent(this, MainActivity::class.java)
-            intent.putExtra("web_url", "https://eljin.org/StockTransfer")
-            startActivity(intent)
-        }
+                findViewById<ImageButton>(R.id.button5)?.setOnClickListener {
+                    navigateToMainWithUrl("https://eljin.org/StockTransfer", "Stock Transfer")
+                }
 
-        findViewById<ImageButton>(R.id.button6).setOnClickListener {
-            val intent = Intent(this, MainActivity::class.java)
-            intent.putExtra("web_url", "https://eljin.org/reports")
-            startActivity(intent)
-        }
+                findViewById<ImageButton>(R.id.button6)?.setOnClickListener {
+                    navigateToMainWithUrl("https://eljin.org/reports", "REPORTS")
+                }
 
-        findViewById<ImageButton>(R.id.waste).setOnClickListener {
-            val intent = Intent(this, MainActivity::class.java)
-            intent.putExtra("web_url", "https://eljin.org/waste")
-            startActivity(intent)
-        }
+                findViewById<ImageButton>(R.id.waste)?.setOnClickListener {
+                    navigateToMainWithUrl("https://eljin.org/waste", "WASTE")
+                }
 
-        findViewById<ImageButton>(R.id.partycakes).setOnClickListener {
-            val intent = Intent(this, MainActivity::class.java)
-            intent.putExtra("web_url", "https://eljin.org/loyalty-cards")
-            startActivity(intent)
-        }
+                findViewById<ImageButton>(R.id.partycakes)?.setOnClickListener {
+                    navigateToMainWithUrl("https://eljin.org/loyalty-cards", "PARTYCAKES")
+                }
 
-        findViewById<ImageButton>(R.id.customer).setOnClickListener {
-            val intent = Intent(this, MainActivity::class.java)
-            intent.putExtra("web_url", "https://eljin.org/customers")
-            startActivity(intent)
-        }
+                findViewById<ImageButton>(R.id.customer)?.setOnClickListener {
+                    navigateToMainWithUrl("https://eljin.org/customers", "CUSTOMER")
+                }
 
-        findViewById<ImageButton>(R.id.button7).setOnClickListener {
-            val intent = Intent(this, MainActivity::class.java)
-            startActivity(intent)
-        }
+                findViewById<ImageButton>(R.id.button7)?.setOnClickListener {
+                    val intent = Intent(this, Window1::class.java)
+                    startActivity(intent)
+                }
 
-        findViewById<ImageButton>(R.id.printerSettingsButton).setOnClickListener {
-            val intent = Intent(this, PrinterSettingsActivity::class.java)
-            startActivity(intent)
-            showToast("PRINTER SETTINGS")
-        }
+                findViewById<ImageButton>(R.id.printerSettingsButton)?.setOnClickListener {
+                    val intent = Intent(this, PrinterSettingsActivity::class.java)
+                    startActivity(intent)
+                    showToast("PRINTER SETTINGS")
+                }
 
-        findViewById<ImageButton>(R.id.button8).setOnClickListener {
-            val intent = Intent(this, MainActivity::class.java)
-            intent.putExtra("logout", true)
-            startActivity(intent)
+                findViewById<ImageButton>(R.id.button8)?.setOnClickListener {
+                    val intent = Intent(this, MainActivity::class.java)
+                    startActivity(intent)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error setting up sidebar buttons", e)
+            }
         }
     }
 
     private fun collapseSidebar() {
-        if (!isSidebarExpanded || isAnimating) return
-        isAnimating = true
+        if (!isMobileLayout && isSidebarExpanded && !isAnimating) {
+            isAnimating = true
 
-        val animatorSet = AnimatorSet()
+            val animatorSet = AnimatorSet()
 
-        val collapseWidth = ValueAnimator.ofInt(sidebarLayout.width, dpToPx(24)).apply {
-            duration = 300
-            interpolator = AccelerateDecelerateInterpolator()
-            addUpdateListener { animator ->
-                val value = animator.animatedValue as Int
-                sidebarLayout.layoutParams = sidebarLayout.layoutParams.apply {
-                    width = value
+            val collapseWidth = ValueAnimator.ofInt(sidebarLayout.width, dpToPx(24)).apply {
+                duration = 300
+                interpolator = AccelerateDecelerateInterpolator()
+                addUpdateListener { animator ->
+                    val value = animator.animatedValue as Int
+                    sidebarLayout.layoutParams = sidebarLayout.layoutParams.apply {
+                        width = value
+                    }
                 }
             }
-        }
 
-        val toggleButtonMargin = ValueAnimator.ofInt(dpToPx(90), dpToPx(8)).apply {
-            duration = 300
-            interpolator = AccelerateDecelerateInterpolator()
-            addUpdateListener { animator ->
-                val value = animator.animatedValue as Int
-                toggleButton.layoutParams =
-                    (toggleButton.layoutParams as ConstraintLayout.LayoutParams).apply {
-                        marginStart = value
-                    }
-            }
-        }
-
-        animatorSet.playTogether(
-            collapseWidth,
-            toggleButtonMargin,
-            ObjectAnimator.ofFloat(toggleButton, View.ROTATION, 0f, 180f).apply {
+            val toggleButtonMargin = ValueAnimator.ofInt(dpToPx(90), dpToPx(8)).apply {
                 duration = 300
-            },
-            ObjectAnimator.ofFloat(buttonContainer, View.ALPHA, 1f, 0f).apply {
-                duration = 150
+                interpolator = AccelerateDecelerateInterpolator()
+                addUpdateListener { animator ->
+                    val value = animator.animatedValue as Int
+                    toggleButton.layoutParams =
+                        (toggleButton.layoutParams as ConstraintLayout.LayoutParams).apply {
+                            marginStart = value
+                        }
+                }
             }
-        )
 
-        animatorSet.addListener(object : AnimatorListenerAdapter() {
-            override fun onAnimationEnd(animation: Animator) {
-                buttonContainer.visibility = View.GONE
-                ecposTitle.visibility = View.GONE
+            animatorSet.playTogether(
+                collapseWidth,
+                toggleButtonMargin,
+                ObjectAnimator.ofFloat(toggleButton, View.ROTATION, 0f, 180f).apply {
+                    duration = 300
+                },
+                ObjectAnimator.ofFloat(buttonContainer, View.ALPHA, 1f, 0f).apply {
+                    duration = 150
+                }
+            )
 
-                isSidebarExpanded = false
-                isAnimating = false
-            }
-        })
+            animatorSet.addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    buttonContainer.visibility = View.GONE
+                    ecposTitle.visibility = View.GONE
+                    isSidebarExpanded = false
+                    isAnimating = false
+                }
+            })
 
-        animatorSet.start()
+            animatorSet.start()
+        }
     }
 
     private fun expandSidebar() {
-        if (isSidebarExpanded || isAnimating) return
-        isAnimating = true
+        if (!isMobileLayout && !isSidebarExpanded && !isAnimating) {
+            isAnimating = true
 
-        val animatorSet = AnimatorSet()
+            val animatorSet = AnimatorSet()
 
-        val expandWidth = ValueAnimator.ofInt(sidebarLayout.width, dpToPx(100)).apply {
-            duration = 300
-            interpolator = AccelerateDecelerateInterpolator()
-            addUpdateListener { animator ->
-                val value = animator.animatedValue as Int
-                sidebarLayout.layoutParams = sidebarLayout.layoutParams.apply {
-                    width = value
+            val expandWidth = ValueAnimator.ofInt(sidebarLayout.width, dpToPx(100)).apply {
+                duration = 300
+                interpolator = AccelerateDecelerateInterpolator()
+                addUpdateListener { animator ->
+                    val value = animator.animatedValue as Int
+                    sidebarLayout.layoutParams = sidebarLayout.layoutParams.apply {
+                        width = value
+                    }
                 }
             }
-        }
 
-        val toggleButtonMargin = ValueAnimator.ofInt(dpToPx(8), dpToPx(90)).apply {
-            duration = 300
-            interpolator = AccelerateDecelerateInterpolator()
-            addUpdateListener { animator ->
-                val value = animator.animatedValue as Int
-                toggleButton.layoutParams =
-                    (toggleButton.layoutParams as ConstraintLayout.LayoutParams).apply {
-                        marginStart = value
-                    }
-            }
-        }
-
-        animatorSet.playTogether(
-            expandWidth,
-            toggleButtonMargin,
-            ObjectAnimator.ofFloat(toggleButton, View.ROTATION, 180f, 0f).apply {
+            val toggleButtonMargin = ValueAnimator.ofInt(dpToPx(8), dpToPx(90)).apply {
                 duration = 300
+                interpolator = AccelerateDecelerateInterpolator()
+                addUpdateListener { animator ->
+                    val value = animator.animatedValue as Int
+                    toggleButton.layoutParams =
+                        (toggleButton.layoutParams as ConstraintLayout.LayoutParams).apply {
+                            marginStart = value
+                        }
+                }
             }
-        )
 
-        animatorSet.addListener(object : AnimatorListenerAdapter() {
-            override fun onAnimationStart(animation: Animator) {
-                buttonContainer.visibility = View.VISIBLE
-                ecposTitle.visibility = View.VISIBLE
+            animatorSet.playTogether(
+                expandWidth,
+                toggleButtonMargin,
+                ObjectAnimator.ofFloat(toggleButton, View.ROTATION, 180f, 0f).apply {
+                    duration = 300
+                }
+            )
 
-                buttonContainer.alpha = 0f
-            }
+            animatorSet.addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationStart(animation: Animator) {
+                    buttonContainer.visibility = View.VISIBLE
+                    ecposTitle.visibility = View.VISIBLE
+                    buttonContainer.alpha = 0f
+                }
 
-            override fun onAnimationEnd(animation: Animator) {
-                buttonContainer.animate()
-                    .alpha(1f)
-                    .setDuration(150)
-                    .start()
-                isSidebarExpanded = true
-                isAnimating = false
-            }
-        })
+                override fun onAnimationEnd(animation: Animator) {
+                    buttonContainer.animate()
+                        .alpha(1f)
+                        .setDuration(150)
+                        .start()
+                    isSidebarExpanded = true
+                    isAnimating = false
+                }
+            })
 
-        animatorSet.start()
+            animatorSet.start()
+        }
     }
 
     private fun dpToPx(dp: Int): Int {
         return (dp * resources.displayMetrics.density).toInt()
+    }
+
+    enum class AttendanceAction {
+        TIME_IN, TIME_OUT, BREAK
+    }
+
+    companion object {
+        const val TAG = "AttendanceActivity"
+        private const val REQUEST_CODE_PERMISSIONS = 10
+
+        private val REQUIRED_PERMISSIONS = if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            arrayOf(
+                Manifest.permission.CAMERA,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            )
+        } else {
+            arrayOf(
+                Manifest.permission.CAMERA
+            )
+        }
     }
 }

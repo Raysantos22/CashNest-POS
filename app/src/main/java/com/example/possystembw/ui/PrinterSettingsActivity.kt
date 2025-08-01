@@ -10,7 +10,8 @@ import android.app.DatePickerDialog
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.Intent
-import android.content.pm.PackageManager import android.os.Build
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.widget.CheckBox
@@ -30,7 +31,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-
 import android.bluetooth.BluetoothDevice
 import android.content.BroadcastReceiver
 import android.content.ClipData
@@ -39,8 +39,11 @@ import android.content.Context
 import android.content.IntentFilter
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Typeface
 import android.provider.Settings
 import android.util.Log
+import android.view.Gravity
+import android.view.MenuItem
 import android.view.ViewGroup
 import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.ArrayAdapter
@@ -51,14 +54,18 @@ import android.widget.ListView
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.core.view.GravityCompat
+import androidx.drawerlayout.widget.DrawerLayout
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.possystembw.DeviceUtils
 import com.example.possystembw.MainActivity
 import com.example.possystembw.adapter.StoreExpenseAdapter
 import com.example.possystembw.data.AppDatabase
 import com.example.possystembw.database.StoreExpense
 import com.example.possystembw.ui.ViewModel.StoreExpenseViewModel
+import com.google.android.material.navigation.NavigationView
 import com.google.android.material.textfield.TextInputEditText
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -83,8 +90,7 @@ import com.example.possystembw.ui.ViewModel.NumberSequenceAutoChecker
 import com.example.possystembw.ui.ViewModel.setupNumberSequenceChecker
 import java.time.LocalDate
 
-
-class PrinterSettingsActivity : AppCompatActivity() {
+class PrinterSettingsActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
     private lateinit var bluetoothAdapter: BluetoothAdapter
     private lateinit var printerListView: ListView
     private val savedPrinters = mutableListOf<PrinterInfo>()
@@ -95,6 +101,13 @@ class PrinterSettingsActivity : AppCompatActivity() {
     private var currentStatusTextView: TextView? = null
     private var connectionStatusTimer: Job? = null
 
+    // Mobile layout support
+    private var drawerLayout: DrawerLayout? = null
+    private var navigationView: NavigationView? = null
+    private var hamburgerButton: ImageButton? = null
+    private var optionsButton: ImageButton? = null
+    private var isMobileLayout = false
+    // Tablet layout components
     private lateinit var sidebarLayout: ConstraintLayout
     private lateinit var toggleButton: ImageButton
     private lateinit var buttonContainer: LinearLayout
@@ -103,16 +116,13 @@ class PrinterSettingsActivity : AppCompatActivity() {
     private var isAnimating = false
 
     private lateinit var btnStoreExpense: Button
-
     private lateinit var expenseViewModel: StoreExpenseViewModel
     private lateinit var expenseAdapter: StoreExpenseAdapter
     private lateinit var expenseRecyclerView: RecyclerView
     private lateinit var repository: TransactionRepository
-
     private lateinit var localDataManager: LocalDataManager
     private var serverUrl: String? = null
     private lateinit var sequenceChecker: NumberSequenceAutoChecker
-
 
     companion object {
         private const val REQUEST_ENABLE_BT = 100
@@ -120,38 +130,51 @@ class PrinterSettingsActivity : AppCompatActivity() {
         private const val TAG = "PrinterSettingsActivity"
     }
 
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_printer_settings)
+
+        // Set orientation based on device
+        DeviceUtils.setOrientationBasedOnDevice(this)
+
+        // Detect layout type first
+        detectLayoutType()
+
+        // Initialize layout-specific views IMMEDIATELY after detection
+        initializeLayoutSpecificViews()
+
+
+        // Initialize layout-specific views
+        initializeLayoutSpecificViews()
 
         // Initialize Bluetooth
         BluetoothPrinterHelper.initialize(this)
         bluetoothPrinterHelper = BluetoothPrinterHelper(this)
 
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-
-        // Fix: Check if adapter is null before assignment
         val adapter = bluetoothManager.adapter
         if (adapter == null) {
             Toast.makeText(this, "Bluetooth is not available on this device - continuing without Bluetooth features", Toast.LENGTH_LONG).show()
-            // Create a dummy adapter or handle null case
-            // bluetoothAdapter will remain uninitialized, so we need to handle this in other methods
         } else {
             bluetoothAdapter = adapter
         }
 
         localDataManager = LocalDataManager(this)
 
-        initializeSidebarComponents()
-        setupSidebar()
+        // Setup layout-specific features
+        if (isMobileLayout) {
+            setupMobileSpecificFeatures()
+        } else {
+            initializeSidebarComponents()
+            setupSidebar()
+        }
+
         setupViews()
-        setupExpenseList() // Add this line
+        setupExpenseList()
         loadSavedPrinters()
         setupPrinterListView()
         updateConnectionStatus()
         startConnectionStatusCheck()
-        // Remove duplicate setupExpenseList() call
         sequenceChecker = setupNumberSequenceChecker(this)
 
         setupEmergencyResync()
@@ -162,7 +185,6 @@ class PrinterSettingsActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnEmergencyResync).setOnClickListener {
             showEmergencyResyncDialog()
         }
-        // Set up scan button to show scanning dialog
         findViewById<Button>(R.id.btnScanPrinters).setOnClickListener {
             startScanningProcess()
         }
@@ -171,91 +193,178 @@ class PrinterSettingsActivity : AppCompatActivity() {
             startActivity(intent)
         }
     }
-//    private fun setupExpenseList() {
-//        expenseRecyclerView = findViewById(R.id.expenseRecyclerView)
-//        expenseAdapter = StoreExpenseAdapter(
-//            onDeleteClick = { expense -> showDeleteConfirmation(expense) },
-//            onEditClick = { expense -> showEditExpenseDialog(expense) }
-//        )
-//
-//        expenseRecyclerView.apply {
-//            layoutManager = GridLayoutManager(this@PrinterSettingsActivity, 2)
-//            adapter = expenseAdapter
-//        }
-//
-//        val factory = StoreExpenseViewModel.Factory(
-//            AppDatabase.getDatabase(application).storeExpenseDao(),
-//            RetrofitClient.storeExpenseApi
-//        )
-//        expenseViewModel = ViewModelProvider(this, factory)[StoreExpenseViewModel::class.java]
-//        expenseViewModel.allExpenses.observe(this) { expenses ->
-//            expenseAdapter.submitList(expenses)
-//        }
-//    }
-data class TransactionData(
-    val summary: TransactionSummary,
-    val records: List<TransactionRecord>,
-    var isSelected: Boolean = false
-)
-    private fun toggleLocalDataServer() {
-        if (localDataManager.isServerRunning()) {
-            localDataManager.stopServer()
-            showServerStatus("Server stopped")
+
+    private fun detectLayoutType() {
+        val drawerLayoutView = findViewById<DrawerLayout>(R.id.drawer_layout)
+        val sidebarLayoutView = findViewById<ConstraintLayout>(R.id.sidebarLayout)
+
+        val isTabletDevice = DeviceUtils.isTablet(this)
+        val hasDrawer = drawerLayoutView != null
+        val hasSidebar = sidebarLayoutView != null
+
+        Log.d(TAG, "=== LAYOUT DETECTION ===")
+        Log.d(TAG, "Device type: ${if (isTabletDevice) "Tablet" else "Phone"}")
+        Log.d(TAG, "Has DrawerLayout: $hasDrawer")
+        Log.d(TAG, "Has SidebarLayout: $hasSidebar")
+
+        isMobileLayout = hasDrawer && !hasSidebar
+
+        Log.d(TAG, "Final decision: ${if (isMobileLayout) "Mobile" else "Tablet"} mode")
+    }
+
+    private fun initializeLayoutSpecificViews() {
+        if (isMobileLayout) {
+            drawerLayout = findViewById(R.id.drawer_layout)
+            navigationView = findViewById(R.id.nav_view)
+            hamburgerButton = findViewById(R.id.hamburgerButton)
+
+            Log.d(TAG, "✅ Mobile views initialized")
+            Log.d(TAG, "DrawerLayout: ${drawerLayout != null}")
+            Log.d(TAG, "NavigationView: ${navigationView != null}")
+            Log.d(TAG, "HamburgerButton: ${hamburgerButton != null}")
         } else {
-            serverUrl = localDataManager.startServer()
-            if (serverUrl != null) {
-                showServerStatus("Server running at: $serverUrl")
-                // Optionally copy URL to clipboard
-                copyToClipboard(serverUrl!!)
-            } else {
-                showServerStatus("Failed to start server")
+            Log.d(TAG, "✅ Tablet layout detected")
+        }
+    }
+
+    private fun setupMobileSpecificFeatures() {
+        try {
+            // Setup navigation drawer
+            navigationView?.setNavigationItemSelectedListener(this)
+
+            // Update store name in navigation header
+            navigationView?.getHeaderView(0)?.let { headerView ->
+                val navStoreName = headerView.findViewById<TextView>(R.id.nav_store_name)
+                val currentStore = SessionManager.getCurrentUser()?.storeid ?: "Unknown Store"
+                navStoreName?.text = "Store: $currentStore"
+            }
+
+            // Setup hamburger button - this is the key fix
+            hamburgerButton?.setOnClickListener {
+                Log.d(TAG, "Hamburger button clicked")
+                drawerLayout?.let { drawer ->
+                    if (drawer.isDrawerOpen(GravityCompat.START)) {
+                        drawer.closeDrawer(GravityCompat.START)
+                    } else {
+                        drawer.openDrawer(GravityCompat.START)
+                    }
+                } ?: run {
+                    Log.e(TAG, "DrawerLayout is null")
+                }
+            }
+
+            // Setup options button
+//            optionsButton?.setOnClickListener {
+//                showMobileOptionsDialog()
+//            }
+
+            Log.d(TAG, "✅ Mobile features setup complete")
+            Log.d(TAG, "DrawerLayout available: ${drawerLayout != null}")
+            Log.d(TAG, "NavigationView available: ${navigationView != null}")
+            Log.d(TAG, "HamburgerButton available: ${hamburgerButton != null}")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Mobile features setup failed", e)
+        }
+    }
+
+    override fun onNavigationItemSelected(item: MenuItem): Boolean {
+        Log.d(TAG, "Navigation item selected: ${item.itemId}")
+
+        when (item.itemId) {
+            R.id.nav_pos_system -> {
+                val intent = Intent(this, MainActivity::class.java)
+                startActivity(intent)
+            }
+            R.id.nav_reports -> {
+                val intent = Intent(this, ReportsActivity::class.java)
+                startActivity(intent)
+            }
+            R.id.nav_stock_counting -> {
+                val intent = Intent(this, StockCountingActivity::class.java)
+                startActivity(intent)
+            }
+            R.id.nav_web_reports -> {
+                navigateToMainWithUrl("https://eljin.org/reports", "REPORTS")
+            }
+            R.id.nav_customers -> {
+                navigateToMainWithUrl("https://eljin.org/customers", "CUSTOMER")
+            }
+            R.id.nav_loyalty_card -> {
+                navigateToMainWithUrl("https://eljin.org/loyalty-cards", "Loyalty Card")
+            }
+            R.id.nav_stock_transfer -> {
+                navigateToMainWithUrl("https://eljin.org/StockTransfer", "Stock Transfer")
+            }
+            R.id.nav_attendance -> {
+                val intent = Intent(this, AttendanceActivity::class.java)
+                startActivity(intent)
+
+            }
+            R.id.nav_printer_settings -> {
+                val intent = Intent(this, PrinterSettingsActivity::class.java)
+                startActivity(intent)
+            }
+            R.id.nav_cash_drawer -> {
+                val intent = Intent(this, ReportsActivity::class.java)
+                startActivity(intent)
+            }
+            R.id.nav_logout -> {
+                val intent = Intent(this, MainActivity::class.java)
+                startActivity(intent)
+                finish()
+            }
+        }
+
+        // Always close drawer after selection
+        drawerLayout?.closeDrawer(GravityCompat.START)
+        return true
+    }
+
+    override fun onBackPressed() {
+        when {
+            isMobileLayout && drawerLayout?.isDrawerOpen(GravityCompat.START) == true -> {
+                Log.d(TAG, "Closing drawer via back button")
+                drawerLayout?.closeDrawer(GravityCompat.START)
+            }
+            else -> {
+                Log.d(TAG, "Calling super.onBackPressed()")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    onBackPressedDispatcher.onBackPressed()
+                } else {
+                    @Suppress("DEPRECATION")
+                    super.onBackPressed()
+                }
             }
         }
     }
+    private fun debugDrawerState() {
+        Log.d(TAG, "=== DRAWER DEBUG ===")
+        Log.d(TAG, "isMobileLayout: $isMobileLayout")
+        Log.d(TAG, "drawerLayout != null: ${drawerLayout != null}")
+        Log.d(TAG, "navigationView != null: ${navigationView != null}")
+        Log.d(TAG, "hamburgerButton != null: ${hamburgerButton != null}")
 
-    private fun showServerStatus(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-        Log.d("MainActivity", message)
-
-        // Show dialog with URL and instructions
-        if (serverUrl != null && localDataManager.isServerRunning()) {
-            AlertDialog.Builder(this)
-                .setTitle("Local Data Server")
-                .setMessage("Server is running at:\n$serverUrl\n\nYou can access this URL from any device on the same network to view your tablet data.\n\nEndpoints:\n• / - Web interface\n• /transactions - All transaction records\n• /transaction-summaries - Transaction summaries\n• /stats - Database statistics")
-                .setPositiveButton("Copy URL") { _, _ ->
-                    copyToClipboard(serverUrl!!)
-                }
-                .setNegativeButton("Stop Server") { _, _ ->
-                    localDataManager.stopServer()
-                }
-                .show()
+        drawerLayout?.let { drawer ->
+            Log.d(TAG, "Drawer isDrawerOpen: ${drawer.isDrawerOpen(GravityCompat.START)}")
+            Log.d(TAG, "Drawer visibility: ${drawer.visibility}")
         }
     }
 
-    private fun copyToClipboard(text: String) {
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText("Server URL", text)
-        clipboard.setPrimaryClip(clip)
-        Toast.makeText(this, "URL copied to clipboard", Toast.LENGTH_SHORT).show()
+
+    private fun navigateToMainWithUrl(url: String?, message: String?) {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            url?.let { putExtra("web_url", it) }
+        }
+        message?.let { showToast(it) }
+        startActivity(intent)
     }
 
-    private fun setupEmergencyResync() {
-        // Initialize repository with proper dependencies
-        val database = AppDatabase.getDatabase(application)
-        val transactionDao = database.transactionDao()  // ADD THIS LINE
-
-        val numberSequenceRemoteRepository = NumberSequenceRemoteRepository(
-            RetrofitClient.numberSequenceApi,
-            database.numberSequenceRemoteDao(),
-            transactionDao  // ADD THIS PARAMETER
-        )
-
-
-        repository = TransactionRepository(
-            AppDatabase.getDatabase(application).transactionDao(),
-            numberSequenceRemoteRepository
-        )
-    }
+    data class TransactionData(
+        val summary: TransactionSummary,
+        val records: List<TransactionRecord>,
+        var isSelected: Boolean = false
+    )
 
     private fun showEmergencyResyncDialog() {
         val dialogView = layoutInflater.inflate(R.layout.dialog_emergency_resync, null)
@@ -277,7 +386,14 @@ data class TransactionData(
         val summaryTextView = dialogView.findViewById<TextView>(R.id.summaryTextView)
         val transactionList = dialogView.findViewById<RecyclerView>(R.id.transactionList)
         val progressBar = dialogView.findViewById<ProgressBar>(R.id.progressBar)
-//        val selectAllCheckbox = dialogView.findViewById<CheckBox>(R.id.selectAllCheckbox)
+        val selectAllCheckbox = dialogView.findViewById<CheckBox>(R.id.selectAllCheckbox)
+
+        // Apply mobile-specific styling
+        if (isMobileLayout) {
+            startDateEdit.textSize = 12f
+            endDateEdit.textSize = 12f
+            summaryTextView.textSize = 11f
+        }
 
         // Set initial dates
         startDateEdit.setText(startDate.toFormattedString())
@@ -289,7 +405,6 @@ data class TransactionData(
         transactionList.layoutManager = LinearLayoutManager(this)
 
         // Setup select all checkbox
-        val selectAllCheckbox = dialogView.findViewById<CheckBox>(R.id.selectAllCheckbox)
         adapter.setOnSelectAllChangeListener { isChecked ->
             selectAllCheckbox.isChecked = isChecked
         }
@@ -334,8 +449,21 @@ data class TransactionData(
             updateTransactionData(startDate, endDate, summaryTextView, adapter, progressBar)
         }
 
-        AlertDialog.Builder(this)
-            .setTitle("Emergency Resync")
+        val titleView = TextView(this@PrinterSettingsActivity)
+        titleView.text = "Emergency Resync"
+        titleView.textSize = if (isMobileLayout) 16f else 18f
+        titleView.setTextColor(ContextCompat.getColor(this@PrinterSettingsActivity, android.R.color.black))
+        titleView.setPadding(
+            if (isMobileLayout) 50 else 24,
+            if (isMobileLayout) 50 else 20,
+            if (isMobileLayout) 16 else 24,
+            if (isMobileLayout) 8 else 12
+        )
+        titleView.gravity = Gravity.CENTER_VERTICAL
+        titleView.setTypeface(null, Typeface.BOLD)
+
+        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle3)
+            .setCustomTitle(titleView)
             .setView(dialogView)
             .setPositiveButton("Resync Selected") { dialog, _ ->
                 lifecycleScope.launch {
@@ -344,194 +472,14 @@ data class TransactionData(
                 }
             }
             .setNegativeButton("Cancel", null)
-            .show()
+            .create()
+
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+        dialog.show()
+
+        // Apply mobile styling after dialog is shown
+        applyMobileDialogStyling(dialog)
     }
-
-    private fun showDatePickerDialog(calendar: Calendar, onDateSelected: (Calendar) -> Unit) {
-        DatePickerDialog(
-            this,
-            { _, year, month, day ->
-                calendar.set(year, month, day)
-                onDateSelected(calendar)
-            },
-            calendar.get(Calendar.YEAR),
-            calendar.get(Calendar.MONTH),
-            calendar.get(Calendar.DAY_OF_MONTH)
-        ).show()
-    }
-    fun formatDateToString(date: Date): String {
-        return try {
-            val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
-            format.format(date)
-        } catch (e: Exception) {
-            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
-        }
-    }
-
-    private suspend fun updateTransactionData(
-        startDate: Calendar,
-        endDate: Calendar,
-        summaryTextView: TextView,
-        adapter: TransactionResyncAdapter,
-        progressBar: ProgressBar
-    ) {
-        withContext(Dispatchers.Main) {
-            progressBar.visibility = View.VISIBLE
-        }
-
-        try {
-            val transactions = withContext(Dispatchers.IO) {
-                // FIXED: Convert Date to String for DAO call
-                val summaries = repository.transactionDao.getTransactionsByDateRange(
-                    formatDateToString(startDate.time),
-                    formatDateToString(endDate.time)
-                )
-
-                summaries.map { summary ->
-                    val records = repository.getTransactionRecords(summary.transactionId)
-                    TransactionData(summary, records)
-                }
-            }
-
-            var totalQty = 0
-            var totalGrossSales = 0.0
-            var totalTransactions = 0
-            var totalItems = 0
-
-            transactions.forEach { transactionData ->
-                totalGrossSales += transactionData.summary.grossAmount
-                totalTransactions++
-                totalItems += transactionData.records.size
-                totalQty += transactionData.records.sumOf { it.quantity }
-            }
-
-            withContext(Dispatchers.Main) {
-                summaryTextView.text = """
-                Total Transactions: $totalTransactions
-                Total Line Items: $totalItems
-                Total Quantity: $totalQty
-                Total Gross Sales: ₱${String.format("%.2f", totalGrossSales)}
-            """.trimIndent()
-
-                adapter.submitList(transactions)
-                progressBar.visibility = View.GONE
-            }
-        } catch (e: Exception) {
-            withContext(Dispatchers.Main) {
-                Toast.makeText(this@PrinterSettingsActivity, "Error: ${e.message}", Toast.LENGTH_LONG).show()
-                progressBar.visibility = View.GONE
-            }
-        }
-    }
-
-    private suspend fun resyncTransactions(transactions: List<TransactionData>) {
-        try {
-            withContext(Dispatchers.IO) {
-                transactions.forEach { transactionData ->
-                    try {
-                        Log.d("EmergencyResync", "Starting resync for transaction ${transactionData.summary.transactionId}")
-
-                        // Check if transaction is already being processed
-                        if (!transactionData.summary.syncStatus) {
-                            Log.d("EmergencyResync", "Transaction ${transactionData.summary.transactionId} is already in resync process, skipping")
-                            return@forEach
-                        }
-
-                        // Reset sync status for both summary and records first
-                        repository.transactionDao.updateSyncStatus(transactionData.summary.transactionId, false)
-                        repository.transactionDao.updateTransactionRecordsSync(transactionData.summary.transactionId, false)
-
-                        // Let the periodic sync handle it from here
-                        // Don't call syncTransaction directly to avoid double-sending
-                        Log.d("EmergencyResync", "Marked transaction ${transactionData.summary.transactionId} for resync")
-
-                    } catch (e: Exception) {
-                        Log.e("EmergencyResync", "Error resyncing transaction ${transactionData.summary.transactionId}", e)
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("EmergencyResync", "Error in resync process", e)
-        } finally {
-            withContext(Dispatchers.Main) {
-                Toast.makeText(this@PrinterSettingsActivity,
-                    "Transactions marked for resync. They will be processed by the sync service.",
-                    Toast.LENGTH_LONG).show()
-            }
-        }
-    }
-
-    // Adapter for transaction list
-
-
-    private fun setupExpenseList() {
-        expenseRecyclerView = findViewById(R.id.expenseRecyclerView)
-        expenseAdapter = StoreExpenseAdapter(
-            onDeleteClick = { /* Do nothing */ },
-            onEditClick = { /* Do nothing */ }
-        )
-
-        expenseRecyclerView.apply {
-            layoutManager = GridLayoutManager(this@PrinterSettingsActivity, 2)
-            adapter = expenseAdapter
-        }
-
-        val factory = StoreExpenseViewModel.Factory(
-            AppDatabase.getDatabase(application).storeExpenseDao(),
-            RetrofitClient.storeExpenseApi
-        )
-        expenseViewModel = ViewModelProvider(this, factory)[StoreExpenseViewModel::class.java]
-        expenseViewModel.allExpenses.observe(this) { expenses ->
-            expenseAdapter.submitList(expenses)
-        }
-    }
-    private fun showDeleteConfirmation(expense: StoreExpense) {
-        AlertDialog.Builder(this)
-            .setTitle("Delete Expense")
-            .setMessage("Are you sure you want to delete this expense?")
-            .setPositiveButton("Delete") { dialog, _ ->
-                expenseViewModel.deleteExpense(expense)
-                dialog.dismiss()
-            }
-            .setNegativeButton("Cancel") { dialog, _ ->
-                dialog.dismiss()
-            }
-            .show()
-    }
-
-
-    private fun showDatePicker(editText: EditText) {
-        val calendar = Calendar.getInstance()
-
-        // If there's an existing date, parse it
-        if (editText.text.isNotEmpty()) {
-            try {
-                val parts = editText.text.toString().split("-")
-                if (parts.size == 3) {
-                    calendar.set(parts[0].toInt(), parts[1].toInt() - 1, parts[2].toInt())
-                }
-            } catch (e: Exception) {
-                // If parsing fails, use current date
-                Log.e("DatePicker", "Error parsing date", e)
-            }
-        }
-
-        val year = calendar.get(Calendar.YEAR)
-        val month = calendar.get(Calendar.MONTH)
-        val day = calendar.get(Calendar.DAY_OF_MONTH)
-
-        DatePickerDialog(
-            this,
-            { _, selectedYear, selectedMonth, selectedDay ->
-                val selectedDate = String.format("%04d-%02d-%02d", selectedYear, selectedMonth + 1, selectedDay)
-                editText.setText(selectedDate)
-            },
-            year,
-            month,
-            day
-        ).show()
-    }
-
 
     private fun showStoreExpenseDialog() {
         val dialogView = layoutInflater.inflate(R.layout.dialog_store_expense, null)
@@ -544,6 +492,16 @@ data class TransactionData(
         val receivedByEdit = dialogView.findViewById<EditText>(R.id.editReceivedBy)
         val approvedByEdit = dialogView.findViewById<EditText>(R.id.editApprovedBy)
         val effectDateEdit = dialogView.findViewById<EditText>(R.id.editEffectDate)
+
+        // Apply mobile-specific styling to EditTexts
+        if (isMobileLayout) {
+            nameEdit.textSize = 12f
+            amountEdit.textSize = 12f
+            receivedByEdit.textSize = 12f
+            approvedByEdit.textSize = 12f
+            effectDateEdit.textSize = 12f
+            btnAddExpenseType.textSize = 11f
+        }
 
         // Predefined expense types
         val expenseTypes = arrayOf(
@@ -561,7 +519,6 @@ data class TransactionData(
                 )
             }
 
-            // Create CardView for the spinner
             val cardView = CardView(this).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT,
@@ -583,7 +540,6 @@ data class TransactionData(
                 }
             }
 
-            // Create adapter with custom layout for black text
             val adapter = ArrayAdapter(this, R.layout.spinner_item_black, expenseTypes)
             adapter.setDropDownViewResource(R.layout.spinner_dropdown_item_black)
             spinner.adapter = adapter
@@ -600,11 +556,11 @@ data class TransactionData(
                 ).apply {
                     setMargins(16, 8, 16, 16)
                 }
+                if (isMobileLayout) textSize = 11f
             }
 
             spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
                 override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                    // Ensure spinner text is black
                     (view as? TextView)?.setTextColor(ContextCompat.getColor(spinner.context, R.color.black))
                     otherEditText.visibility = if (expenseTypes[position] == "Other") View.VISIBLE else View.GONE
                 }
@@ -638,9 +594,21 @@ data class TransactionData(
             }, year, month, day).show()
         }
 
-        // Create dialog with custom style
-        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle)
-            .setTitle("Store Expense")
+        val titleView = TextView(this@PrinterSettingsActivity)
+        titleView.text = "Store Expense"
+        titleView.textSize = if (isMobileLayout) 16f else 18f
+        titleView.setTextColor(ContextCompat.getColor(this@PrinterSettingsActivity, android.R.color.black))
+        titleView.setPadding(
+            if (isMobileLayout) 50 else 24,
+            if (isMobileLayout) 50 else 20,
+            if (isMobileLayout) 16 else 24,
+            if (isMobileLayout) 8 else 12
+        )
+        titleView.gravity = Gravity.CENTER_VERTICAL
+        titleView.setTypeface(null, Typeface.BOLD)
+
+        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle3)
+            .setCustomTitle(titleView)
             .setView(dialogView)
             .setPositiveButton("Send") { dialog, _ ->
                 val name = nameEdit.text.toString()
@@ -675,9 +643,364 @@ data class TransactionData(
             .setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
             .create()
 
-        // Set custom background
         dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         dialog.show()
+
+        // Apply mobile styling after dialog is shown
+        applyMobileDialogStyling(dialog)
+    }
+
+    private fun showManualAddDialog() {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_add_printer, null)
+        val nameInput = dialogView.findViewById<EditText>(R.id.editTextPrinterName)
+        val addressInput = dialogView.findViewById<EditText>(R.id.editTextMacAddress)
+        val defaultCheck = dialogView.findViewById<CheckBox>(R.id.checkBoxDefault)
+
+        // Apply mobile-specific styling
+        if (isMobileLayout) {
+            nameInput.textSize = 12f
+            addressInput.textSize = 12f
+        }
+
+        val titleView = TextView(this@PrinterSettingsActivity)
+        titleView.text = "Add Printer"
+        titleView.textSize = if (isMobileLayout) 16f else 18f
+        titleView.setTextColor(ContextCompat.getColor(this@PrinterSettingsActivity, android.R.color.black))
+        titleView.setPadding(
+            if (isMobileLayout) 50 else 24,
+            if (isMobileLayout) 50 else 20,
+            if (isMobileLayout) 16 else 24,
+            if (isMobileLayout) 8 else 12
+        )
+        titleView.gravity = Gravity.CENTER_VERTICAL
+        titleView.setTypeface(null, Typeface.BOLD)
+
+        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle3)
+            .setCustomTitle(titleView)
+            .setView(dialogView)
+            .setPositiveButton("Add") { _, _ ->
+                val name = nameInput.text.toString().trim()
+                val address = addressInput.text.toString().trim()
+
+                if (name.isNotEmpty() && address.matches(Regex("^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"))) {
+                    addPrinter(name, address, defaultCheck.isChecked)
+                } else {
+                    Toast.makeText(this, "Please enter valid printer details", Toast.LENGTH_SHORT)
+                        .show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .create()
+
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+        dialog.show()
+
+        // Apply mobile styling after dialog is shown
+        applyMobileDialogStyling(dialog)
+    }
+
+    private fun applyMobileDialogStyling(dialog: AlertDialog) {
+        if (!isMobileLayout) return
+
+        try {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.let { button ->
+                button.textSize = 12f
+                button.setPadding(12, 8, 12, 8)
+            }
+
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE)?.let { button ->
+                button.textSize = 12f
+                button.setPadding(12, 8, 12, 8)
+            }
+
+            val titleView = dialog.findViewById<TextView>(android.R.id.title)
+            titleView?.let { title ->
+                title.textSize = 14f
+                title.setPadding(16, 12, 16, 8)
+            }
+
+            dialog.window?.let { window ->
+                val layoutParams = window.attributes
+                val displayMetrics = resources.displayMetrics
+                layoutParams.width = (displayMetrics.widthPixels * 0.85).toInt()
+                window.attributes = layoutParams
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error applying mobile dialog styling", e)
+        }
+    }
+
+    // Rest of your existing methods remain the same, just add mobile styling where needed...
+
+    private fun toggleLocalDataServer() {
+        if (localDataManager.isServerRunning()) {
+            localDataManager.stopServer()
+            showServerStatus("Server stopped")
+        } else {
+            serverUrl = localDataManager.startServer()
+            if (serverUrl != null) {
+                showServerStatus("Server running at: $serverUrl")
+                copyToClipboard(serverUrl!!)
+            } else {
+                showServerStatus("Failed to start server")
+            }
+        }
+    }
+
+    private fun showServerStatus(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        Log.d("MainActivity", message)
+
+        if (serverUrl != null && localDataManager.isServerRunning()) {
+            val titleView = TextView(this@PrinterSettingsActivity)
+            titleView.text = "Local Data Server"
+            titleView.textSize = if (isMobileLayout) 16f else 18f
+            titleView.setTextColor(ContextCompat.getColor(this@PrinterSettingsActivity, android.R.color.black))
+            titleView.setPadding(
+                if (isMobileLayout) 50 else 24,
+                if (isMobileLayout) 50 else 20,
+                if (isMobileLayout) 16 else 24,
+                if (isMobileLayout) 8 else 12
+            )
+            titleView.gravity = Gravity.CENTER_VERTICAL
+            titleView.setTypeface(null, Typeface.BOLD)
+
+            val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle3)
+                .setCustomTitle(titleView)
+                .setMessage("Server is running at:\n$serverUrl\n\nYou can access this URL from any device on the same network to view your tablet data.\n\nEndpoints:\n• / - Web interface\n• /transactions - All transaction records\n• /transaction-summaries - Transaction summaries\n• /stats - Database statistics")
+                .setPositiveButton("Copy URL") { _, _ ->
+                    copyToClipboard(serverUrl!!)
+                }
+                .setNegativeButton("Stop Server") { _, _ ->
+                    localDataManager.stopServer()
+                }
+                .create()
+
+            dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+            dialog.show()
+
+            // Apply mobile styling after dialog is shown
+            applyMobileDialogStyling(dialog)
+        }
+    }
+
+    private fun copyToClipboard(text: String) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("Server URL", text)
+        clipboard.setPrimaryClip(clip)
+        Toast.makeText(this, "URL copied to clipboard", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun setupEmergencyResync() {
+        val database = AppDatabase.getDatabase(application)
+        val transactionDao = database.transactionDao()
+
+        val numberSequenceRemoteRepository = NumberSequenceRemoteRepository(
+            RetrofitClient.numberSequenceApi,
+            database.numberSequenceRemoteDao(),
+            transactionDao
+        )
+
+        repository = TransactionRepository(
+            AppDatabase.getDatabase(application).transactionDao(),
+            numberSequenceRemoteRepository
+        )
+    }
+
+    private fun showDatePickerDialog(calendar: Calendar, onDateSelected: (Calendar) -> Unit) {
+        DatePickerDialog(
+            this,
+            { _, year, month, day ->
+                calendar.set(year, month, day)
+                onDateSelected(calendar)
+            },
+            calendar.get(Calendar.YEAR),
+            calendar.get(Calendar.MONTH),
+            calendar.get(Calendar.DAY_OF_MONTH)
+        ).show()
+    }
+
+    fun formatDateToString(date: Date): String {
+        return try {
+            val format = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+            format.format(date)
+        } catch (e: Exception) {
+            SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+        }
+    }
+
+    private suspend fun updateTransactionData(
+        startDate: Calendar,
+        endDate: Calendar,
+        summaryTextView: TextView,
+        adapter: TransactionResyncAdapter,
+        progressBar: ProgressBar
+    ) {
+        withContext(Dispatchers.Main) {
+            progressBar.visibility = View.VISIBLE
+        }
+
+        try {
+            val transactions = withContext(Dispatchers.IO) {
+                val summaries = repository.transactionDao.getTransactionsByDateRange(
+                    formatDateToString(startDate.time),
+                    formatDateToString(endDate.time)
+                )
+
+                summaries.map { summary ->
+                    val records = repository.getTransactionRecords(summary.transactionId)
+                    TransactionData(summary, records)
+                }
+            }
+
+            var totalQty = 0
+            var totalGrossSales = 0.0
+            var totalTransactions = 0
+            var totalItems = 0
+
+            transactions.forEach { transactionData ->
+                totalGrossSales += transactionData.summary.grossAmount
+                totalTransactions++
+                totalItems += transactionData.records.size
+                totalQty += transactionData.records.sumOf { it.quantity }
+            }
+
+            withContext(Dispatchers.Main) {
+                summaryTextView.text = """
+                    Total Transactions: $totalTransactions
+                    Total Line Items: $totalItems
+                    Total Quantity: $totalQty
+                    Total Gross Sales: ₱${String.format("%.2f", totalGrossSales)}
+                """.trimIndent()
+
+                adapter.submitList(transactions)
+                progressBar.visibility = View.GONE
+            }
+        } catch (e: Exception) {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(this@PrinterSettingsActivity, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                progressBar.visibility = View.GONE
+            }
+        }
+    }
+
+    private suspend fun resyncTransactions(transactions: List<TransactionData>) {
+        try {
+            withContext(Dispatchers.IO) {
+                transactions.forEach { transactionData ->
+                    try {
+                        Log.d("EmergencyResync", "Starting resync for transaction ${transactionData.summary.transactionId}")
+
+                        if (!transactionData.summary.syncStatus) {
+                            Log.d("EmergencyResync", "Transaction ${transactionData.summary.transactionId} is already in resync process, skipping")
+                            return@forEach
+                        }
+
+                        repository.transactionDao.updateSyncStatus(transactionData.summary.transactionId, false)
+                        repository.transactionDao.updateTransactionRecordsSync(transactionData.summary.transactionId, false)
+
+                        Log.d("EmergencyResync", "Marked transaction ${transactionData.summary.transactionId} for resync")
+
+                    } catch (e: Exception) {
+                        Log.e("EmergencyResync", "Error resyncing transaction ${transactionData.summary.transactionId}", e)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("EmergencyResync", "Error in resync process", e)
+        } finally {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(this@PrinterSettingsActivity,
+                    "Transactions marked for resync. They will be processed by the sync service.",
+                    Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun setupExpenseList() {
+        expenseRecyclerView = findViewById(R.id.expenseRecyclerView)
+        expenseAdapter = StoreExpenseAdapter(
+            onDeleteClick = { /* Do nothing */ },
+            onEditClick = { /* Do nothing */ }
+        )
+
+        expenseRecyclerView.apply {
+            layoutManager = GridLayoutManager(this@PrinterSettingsActivity, 2)
+            adapter = expenseAdapter
+        }
+
+        val factory = StoreExpenseViewModel.Factory(
+            AppDatabase.getDatabase(application).storeExpenseDao(),
+            RetrofitClient.storeExpenseApi
+        )
+        expenseViewModel = ViewModelProvider(this, factory)[StoreExpenseViewModel::class.java]
+        expenseViewModel.allExpenses.observe(this) { expenses ->
+            expenseAdapter.submitList(expenses)
+        }
+    }
+
+    private fun showDeleteConfirmation(expense: StoreExpense) {
+        val titleView = TextView(this@PrinterSettingsActivity)
+        titleView.text = "Delete Expense"
+        titleView.textSize = if (isMobileLayout) 16f else 18f
+        titleView.setTextColor(ContextCompat.getColor(this@PrinterSettingsActivity, android.R.color.black))
+        titleView.setPadding(
+            if (isMobileLayout) 50 else 24,
+            if (isMobileLayout) 50 else 20,
+            if (isMobileLayout) 16 else 24,
+            if (isMobileLayout) 8 else 12
+        )
+        titleView.gravity = Gravity.CENTER_VERTICAL
+        titleView.setTypeface(null, Typeface.BOLD)
+
+        val dialog = AlertDialog.Builder(this, R.style.CustomDialogStyle3)
+            .setCustomTitle(titleView)
+            .setMessage("Are you sure you want to delete this expense?")
+            .setPositiveButton("Delete") { dialog, _ ->
+                expenseViewModel.deleteExpense(expense)
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel") { dialog, _ ->
+                dialog.dismiss()
+            }
+            .create()
+
+        dialog.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+        dialog.show()
+
+        // Apply mobile styling after dialog is shown
+        applyMobileDialogStyling(dialog)
+    }
+
+    private fun showDatePicker(editText: EditText) {
+        val calendar = Calendar.getInstance()
+
+        if (editText.text.isNotEmpty()) {
+            try {
+                val parts = editText.text.toString().split("-")
+                if (parts.size == 3) {
+                    calendar.set(parts[0].toInt(), parts[1].toInt() - 1, parts[2].toInt())
+                }
+            } catch (e: Exception) {
+                Log.e("DatePicker", "Error parsing date", e)
+            }
+        }
+
+        val year = calendar.get(Calendar.YEAR)
+        val month = calendar.get(Calendar.MONTH)
+        val day = calendar.get(Calendar.DAY_OF_MONTH)
+
+        DatePickerDialog(
+            this,
+            { _, selectedYear, selectedMonth, selectedDay ->
+                val selectedDate = String.format("%04d-%02d-%02d", selectedYear, selectedMonth + 1, selectedDay)
+                editText.setText(selectedDate)
+            },
+            year,
+            month,
+            day
+        ).show()
     }
 
     private fun validateExpenseForm(
@@ -704,6 +1027,7 @@ data class TransactionData(
         }
         return true
     }
+
     private fun sendExpense(
         name: String,
         expenseType: String,
@@ -723,9 +1047,9 @@ data class TransactionData(
                 name = name,
                 expenseType = expenseType,
                 amount = expenseAmount,
-                receivedBy = receivedBy.ifEmpty { "N/A" }, // Provide a default if empty
-                approvedBy = approvedBy.ifEmpty { "N/A" }, // Provide a default if empty
-                effectDate = effectDate.ifEmpty { "N/A" } // Use current date if empty
+                receivedBy = receivedBy.ifEmpty { "N/A" },
+                approvedBy = approvedBy.ifEmpty { "N/A" },
+                effectDate = effectDate.ifEmpty { "N/A" }
             )
             showToast("Expense submitted successfully")
         } catch (e: Exception) {
@@ -736,23 +1060,31 @@ data class TransactionData(
     private fun showToast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
-    private fun initializeSidebarComponents() {
-        sidebarLayout = findViewById(R.id.sidebarLayout)
-        toggleButton = findViewById(R.id.toggleButton)
-        buttonContainer = findViewById(R.id.buttonContainer)
-        ecposTitle = findViewById(R.id.ecposTitle)
 
+    private fun initializeSidebarComponents() {
+        try {
+            sidebarLayout = findViewById(R.id.sidebarLayout)
+            toggleButton = findViewById(R.id.toggleButton)
+            buttonContainer = findViewById(R.id.buttonContainer)
+            ecposTitle = findViewById(R.id.ecposTitle)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing sidebar components", e)
+        }
     }
 
     private fun setupSidebar() {
-        toggleButton.setOnClickListener {
-            if (isSidebarExpanded) {
-                collapseSidebar()
-            } else {
-                expandSidebar()
+        try {
+            toggleButton.setOnClickListener {
+                if (isSidebarExpanded) {
+                    collapseSidebar()
+                } else {
+                    expandSidebar()
+                }
             }
+            setupSidebarButtons()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting up sidebar", e)
         }
-        setupSidebarButtons()
     }
 
     private fun setupSidebarButtons() {
@@ -768,11 +1100,11 @@ data class TransactionData(
         }
 
         findViewById<ImageButton>(R.id.stockcounting).setOnClickListener {
-            val intent = Intent (this, StockCountingActivity::class.java)
+            val intent = Intent(this, StockCountingActivity::class.java)
             startActivity(intent)
             showToast("Stock Counting")
-
         }
+
         findViewById<ImageButton>(R.id.button5).setOnClickListener {
             val intent = Intent(this, MainActivity::class.java)
             intent.putExtra("web_url", "https://eljin.org/StockTransfer")
@@ -807,11 +1139,13 @@ data class TransactionData(
             val intent = Intent(this, MainActivity::class.java)
             startActivity(intent)
         }
+
         findViewById<ImageButton>(R.id.attendanceButton).setOnClickListener {
             val intent = Intent(this, AttendanceActivity::class.java)
             startActivity(intent)
             showToast("ATTENDANCE")
         }
+
         findViewById<ImageButton>(R.id.printerSettingsButton).setOnClickListener {
             // Already in PrinterSettings, no need to navigate
         }
@@ -866,7 +1200,6 @@ data class TransactionData(
             override fun onAnimationEnd(animation: Animator) {
                 buttonContainer.visibility = View.GONE
                 ecposTitle.visibility = View.GONE
-
                 isSidebarExpanded = false
                 isAnimating = false
             }
@@ -934,6 +1267,7 @@ data class TransactionData(
     private fun dpToPx(dp: Int): Int {
         return (dp * resources.displayMetrics.density).toInt()
     }
+
     private fun setupPrinterListView() {
         printerListView.setOnItemClickListener { _, _, position, _ ->
             val printer = savedPrinters[position]
@@ -945,8 +1279,8 @@ data class TransactionData(
         connectionStatusTimer = lifecycleScope.launch {
             while (isActive) {
                 updateConnectionStatus()
-                updatePrinterList() // Update the list to reflect current connection status
-                delay(2000) // Check every 2 seconds
+                updatePrinterList()
+                delay(2000)
             }
         }
     }
@@ -1002,14 +1336,32 @@ data class TransactionData(
         val rescanButton = dialogView.findViewById<Button>(R.id.rescanButton)
         val emptyText = dialogView.findViewById<TextView>(R.id.emptyText)
 
-        val devicesAdapter = ArrayAdapter<String>(
+        // Apply mobile-specific styling
+        if (isMobileLayout) {
+            statusText.textSize = 12f
+            rescanButton.textSize = 11f
+            emptyText.textSize = 11f
+        }
+
+        // Create adapter with black text
+        val devicesAdapter = object : ArrayAdapter<String>(
             this,
             android.R.layout.simple_list_item_1,
             mutableListOf()
-        )
+        ) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val view = super.getView(position, convertView, parent)
+                val textView = view.findViewById<TextView>(android.R.id.text1)
+                textView.setTextColor(ContextCompat.getColor(context, android.R.color.black))
+                if (isMobileLayout) {
+                    textView.textSize = 12f
+                }
+                return view
+            }
+        }
+
         deviceList.adapter = devicesAdapter
 
-        // Add already paired devices first
         try {
             if (checkBluetoothPermissions()) {
                 bluetoothAdapter.bondedDevices?.forEach { device ->
@@ -1030,16 +1382,15 @@ data class TransactionData(
                 when (intent.action) {
                     BluetoothDevice.ACTION_FOUND -> {
                         try {
-                            val device =
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                    intent.getParcelableExtra(
-                                        BluetoothDevice.EXTRA_DEVICE,
-                                        BluetoothDevice::class.java
-                                    )
-                                } else {
-                                    @Suppress("DEPRECATION")
-                                    intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-                                }
+                            val device = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                intent.getParcelableExtra(
+                                    BluetoothDevice.EXTRA_DEVICE,
+                                    BluetoothDevice::class.java
+                                )
+                            } else {
+                                @Suppress("DEPRECATION")
+                                intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                            }
 
                             device?.let {
                                 if (checkBluetoothPermissions()) {
@@ -1079,14 +1430,12 @@ data class TransactionData(
             }
         }
 
-        // Register receivers
         val intentFilter = IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_FOUND)
             addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
         }
         registerReceiver(discoveryReceiver, intentFilter)
 
-        // Setup device selection
         deviceList.setOnItemClickListener { _, _, position, _ ->
             val deviceInfo = devicesAdapter.getItem(position) ?: return@setOnItemClickListener
             val address = deviceInfo.substringAfterLast("(").removeSuffix(")")
@@ -1104,10 +1453,8 @@ data class TransactionData(
                     }
 
                     if (connected) {
-                        // Save the printer
                         addPrinter(name, address)
 
-                        // Save as last connected printer and name
                         val prefs = getSharedPreferences("BluetoothPrinter", Context.MODE_PRIVATE)
                         prefs.edit()
                             .putString("last_printer_address", address)
@@ -1152,7 +1499,6 @@ data class TransactionData(
             }
         }
 
-        // Setup rescan button
         rescanButton.setOnClickListener {
             startScanning(
                 statusText,
@@ -1164,9 +1510,21 @@ data class TransactionData(
             )
         }
 
-        // Create and show dialog
-        scanningDialog = AlertDialog.Builder(this)
-            .setTitle("Available Devices")
+        val titleView = TextView(this@PrinterSettingsActivity)
+        titleView.text = "Available Devices"
+        titleView.textSize = if (isMobileLayout) 16f else 18f
+        titleView.setTextColor(ContextCompat.getColor(this@PrinterSettingsActivity, android.R.color.black))
+        titleView.setPadding(
+            if (isMobileLayout) 50 else 24,
+            if (isMobileLayout) 50 else 20,
+            if (isMobileLayout) 16 else 24,
+            if (isMobileLayout) 8 else 12
+        )
+        titleView.gravity = Gravity.CENTER_VERTICAL
+        titleView.setTypeface(null, Typeface.BOLD)
+
+        scanningDialog = AlertDialog.Builder(this, R.style.CustomDialogStyle3)
+            .setCustomTitle(titleView)
             .setView(dialogView)
             .setOnCancelListener {
                 stopScanning()
@@ -1177,9 +1535,12 @@ data class TransactionData(
             }
             .create()
 
+        scanningDialog?.window?.setBackgroundDrawableResource(R.drawable.dialog_background)
         scanningDialog?.show()
 
-        // Start initial scan
+        // Apply mobile styling after dialog is shown
+        scanningDialog?.let { applyMobileDialogStyling(it) }
+
         startScanning(statusText, progressBar, deviceList, emptyText, rescanButton, devicesAdapter)
     }
 
@@ -1223,11 +1584,9 @@ data class TransactionData(
             progressBar.visibility = View.VISIBLE
             rescanButton.visibility = View.GONE
 
-            // Clear previous results
             discoveredDevices.clear()
             devicesAdapter.clear()
 
-            // Add paired devices first
             bluetoothAdapter.bondedDevices?.forEach { device ->
                 val deviceName = device.name ?: "Unknown Device"
                 val deviceInfo = "$deviceName (${device.address})"
@@ -1244,12 +1603,10 @@ data class TransactionData(
                 emptyText.visibility = View.GONE
             }
 
-            // Cancel any ongoing discovery
             if (bluetoothAdapter.isDiscovering) {
                 bluetoothAdapter.cancelDiscovery()
             }
 
-            // Start new discovery
             bluetoothAdapter.startDiscovery()
 
         } catch (e: SecurityException) {
@@ -1264,7 +1621,7 @@ data class TransactionData(
     private fun setupViews() {
         currentStatusTextView = findViewById<TextView>(R.id.currentPrinterStatus).apply {
             setTextColor(Color.BLACK)
-            textSize = 16f
+            textSize = if (isMobileLayout) 14f else 16f
             setPadding(16, 16, 16, 16)
         }
 
@@ -1282,24 +1639,21 @@ data class TransactionData(
             showStoreExpenseDialog()
         }
     }
+
     private fun updateConnectionStatus() {
         try {
             val bluetoothPrinterHelper = BluetoothPrinterHelper.getInstance()
             val isConnected = bluetoothPrinterHelper.isConnected()
             val connectedAddress = bluetoothPrinterHelper.getCurrentPrinterAddress()
 
-            Log.d(
-                TAG,
-                "Checking printer connection - Connected: $isConnected, Address: $connectedAddress"
-            )
+            Log.d(TAG, "Checking printer connection - Connected: $isConnected, Address: $connectedAddress")
 
             runOnUiThread {
                 if (isConnected && connectedAddress != null) {
                     val connectedPrinter = savedPrinters.find { it.address == connectedAddress }
 
                     if (connectedPrinter != null) {
-                        currentStatusTextView?.text =
-                            "Connected to: ${connectedPrinter.name} (${connectedPrinter.address})"
+                        currentStatusTextView?.text = "Connected to: ${connectedPrinter.name} (${connectedPrinter.address})"
                         Log.d(TAG, "Found saved printer: ${connectedPrinter.name}")
                     } else {
                         try {
@@ -1310,15 +1664,13 @@ data class TransactionData(
                                 } catch (e: SecurityException) {
                                     "Unknown Printer"
                                 }
-                                currentStatusTextView?.text =
-                                    "Connected to: $printerName ($connectedAddress)"
+                                currentStatusTextView?.text = "Connected to: $printerName ($connectedAddress)"
                                 Log.d(TAG, "Adding new printer: $printerName")
                                 addPrinter(printerName, connectedAddress, false)
                             }
                         } catch (e: Exception) {
                             Log.e(TAG, "Error getting device info", e)
-                            currentStatusTextView?.text =
-                                "Connected to: Unknown Printer ($connectedAddress)"
+                            currentStatusTextView?.text = "Connected to: Unknown Printer ($connectedAddress)"
                         }
                     }
                 } else {
@@ -1334,30 +1686,6 @@ data class TransactionData(
                 currentStatusTextView?.text = "Error checking printer status: ${e.message}"
             }
         }
-    }
-
-    private fun showManualAddDialog() {
-        val dialogView = layoutInflater.inflate(R.layout.dialog_add_printer, null)
-        val nameInput = dialogView.findViewById<EditText>(R.id.editTextPrinterName)
-        val addressInput = dialogView.findViewById<EditText>(R.id.editTextMacAddress)
-        val defaultCheck = dialogView.findViewById<CheckBox>(R.id.checkBoxDefault)
-
-        AlertDialog.Builder(this)
-            .setTitle("Add Printer")
-            .setView(dialogView)
-            .setPositiveButton("Add") { _, _ ->
-                val name = nameInput.text.toString().trim()
-                val address = addressInput.text.toString().trim()
-
-                if (name.isNotEmpty() && address.matches(Regex("^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"))) {
-                    addPrinter(name, address, defaultCheck.isChecked)
-                } else {
-                    Toast.makeText(this, "Please enter valid printer details", Toast.LENGTH_SHORT)
-                        .show()
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
     }
 
     private fun openBluetoothSettings() {
@@ -1378,7 +1706,7 @@ data class TransactionData(
             arrayOf("Disconnect", "Test Connection", "Set as Default", "Remove", "Cancel")
         }
 
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(this, R.style.CustomDialogStyle3)
             .setTitle(printer.name)
             .setItems(options) { _, which ->
                 when (options[which]) {
@@ -1389,7 +1717,12 @@ data class TransactionData(
                     "Remove" -> removePrinter(printer)
                 }
             }
-            .show()
+            .create()
+            .apply {
+                window?.setBackgroundDrawableResource(R.drawable.dialog_background)
+                show()
+                applyMobileDialogStyling(this)
+            }
     }
 
     private fun connectToPrinter(printer: PrinterInfo) {
@@ -1400,11 +1733,8 @@ data class TransactionData(
                 }
 
                 if (connected) {
-                    // Save as last connected printer
                     val prefs = getSharedPreferences("BluetoothPrinter", Context.MODE_PRIVATE)
                     prefs.edit().putString("last_printer_address", printer.address).apply()
-
-                    // Connection is maintained in the singleton
                 }
                 updateConnectionStatus()
             } catch (e: Exception) {
@@ -1420,7 +1750,6 @@ data class TransactionData(
     private fun disconnectPrinter() {
         lifecycleScope.launch {
             try {
-                // Use the singleton instance to disconnect
                 BluetoothPrinterHelper.getInstance().disconnect()
                 Toast.makeText(
                     this@PrinterSettingsActivity,
@@ -1428,7 +1757,6 @@ data class TransactionData(
                     Toast.LENGTH_SHORT
                 ).show()
 
-                // Clear the last connected printer from shared preferences
                 val prefs = getSharedPreferences("BluetoothPrinter", Context.MODE_PRIVATE)
                 prefs.edit().remove("last_printer_address").apply()
 
@@ -1464,12 +1792,7 @@ data class TransactionData(
                     ===========================
                     Printer: ${printer.name}
                     Address: ${printer.address}
-                    Date: ${
-                    SimpleDateFormat(
-                        "yyyy-MM-dd HH:mm:ss",
-                        Locale.getDefault()
-                    ).format(Date())
-                }
+                    Date: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())}
                     ===========================
                     If you can read this,
                     printer is working!
@@ -1529,7 +1852,6 @@ data class TransactionData(
 
     private fun addPrinter(name: String, address: String, isDefault: Boolean = false) {
         if (name.isNotEmpty() && address.matches(Regex("^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"))) {
-            // If this printer should be default, remove default from others
             if (isDefault) {
                 savedPrinters.forEach { it.isDefault = false }
             }
@@ -1572,11 +1894,19 @@ data class TransactionData(
                         else if (printer.isDefault) append(" (Default)")
                     }
 
+                    // Set text colors - ensure they're always black
                     text1.setTextColor(
-                        if (isPrinterConnected) Color.GREEN
-                        else Color.BLACK
+                        if (isPrinterConnected) ContextCompat.getColor(context, android.R.color.holo_green_dark)
+                        else ContextCompat.getColor(context, android.R.color.black)
                     )
+                    text2.setTextColor(ContextCompat.getColor(context, android.R.color.black))
                     text2.text = printer.address
+
+                    // Apply mobile styling
+                    if (isMobileLayout) {
+                        text1.textSize = 12f
+                        text2.textSize = 10f
+                    }
 
                     return view
                 }
@@ -1591,6 +1921,7 @@ data class TransactionData(
         }
     }
 
+
     private fun loadSavedPrinters() {
         val prefs = getSharedPreferences("PrinterSettings", Context.MODE_PRIVATE)
         val printersJson = prefs.getString("saved_printers", "[]")
@@ -1601,7 +1932,6 @@ data class TransactionData(
             savedPrinters.clear()
             savedPrinters.addAll(loadedPrinters)
 
-            // Add bonded devices
             try {
                 if (checkBluetoothPermissions()) {
                     getBondedDevices().forEach { device ->
@@ -1630,12 +1960,6 @@ data class TransactionData(
             Toast.makeText(this, "Error loading saved printers", Toast.LENGTH_SHORT).show()
         }
     }
-
-    private fun savePrinter(name: String, address: String, isDefault: Boolean) {
-        // Implement your printer saving logic here
-        Toast.makeText(this, "Printer added: $name", Toast.LENGTH_SHORT).show()
-    }
-
 
     private fun checkBluetoothPermissions(): Boolean {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -1675,21 +1999,17 @@ data class TransactionData(
             )
         }
     }
+
     override fun onResume() {
         super.onResume()
-        // Check if there's already a connected printer from Window1
         updateConnectionStatus()
         updatePrinterList()
     }
-
 
     override fun onDestroy() {
         super.onDestroy()
         connectionStatusTimer?.cancel()
         localDataManager.stopServer()
-
-        // Don't disconnect the printer when leaving the activity
-        // This allows the connection to persist for Window1
     }
 
     override fun onPause() {
@@ -1699,6 +2019,7 @@ data class TransactionData(
         scanningDialog = null
     }
 }
+
 data class PrinterInfo(
     val name: String,
     val address: String,
